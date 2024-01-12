@@ -19,80 +19,23 @@ public class GamePlay : MonoBehaviour
     private List<Block> selectedBlocks = new List<Block>();
     private Block[,] grid;
 
+    private Dictionary<DotType, List<Block>> completedPairs = new Dictionary<DotType, List<Block>>();
+
+    private bool isLastBlockFromStartedDot = false;
+
     void Update()
     {
         if (Input.GetMouseButtonDown(0))
         {
-            PointerEventData eventData = new PointerEventData(EventSystem.current);
-            eventData.position = Input.mousePosition;
-
-            List<RaycastResult> results = new List<RaycastResult>();
-
-            EventSystem.current.RaycastAll(eventData, results);
-
-            if (results.Count > 0)
-            {
-                Block block = results[0].gameObject.GetComponent<Block>();
-                if (block != null && block.IsDotPresent && !selectedBlocks.Contains(block))
-                {
-                    isClicked = true;
-                    selectedBlocks.Add(block);
-                }
-            }
+            OnPointerDown();
         }
-        else if(Input.GetMouseButton(0))
+        else if (Input.GetMouseButton(0))
         {
-            if(isClicked)
-            {
-                PointerEventData eventData = new PointerEventData(EventSystem.current);
-                eventData.position = Input.mousePosition;
-
-                List<RaycastResult> results = new List<RaycastResult>();
-
-                EventSystem.current.RaycastAll(eventData, results);
-
-                if (results.Count > 0)
-                {
-                    Block block = results[0].gameObject.GetComponent<Block>();
-
-                    if (block != null && !block.IsDotPresent && !selectedBlocks.Contains(block))
-                    {
-                        Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
-                        if (dir != Direction.None)
-                        {
-                            DotType type = selectedBlocks[0].DotType;
-                            switch (dir)
-                            {
-                                case Direction.Left:
-                                    selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Right, type);
-                                    break;
-
-                                case Direction.Right:
-                                    selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Left, type);
-                                    break;
-
-                                case Direction.Up:
-                                    selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Down, type);
-                                    break;
-
-                                case Direction.Down:
-                                    selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Up, type);
-                                    break;
-                            }
-                            selectedBlocks.Add(block);
-                        }
-                    }
-                }
-            }
+            OnPointerMoved();
         }
-        else if(Input.GetMouseButtonUp(0))
+        else if (Input.GetMouseButtonUp(0))
         {
-            isClicked = false;
-            selectedBlocks.Clear();
+            OnPointerUp();
         }
     }
 
@@ -133,5 +76,166 @@ public class GamePlay : MonoBehaviour
     public Color GetColor(DotType type) 
     { 
         return colors[((int)type - 1)];
+    }
+
+    private void OnPointerDown()
+    {
+        PointerEventData eventData = new PointerEventData(EventSystem.current);
+        eventData.position = Input.mousePosition;
+
+        List<RaycastResult> results = new List<RaycastResult>();
+
+        EventSystem.current.RaycastAll(eventData, results);
+
+        if (results.Count > 0)
+        {
+            Block block = results[0].gameObject.GetComponent<Block>();
+
+            if (block != null && block.IsDotPresent && completedPairs.ContainsKey(block.DotType))
+            {
+                List<Block> blocks = completedPairs[block.DotType];
+                foreach (Block b in blocks)
+                {
+                    b.DisableAllDirImages();
+                    completedPairs.Remove(block.DotType);
+                }
+            }
+            else if (block != null && completedPairs.ContainsKey(block.HighlightedDotType))
+            {
+                List<Block> blocks = completedPairs[block.HighlightedDotType];
+                int indexToRemove = -1;
+                bool found = false;
+                bool disablePreviousBlock = false;
+
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    Block b = blocks[i];
+
+                    if (!found)
+                    {
+                        if (b.Row_ID == block.Row_ID && b.Coloum_ID == block.Coloum_ID)
+                        {
+                            indexToRemove = i;
+                            found = true;
+                        }
+                    }
+                    else
+                    {
+                        if(!disablePreviousBlock)
+                        {
+                            Direction dir = GetDirection(blocks[indexToRemove], b);
+                            blocks[indexToRemove].DisableDirImage(dir);
+                            disablePreviousBlock = true;
+                        }
+
+                        b.DisableAllDirImages();
+                    }
+
+                }
+
+                if(indexToRemove == blocks.Count - 1)
+                {
+                    isLastBlockFromStartedDot = true;
+                    isClicked = true;
+                    selectedBlocks.Add(block);
+                    return;
+                }
+
+                if (indexToRemove != -1)
+                {
+                    blocks.RemoveRange(indexToRemove + 1, blocks.Count - indexToRemove - 1);
+                }
+            }
+            else if (block != null && block.IsDotPresent && !selectedBlocks.Contains(block))
+            {
+                isClicked = true;
+                selectedBlocks.Add(block);
+            }
+        }
+    }
+
+    private void OnPointerMoved()
+    {
+        if (isClicked)
+        {
+            PointerEventData eventData = new PointerEventData(EventSystem.current);
+            eventData.position = Input.mousePosition;
+
+            List<RaycastResult> results = new List<RaycastResult>();
+
+            EventSystem.current.RaycastAll(eventData, results);
+
+            if (results.Count > 0)
+            {
+                Block block = results[0].gameObject.GetComponent<Block>();
+
+                if (block != null && !block.IsDotPresent && !selectedBlocks.Contains(block) ||
+                    block != null && block.IsDotPresent && block.DotType == selectedBlocks[0].DotType && !selectedBlocks.Contains(block) ||
+                     block != null && block.IsDotPresent && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block))
+                {
+                    Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
+                    if (dir != Direction.None)
+                    {
+                        DotType type = selectedBlocks[0].DotType;
+                        if (isLastBlockFromStartedDot)
+                        {
+                            type = selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType;
+                        }
+                       
+                        switch (dir)
+                        {
+                            case Direction.Left:
+                                selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
+                                block.HighlightBlockDirection(Direction.Right, type);
+                                break;
+
+                            case Direction.Right:
+                                selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
+                                block.HighlightBlockDirection(Direction.Left, type);
+                                break;
+
+                            case Direction.Up:
+                                selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
+                                block.HighlightBlockDirection(Direction.Down, type);
+                                break;
+
+                            case Direction.Down:
+                                selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
+                                block.HighlightBlockDirection(Direction.Up, type);
+                                break;
+                        }
+
+                        selectedBlocks.Add(block);
+                    }
+                }
+            }
+        }
+    }
+
+    private void OnPointerUp()
+    {
+        Debug.Log("Pointer up");
+        isClicked = false;
+        if (selectedBlocks.Count > 0)
+        {
+            if (isLastBlockFromStartedDot && completedPairs.ContainsKey(selectedBlocks[0].HighlightedDotType) && completedPairs[selectedBlocks[0].HighlightedDotType].Count > 0)
+            {
+                selectedBlocks.RemoveAt(0); // added two times
+
+                if(selectedBlocks.Count > 0)
+                {
+                    completedPairs[selectedBlocks[0].HighlightedDotType].AddRange(new List<Block>(selectedBlocks));
+                    Debug.Log("Adding to existing list" + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
+                }
+            }
+            else
+            {
+                completedPairs[selectedBlocks[0].DotType] = new List<Block>(selectedBlocks);
+                Debug.Log("Adding to new  " + completedPairs[selectedBlocks[0].DotType].Count);
+            }
+        }
+
+        isLastBlockFromStartedDot = false;
+        selectedBlocks.Clear();
     }
 }
