@@ -8,16 +8,18 @@ public class UIController : MonoBehaviour
 
     private LevelDataSO levelDataSO;
 
+    public static UIController instance;
+
     private void Awake()
     {
+        instance = this;
         levelDataSO = Resources.Load<LevelDataSO>("LevelData");
-        if(levelDataSO != null)
-        {
-            Debug.Log(".........");
-        }
     }
 
+    public void LoadLevel(int levelNumber)
+    {
 
+    }
 
     public void OnPlayButtonClick()
     {
