@@ -80,7 +80,6 @@ public class GamePlay : MonoBehaviour
 
     private void OnPointerDown()
     {
-        //if(isClicked) { return; }
         PointerEventData eventData = new PointerEventData(EventSystem.current);
         eventData.position = Input.mousePosition;
 
@@ -98,12 +97,10 @@ public class GamePlay : MonoBehaviour
                 foreach (Block b in blocks)
                 {
                     b.DisableAllDirImages();
-                    //completedPairs.Remove(block.DotType);
                 }
                 completedPairs.Remove(block.DotType);
                 isClicked = true;
                 selectedBlocks.Add(block);
-                Debug.Log("Removed present blocks");
             }
             else if (block != null && completedPairs.ContainsKey(block.HighlightedDotType)) // to clear the completed block/highlighted block
             {
@@ -115,7 +112,6 @@ public class GamePlay : MonoBehaviour
                     isLastBlockFromStartedDot = true;
                     isClicked = true;
                     selectedBlocks.Add(block);
-                    Debug.Log("existing last block found");
                 }
                 else
                 {
@@ -150,8 +146,6 @@ public class GamePlay : MonoBehaviour
                         }
                     }
                 }
-                
-                
                 /*
                 if(indexToRemove == blocks.Count - 1)
                 {
@@ -162,7 +156,6 @@ public class GamePlay : MonoBehaviour
                     return;
                 }
                 */
-
                 if (indexToRemove != -1)
                 {
                     blocks.RemoveRange(indexToRemove + 1, blocks.Count - indexToRemove - 1);
@@ -172,7 +165,6 @@ public class GamePlay : MonoBehaviour
             {
                 isClicked = true;
                 selectedBlocks.Add(block);
-                Debug.Log("select non present block");
             }
         }
     }
@@ -302,16 +294,6 @@ public class GamePlay : MonoBehaviour
                             selectedBlocks.Add(block);
                         }
                     }
-                    /*
-                    else if(!blocks.Contains(block))
-                    {
-                        Direction dir = GetDirection(blocks[blocks.Count - 1], block);
-                        if(dir != Direction.None)
-                        {
-                            selectedBlocks.Add(block);
-                        }
-                    }
-                    */
                 }
             }
         }
