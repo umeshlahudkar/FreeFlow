@@ -80,6 +80,7 @@ public class GamePlay : MonoBehaviour
 
     private void OnPointerDown()
     {
+        //if(isClicked) { return; }
         PointerEventData eventData = new PointerEventData(EventSystem.current);
         eventData.position = Input.mousePosition;
 
@@ -91,55 +92,76 @@ public class GamePlay : MonoBehaviour
         {
             Block block = results[0].gameObject.GetComponent<Block>();
 
-            if (block != null && block.IsDotPresent && completedPairs.ContainsKey(block.DotType))
+            if (block != null && block.IsDotPresent && completedPairs.ContainsKey(block.DotType)) // if click on same dot, clear all highlighted blocks
             {
                 List<Block> blocks = completedPairs[block.DotType];
                 foreach (Block b in blocks)
                 {
                     b.DisableAllDirImages();
-                    completedPairs.Remove(block.DotType);
+                    //completedPairs.Remove(block.DotType);
                 }
+                completedPairs.Remove(block.DotType);
+                isClicked = true;
+                selectedBlocks.Add(block);
+                Debug.Log("Removed present blocks");
             }
-            else if (block != null && completedPairs.ContainsKey(block.HighlightedDotType))
+            else if (block != null && completedPairs.ContainsKey(block.HighlightedDotType)) // to clear the completed block/highlighted block
             {
                 List<Block> blocks = completedPairs[block.HighlightedDotType];
                 int indexToRemove = -1;
-                bool found = false;
-                bool disablePreviousBlock = false;
 
-                for (int i = 0; i < blocks.Count; i++)
+                if(blocks[blocks.Count - 1].Row_ID == block.Row_ID && blocks[blocks.Count - 1].Coloum_ID == block.Coloum_ID)
                 {
-                    Block b = blocks[i];
-
-                    if (!found)
-                    {
-                        if (b.Row_ID == block.Row_ID && b.Coloum_ID == block.Coloum_ID)
-                        {
-                            indexToRemove = i;
-                            found = true;
-                        }
-                    }
-                    else
-                    {
-                        if(!disablePreviousBlock)
-                        {
-                            Direction dir = GetDirection(blocks[indexToRemove], b);
-                            blocks[indexToRemove].DisableDirImage(dir);
-                            disablePreviousBlock = true;
-                        }
-
-                        b.DisableAllDirImages();
-                    }
-
+                    isLastBlockFromStartedDot = true;
+                    isClicked = true;
+                    selectedBlocks.Add(block);
+                    Debug.Log("existing last block found");
                 }
+                else
+                {
+                    bool found = false;
+                    bool disablePreviousBlock = false;
 
+                    for (int i = 0; i < blocks.Count; i++)
+                    {
+                        Block b = blocks[i];
+
+                        if (!found)
+                        {
+                            if (b.Row_ID == block.Row_ID && b.Coloum_ID == block.Coloum_ID)
+                            {
+                                indexToRemove = i;
+                                found = true;
+                            }
+                        }
+                        else
+                        {
+                            if (!disablePreviousBlock)
+                            {
+                                Direction dir = GetDirection(blocks[indexToRemove], b);
+                                if (dir != Direction.None)
+                                {
+                                    blocks[indexToRemove].DisableDirImage(dir);
+                                    disablePreviousBlock = true;
+                                }
+                            }
+
+                            b.DisableAllDirImages();
+                        }
+                    }
+                }
+                
+                
+                /*
                 if(indexToRemove == blocks.Count - 1)
                 {
                     isLastBlockFromStartedDot = true;
                     isClicked = true;
                     selectedBlocks.Add(block);
+                    Debug.Log("existing block found");
                     return;
                 }
+                */
 
                 if (indexToRemove != -1)
                 {
@@ -150,6 +172,7 @@ public class GamePlay : MonoBehaviour
             {
                 isClicked = true;
                 selectedBlocks.Add(block);
+                Debug.Log("select non present block");
             }
         }
     }
@@ -169,11 +192,57 @@ public class GamePlay : MonoBehaviour
             {
                 Block block = results[0].gameObject.GetComponent<Block>();
 
-                if (block != null && !block.IsDotPresent && !selectedBlocks.Contains(block) ||
-                    block != null && block.IsDotPresent && block.DotType == selectedBlocks[0].DotType && !selectedBlocks.Contains(block) ||
-                     block != null && block.IsDotPresent && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block))
+                if (block != null && !block.IsDotPresent && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block) ||
+                    block != null && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].DotType && !selectedBlocks.Contains(block)  ||
+                    block != null && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block)  ||
+                    block != null && isLastBlockFromStartedDot && !block.IsDotPresent && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block)  ||
+                    block != null && isLastBlockFromStartedDot && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block))
+
                 {
+                    if (completedPairs.ContainsKey(block.HighlightedDotType) && block.HighlightedDotType != selectedBlocks[0].HighlightedDotType)
+                    {
+                        List<Block> blocks = completedPairs[block.HighlightedDotType];
+
+                        int indexToRemove = -1;
+
+                        for (int i = 0; i < blocks.Count; i++)
+                        {
+                            Block b = blocks[i];
+
+                            if (b.Row_ID == block.Row_ID && b.Coloum_ID == block.Coloum_ID)
+                            {
+                                indexToRemove = i - 1;
+                                break;
+                            }
+                        }
+
+                        bool flag = false;
+                        for (int i = indexToRemove; i < blocks.Count; i++)
+                        {
+                            Block b = blocks[i];
+                            if(!flag)
+                            {
+                                Direction di = GetDirection(b, blocks[i + 1]);
+                                if(di != Direction.None)
+                                {
+                                    b.DisableDirImage(di);
+                                }
+                                flag = true;
+                            }
+                            else
+                            {
+                                b.DisableAllDirImages();
+                            }
+                        }
+
+                        if (indexToRemove != -1)
+                        {
+                            blocks.RemoveRange(indexToRemove + 1, blocks.Count - indexToRemove - 1);
+                        }
+                    }
+                   
                     Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
+
                     if (dir != Direction.None)
                     {
                         DotType type = selectedBlocks[0].DotType;
@@ -208,13 +277,48 @@ public class GamePlay : MonoBehaviour
                         selectedBlocks.Add(block);
                     }
                 }
+                else if (isLastBlockFromStartedDot && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
+                {
+                    List<Block> blocks = completedPairs[(block.HighlightedDotType)];
+
+                    if (blocks.Count > 0 && blocks[blocks.Count - 1].Row_ID == block.Row_ID && blocks[blocks.Count - 1].Coloum_ID == block.Coloum_ID)
+                    {
+                        return;
+                    }
+
+
+                    if (blocks.Count > 0 && blocks.Contains(block)) // && !blocks[blocks.Count - 1].IsDotPresent)
+                    {
+                        Block b = blocks[blocks.Count - 1];
+                        Direction dir = GetDirection(block, b);
+
+                        if (dir != Direction.None)
+                        {
+                            b.DisableAllDirImages();
+                            block.DisableDirImage(dir);
+
+                            blocks.RemoveAt(blocks.Count - 1);
+                            selectedBlocks.Clear();
+                            selectedBlocks.Add(block);
+                        }
+                    }
+                    /*
+                    else if(!blocks.Contains(block))
+                    {
+                        Direction dir = GetDirection(blocks[blocks.Count - 1], block);
+                        if(dir != Direction.None)
+                        {
+                            selectedBlocks.Add(block);
+                        }
+                    }
+                    */
+                }
             }
         }
     }
 
     private void OnPointerUp()
     {
-        Debug.Log("Pointer up");
         isClicked = false;
         if (selectedBlocks.Count > 0)
         {
@@ -225,17 +329,50 @@ public class GamePlay : MonoBehaviour
                 if(selectedBlocks.Count > 0)
                 {
                     completedPairs[selectedBlocks[0].HighlightedDotType].AddRange(new List<Block>(selectedBlocks));
-                    Debug.Log("Adding to existing list" + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
+                    Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
                 }
             }
             else
             {
                 completedPairs[selectedBlocks[0].DotType] = new List<Block>(selectedBlocks);
-                Debug.Log("Adding to new  " + completedPairs[selectedBlocks[0].DotType].Count);
+                Debug.Log("Storing value to new list " + selectedBlocks[0].DotType + " " + completedPairs[selectedBlocks[0].DotType].Count);
             }
         }
 
         isLastBlockFromStartedDot = false;
         selectedBlocks.Clear();
+
+        CheckForPairComplete();
+    }
+
+    private bool CheckForPairComplete()
+    {
+
+        foreach (var kvp in completedPairs)
+        {
+            DotType key = kvp.Key;
+            List<Block> blockList = kvp.Value;
+
+            if (blockList.Count > 0 && IsPairComplete(blockList[0], blockList[blockList.Count - 1]))
+            {
+                Debug.Log("Pair complete " + key);
+            }
+            else
+            {
+                Debug.Log("Pair not complete " + key);
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsPairComplete(Block b1, Block b2)
+    {
+        return (!IsEqual(b1, b2) && b1.IsDotPresent && b2.IsDotPresent && b1.DotType == b2.DotType);
+    }
+
+    private bool IsEqual(Block b1, Block b2)
+    {
+        return (b1.Row_ID == b2.Row_ID && b1.Coloum_ID == b2.Coloum_ID);
     }
 }

@@ -12,7 +12,6 @@ public class Block : MonoBehaviour
     private int coloumIndex;
     private DotType dotType;
     private bool isDotPresent;
-    private bool isHighlighted;
     private DotType highlightedDotType;
 
     public void SetBlock(DotType type, int rowIndex, int coloumIndex)
@@ -35,7 +34,6 @@ public class Block : MonoBehaviour
         highlightedDotType = type;
         directionImages[((int)dir - 1)].gameObject.SetActive(true);
         directionImages[((int)dir - 1)].color = GamePlay.instance.GetColor(type);
-        isHighlighted = true;
     }
 
     public void DisableAllDirImages()
@@ -44,7 +42,8 @@ public class Block : MonoBehaviour
         {
             directionImages[i].gameObject.SetActive(false);
         }
-       isHighlighted = false;
+
+        highlightedDotType = DotType.None;
     }
 
     public void DisableDirImage(Direction dir)
