@@ -5,8 +5,13 @@ using UnityEngine;
 public class UIController : MonoBehaviour
 {
     [SerializeField] private BoardGenerator boardGenerator;
+    [SerializeField] private LevelButtonSpawner levelButtonSpawner;
+    [SerializeField] private GameObject mainMenuScreen;
+    [SerializeField] private Canvas mainMenuCanvas;
+    [SerializeField] private Canvas gamePlayCanvas;
 
     private LevelDataSO levelDataSO;
+    private int currentLevel;
 
     public static UIController instance;
 
@@ -18,16 +23,35 @@ public class UIController : MonoBehaviour
 
     public void LoadLevel(int levelNumber)
     {
+        if(levelNumber <= levelDataSO.levels.Length)
+        {
+            currentLevel = levelNumber;
+            boardGenerator.GenerateBoard(levelDataSO.levels[levelNumber - 1]);
 
+            levelButtonSpawner.gameObject.SetActive(false);
+            mainMenuScreen.SetActive(false);
+        }
     }
 
     public void OnPlayButtonClick()
     {
-        Debug.Log("play button click");
+        levelButtonSpawner.gameObject.SetActive(true);
+        levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+    }
+
+    public void OnGameplayBackButtonClick()
+    {
+        mainMenuScreen.SetActive(false);
+        boardGenerator.ResetGrid();
+    }
+
+    public void OnLevelBackButtonClick()
+    {
+
     }
 
     public void OnQuitButtonClick()
     {
-        Debug.Log("quit button click");
+        Application.Quit();
     }
 }

@@ -24,7 +24,7 @@ public class Block : MonoBehaviour
         {
             isDotPresent = true;
             dotImage.gameObject.SetActive(true);
-            dotImage.color = GamePlay.instance.GetColor(type);
+            dotImage.color = GamePlayController.instance.GetColor(type);
         }
     }
 
@@ -33,7 +33,7 @@ public class Block : MonoBehaviour
         //DisableAllDirImages();
         highlightedDotType = type;
         directionImages[((int)dir - 1)].gameObject.SetActive(true);
-        directionImages[((int)dir - 1)].color = GamePlay.instance.GetColor(type);
+        directionImages[((int)dir - 1)].color = GamePlayController.instance.GetColor(type);
     }
 
     public void ResetAllHighlightDirection()

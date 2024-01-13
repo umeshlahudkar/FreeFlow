@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-public class GamePlay : MonoBehaviour
+public class GamePlayController : MonoBehaviour
 {
-    public static GamePlay instance;
+    public static GamePlayController instance;
 
     private void Awake()
     {
@@ -17,7 +17,6 @@ public class GamePlay : MonoBehaviour
     private Color[] colors = new Color[] { Color.red, Color.blue, Color.yellow, Color.green };
 
     private List<Block> selectedBlocks = new List<Block>();
-    private Block[,] grid;
 
     private Dictionary<DotType, List<Block>> completedPairs = new Dictionary<DotType, List<Block>>();
 
@@ -51,16 +50,6 @@ public class GamePlay : MonoBehaviour
         {
             OnPointerUp();
         }
-    }
-
-    public void SetGridSize(int rowSize, int coloumSize)
-    {
-        grid = new Block[rowSize, coloumSize];
-    }
-
-    public void SetBlockAtGridIndex(int row, int coloum, Block block)
-    {
-        grid[row, coloum] = block;
     }
 
     private Direction GetDirection(Block block1, Block block2)

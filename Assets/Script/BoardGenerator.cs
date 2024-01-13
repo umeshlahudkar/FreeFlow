@@ -4,31 +4,18 @@ using UnityEngine;
 
 public class BoardGenerator : MonoBehaviour
 {
-    [SerializeField] private RectTransform gameplayTrans;
-    public Block blockPrefab;
+    [SerializeField] private Block blockPrefab;
+    private List<Block> gridblocks;
 
-    public LevelDataSO levelDataSO;
-
-    public int currentLevel;
-
-    private void Start()
+    public void GenerateBoard(LevelData data)
     {
-        GenerateGrid();
-    }
-
-    private void GenerateGrid()
-    {
-        LevelData data = levelDataSO.levels[currentLevel];
-
+        gridblocks = new List<Block>();
 
         int rowSize = (int)data.gridSize;
         int coloumSize = (int)data.gridSize;
 
         int blockSize = data.blockSize;
         int blockSpace = data.blockSpace;
-
-        GamePlay.instance.SetGridSize(rowSize, coloumSize);
-        gameplayTrans.sizeDelta = new Vector2(GetTotalWidth(blockSize, coloumSize, blockSpace), GetTotalHeight(blockSize, rowSize, blockSpace));
 
         float startPointX = GetStartPointX(blockSize, coloumSize, blockSpace);
         float startPointY = GetStartPointY(blockSize, rowSize, blockSpace);
@@ -54,8 +41,8 @@ public class BoardGenerator : MonoBehaviour
 
                 block.SetBlock(data.gridRows[i].coloum[j], i, j);
 
-                GamePlay.instance.SetBlockAtGridIndex(i, j, block);
                 currentPositionX += (blockSize + blockSpace);
+                gridblocks.Add(block);
             }
             currentPositionX = startPointX;
             currentPositionY -= (blockSize + blockSpace);
@@ -85,5 +72,13 @@ public class BoardGenerator : MonoBehaviour
     private float GetTotalHeight(float blockSize, int columnSize, int blockSpace)
     {
         return (blockSize * columnSize) + ((columnSize - 1) * blockSpace);
+    }
+
+    public void ResetGrid()
+    {
+        foreach(Block b in gridblocks)
+        {
+            Destroy(b.gameObject);
+        }
     }
 }
