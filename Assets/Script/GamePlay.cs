@@ -109,7 +109,7 @@ public class GamePlay : MonoBehaviour
                     List<Block> blocks = completedPairs[block.DotType];
                     foreach (Block b in blocks)
                     {
-                        b.DisableAllDirImages();
+                        b.ResetAllHighlightDirection();
                     }
                     completedPairs.Remove(block.DotType);
                     isClicked = true;
@@ -170,12 +170,12 @@ public class GamePlay : MonoBehaviour
                 Direction dir = GetDirection(b, blocks[indexToRemove + 1]);
                 if (dir != Direction.None)
                 {
-                    blocks[indexToRemove].DisableDirImage(dir);
+                    blocks[indexToRemove].ResetHighlightDirection(dir);
                 }
             }
             else
             {
-                b.DisableAllDirImages();
+                b.ResetAllHighlightDirection();
             }
         }
 
@@ -198,7 +198,6 @@ public class GamePlay : MonoBehaviour
             if (raycastResults.Count > 0)
             {
                 Block block = raycastResults[0].gameObject.GetComponent<Block>();
-                
 
                 // adds the new blocks to the selected list
                 if (block != null && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block))
@@ -271,27 +270,27 @@ public class GamePlay : MonoBehaviour
                                 type = selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType;
                             }
 
-                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
+                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlock(dir, type);
 
                             switch (dir)
                             {
                                 case Direction.Left:
-                                    block.HighlightBlockDirection(Direction.Right, type);
+                                    block.HighlightBlock(Direction.Right, type);
                                     break;
 
                                 case Direction.Right:
                                     //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Left, type);
+                                    block.HighlightBlock(Direction.Left, type);
                                     break;
 
                                 case Direction.Up:
                                     //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Down, type);
+                                    block.HighlightBlock(Direction.Down, type);
                                     break;
 
                                 case Direction.Down:
                                     //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-                                    block.HighlightBlockDirection(Direction.Up, type);
+                                    block.HighlightBlock(Direction.Up, type);
                                     break;
                             }
 
@@ -307,10 +306,10 @@ public class GamePlay : MonoBehaviour
                     block != null && isLastBlockFromStartedDot && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block))
 
                 {
-                  */  
+                  */
 
-                // reset the highlighted block
-                else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
+                // reset the highlighted block && 
+                else if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
                 {
                     List<Block> blocks = completedPairs[(block.HighlightedDotType)];
 
@@ -326,8 +325,8 @@ public class GamePlay : MonoBehaviour
 
                         if (dir != Direction.None)
                         {
-                            b.DisableAllDirImages();
-                            block.DisableDirImage(dir);
+                            b.ResetAllHighlightDirection();
+                            block.ResetHighlightDirection(dir);
 
                             blocks.RemoveAt(blocks.Count - 1);
                             selectedBlocks.Clear();
