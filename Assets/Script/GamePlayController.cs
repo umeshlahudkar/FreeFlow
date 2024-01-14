@@ -12,43 +12,57 @@ public class GamePlayController : MonoBehaviour
         instance = this;
     }
 
-    private bool isClicked = false;
+    private GameState gameState;
 
-    private Color[] colors = new Color[] { Color.red, Color.blue, Color.yellow, Color.green };
+    private bool isClicked;
+    private bool hasSelectExistingFromLast;
+    private bool hasSelectExistingFromMiddle;
 
-    private List<Block> selectedBlocks = new List<Block>();
-
-    private Dictionary<DotType, List<Block>> completedPairs = new Dictionary<DotType, List<Block>>();
-
-    private bool hasSelectExistingFromLast = false;
-    private bool hasSelectExistingFromMiddle = false;
-
-
+    private Color[] colors;
+    private List<Block> selectedBlocks;
+    private Dictionary<DotType, List<Block>> completedPairs;
+   
     private EventSystem eventSystem;
     private List<RaycastResult> raycastResults;
     private PointerEventData eventData;
 
+    private int moves;
 
     private void Start()
     {
+        gameState = GameState.Waiting;
+
+        isClicked = false;
+        hasSelectExistingFromLast = false;
+        hasSelectExistingFromMiddle = false;
+
+        colors = new Color[] { Color.red, Color.blue, Color.yellow, Color.green };
+        selectedBlocks = new List<Block>();
+        completedPairs = new Dictionary<DotType, List<Block>>();
+
         eventSystem = EventSystem.current;
         raycastResults = new List<RaycastResult>();
         eventData = new PointerEventData(eventSystem);
+
+        moves = 0;
     }
 
     void Update()
     {
-        if (Input.GetMouseButtonDown(0))
+        if(gameState == GameState.Playing)
         {
-            OnPointerDown();
-        }
-        else if (Input.GetMouseButton(0))
-        {
-            OnPointerMoved();
-        }
-        else if (Input.GetMouseButtonUp(0))
-        {
-            OnPointerUp();
+            if (Input.GetMouseButtonDown(0))
+            {
+                OnPointerDown();
+            }
+            else if (Input.GetMouseButton(0))
+            {
+                OnPointerMoved();
+            }
+            else if (Input.GetMouseButtonUp(0))
+            {
+                OnPointerUp();
+            }
         }
     }
 
@@ -76,8 +90,8 @@ public class GamePlayController : MonoBehaviour
         return Direction.None;
     }
 
-    public Color GetColor(DotType type) 
-    { 
+    public Color GetColor(DotType type)
+    {
         return colors[((int)type - 1)];
     }
 
@@ -91,7 +105,7 @@ public class GamePlayController : MonoBehaviour
         {
             Block block = raycastResults[0].gameObject.GetComponent<Block>();
 
-            if(block != null)
+            if (block != null)
             {
                 if (block.IsDotPresent && completedPairs.ContainsKey(block.DotType)) // if click on same dot, clear all highlighted blocks
                 {
@@ -188,6 +202,7 @@ public class GamePlayController : MonoBehaviour
             {
                 Block block = raycastResults[0].gameObject.GetComponent<Block>();
 
+
                 // adds the new blocks to the selected list
                 if (block != null && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block))
                 {
@@ -204,10 +219,10 @@ public class GamePlayController : MonoBehaviour
                             List<Block> blocks = completedPairs[block.HighlightedDotType];
 
                             int indexToRemove = GetBlockIndex(blocks, block);
-                            indexToRemove--; 
-                            if(indexToRemove <= -1) { indexToRemove = -1; }
+                            indexToRemove--;
+                            if (indexToRemove <= -1) { indexToRemove = -1; }
 
-                            if(indexToRemove != -1)
+                            if (indexToRemove != -1)
                             {
                                 ResetBlockToRemove(blocks, indexToRemove);
                             }
@@ -254,7 +269,7 @@ public class GamePlayController : MonoBehaviour
                         if (dir != Direction.None)
                         {
                             DotType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType : selectedBlocks[0].DotType;
-                            if(hasSelectExistingFromMiddle)
+                            if (hasSelectExistingFromMiddle)
                             {
                                 type = selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType;
                             }
@@ -297,8 +312,8 @@ public class GamePlayController : MonoBehaviour
                 {
                   */
 
-                // reset the highlighted block && 
-                else if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
+                // reset the highlighted block
+                else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
                 {
                     List<Block> blocks = completedPairs[(block.HighlightedDotType)];
 
@@ -307,7 +322,7 @@ public class GamePlayController : MonoBehaviour
                         return;
                     }
 
-                    if (blocks.Count > 0 && blocks.Contains(block)) 
+                    if (blocks.Count > 0 && blocks.Contains(block))
                     {
                         Block b = blocks[blocks.Count - 1];
                         Direction dir = GetDirection(block, b);
@@ -335,7 +350,7 @@ public class GamePlayController : MonoBehaviour
             {
                 selectedBlocks.RemoveAt(0); // added two times
 
-                if(selectedBlocks.Count > 0)
+                if (selectedBlocks.Count > 0)
                 {
                     completedPairs[selectedBlocks[0].HighlightedDotType].AddRange(new List<Block>(selectedBlocks));
                     Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
@@ -345,6 +360,12 @@ public class GamePlayController : MonoBehaviour
             {
                 completedPairs[selectedBlocks[0].DotType] = new List<Block>(selectedBlocks);
                 Debug.Log("Storing value to new list " + selectedBlocks[0].DotType + " " + completedPairs[selectedBlocks[0].DotType].Count);
+            }
+
+            if(selectedBlocks.Count > 1) 
+            {
+                moves++;
+                UIController.instance.UpdateMovesCount(moves);
             }
         }
 
@@ -356,26 +377,29 @@ public class GamePlayController : MonoBehaviour
         CheckForPairComplete();
     }
 
-    private bool CheckForPairComplete()
+    private void CheckForPairComplete()
     {
+        int count = 0;
         foreach (var kvp in completedPairs)
         {
             DotType key = kvp.Key;
             List<Block> blockList = kvp.Value;
 
-            Debug.Log(key + "  " + blockList.Count);
 
             if (blockList.Count > 0 && IsPairComplete(blockList[0], blockList[blockList.Count - 1]))
             {
-                //Debug.Log("Pair complete " + key);
+                count++;
             }
-            else
-            {
-                //Debug.Log("Pair not complete " + key);
-            }
+            
         }
 
-        return false;
+        UIController.instance.UpdatePairCount(count);
+
+        if (count >= UIController.instance.CurrentLevelGoal)
+        {
+            GameState = GameState.Ending;
+            UIController.instance.ActivateLevelCompleteScreen(moves);
+        }
     }
 
     private bool IsPairComplete(Block b1, Block b2)
@@ -386,5 +410,25 @@ public class GamePlayController : MonoBehaviour
     private bool IsEqual(Block b1, Block b2)
     {
         return (b1.Row_ID == b2.Row_ID && b1.Coloum_ID == b2.Coloum_ID);
+    }
+
+    public GameState GameState
+    {
+        get { return gameState; }
+        set { gameState = value; }
+    }
+
+    public void ResetGameplay()
+    {
+        moves = 0;
+
+        gameState = GameState.Waiting;
+
+        selectedBlocks.Clear();
+        completedPairs.Clear();
+
+        isClicked = false;
+        hasSelectExistingFromLast = false;
+        hasSelectExistingFromMiddle = false;
     }
 }

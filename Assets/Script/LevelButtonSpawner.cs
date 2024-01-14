@@ -11,10 +11,7 @@ public class LevelButtonSpawner : MonoBehaviour
 
     private void OnEnable()
     {
-        foreach(LevelButton button in buttons)
-        {
-            Destroy(button.gameObject);
-        }
+       
     }
 
     public void PrepareLevelScreen(int unlockedLevels)
@@ -27,6 +24,18 @@ public class LevelButtonSpawner : MonoBehaviour
             button.gameObject.SetActive(true);
 
             buttons.Add(button);
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (buttons != null && buttons.Count > 0)
+        {
+            foreach (LevelButton button in buttons)
+            {
+                Destroy(button.gameObject);
+            }
+            buttons.Clear();
         }
     }
 }
