@@ -152,6 +152,7 @@ public class GamePlayController : Singleton<GamePlayController>
         }
     }
 
+
     private int GetBlockIndex(List<Block> blocks, Block block)
     {
         for (int i = 0; i < blocks.Count; i++)
@@ -228,42 +229,6 @@ public class GamePlayController : Singleton<GamePlayController>
                             {
                                 ResetBlockToRemove(blocks, indexToRemove);
                             }
-                            /*
-                            for (int i = 0; i < blocks.Count; i++)
-                            {
-                                Block b = blocks[i];
-
-                                if (b.Row_ID == block.Row_ID && b.Coloum_ID == block.Coloum_ID)
-                                {
-                                    indexToRemove = i - 1;
-                                    break;
-                                }
-                            }
-                            
-                            bool flag = false;
-                            for (int i = indexToRemove; i < blocks.Count; i++)
-                            {
-                                Block b = blocks[i];
-                                if (!flag)
-                                {
-                                    Direction di = GetDirection(b, blocks[i + 1]);
-                                    if (di != Direction.None)
-                                    {
-                                        b.DisableDirImage(di);
-                                    }
-                                    flag = true;
-                                }
-                                else
-                                {
-                                    b.DisableAllDirImages();
-                                }
-                            }
-
-                            if (indexToRemove != -1)
-                            {
-                                blocks.RemoveRange(indexToRemove + 1, blocks.Count - indexToRemove - 1);
-                            }
-                            */
                         }
 
                         Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
@@ -285,17 +250,14 @@ public class GamePlayController : Singleton<GamePlayController>
                                     break;
 
                                 case Direction.Right:
-                                    //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
                                     block.HighlightBlock(Direction.Left, type);
                                     break;
 
                                 case Direction.Up:
-                                    //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
                                     block.HighlightBlock(Direction.Down, type);
                                     break;
 
                                 case Direction.Down:
-                                    //selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
                                     block.HighlightBlock(Direction.Up, type);
                                     break;
                             }
@@ -304,22 +266,12 @@ public class GamePlayController : Singleton<GamePlayController>
                         }
                     }
                 }
-                /*
-                if (block != null && !block.IsDotPresent && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block) ||
-                    block != null && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].DotType && !selectedBlocks.Contains(block)  ||
-                    block != null && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block)  ||
-                    block != null && isLastBlockFromStartedDot && !block.IsDotPresent && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block)  ||
-                    block != null && isLastBlockFromStartedDot && block.IsDotPresent && selectedBlocks.Count > 0 && block.DotType == selectedBlocks[0].HighlightedDotType && !selectedBlocks.Contains(block))
-
-                {
-                  */
-
                 // reset the highlighted block
-                else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block)) // && block.HighlightedDotType == selectedBlocks[0].HighlightedDotType && selectedBlocks.Contains(block))
+                else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block)) 
                 {
                     List<Block> blocks = completedPairs[(block.HighlightedDotType)];
 
-                    if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block)) // && blocks[blocks.Count - 1].Row_ID == block.Row_ID && blocks[blocks.Count - 1].Coloum_ID == block.Coloum_ID)
+                    if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
                     {
                         return;
                     }
