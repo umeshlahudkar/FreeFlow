@@ -8,20 +8,21 @@ public class LevelButtonSpawner : MonoBehaviour
     [SerializeField] private int maxLevelPerScreen = 20;
 
     private List<LevelButton> buttons = new List<LevelButton>();
+    private ObjectPool<LevelButton> objectPool;
 
-    private void OnEnable()
+    private void InitializePool()
     {
-       
+        objectPool = new ObjectPool<LevelButton>(levelButtonPrefab, maxLevelPerScreen, levelButtonPrefab.transform.parent);
     }
-
+   
     public void PrepareLevelScreen(int unlockedLevels)
     {
-        
-        for(int i = 0; i < maxLevelPerScreen; i++)
+        if(objectPool == null) { InitializePool(); }
+
+        for (int i = 0; i < maxLevelPerScreen; i++)
         {
-            LevelButton button = Instantiate(levelButtonPrefab, levelButtonPrefab.transform.parent);
-            button.SetDetails((i + 1), (i + 1) <= unlockedLevels ? true : false);
-            button.gameObject.SetActive(true);
+            LevelButton button = objectPool.GetObject();
+            button.SetDetails((i + 1), (i + 1) <= unlockedLevels);
 
             buttons.Add(button);
         }
@@ -33,7 +34,7 @@ public class LevelButtonSpawner : MonoBehaviour
         {
             foreach (LevelButton button in buttons)
             {
-                Destroy(button.gameObject);
+                objectPool.ReturnObject(button);
             }
             buttons.Clear();
         }

@@ -5,10 +5,20 @@ using UnityEngine;
 public class BoardGenerator : MonoBehaviour
 {
     [SerializeField] private Block blockPrefab;
+    [SerializeField] private Transform thisTransform;
     private List<Block> gridblocks;
+
+    private ObjectPool<Block> objectPool;
+
+    private void InitializePool()
+    {
+        objectPool = new ObjectPool<Block>(blockPrefab, 16, thisTransform);
+    }
 
     public void GenerateBoard(LevelData data)
     {
+        if(objectPool == null) { InitializePool(); }
+
         gridblocks = new List<Block>();
 
         int rowSize = (int)data.gridSize;
@@ -27,17 +37,11 @@ public class BoardGenerator : MonoBehaviour
         {
             for(int j = 0; j < coloumSize; j++)
             {
-                Block block = Instantiate(blockPrefab, transform);
+                //Block block = Instantiate(blockPrefab, transform);
+                Block block = objectPool.GetObject();
                 block.gameObject.name = "Block_" + i + " " + j;
-
                 block.transform.localPosition = new Vector3(currentPositionX, currentPositionY, 0);
-                
                 block.GetComponent<RectTransform>().sizeDelta = Vector3.one * blockSize;
-
-                if(data.gridRows[i].coloum[j] != DotType.None)
-                {
-                    block.SetBlock(data.gridRows[i].coloum[j], i, j);
-                }
 
                 block.SetBlock(data.gridRows[i].coloum[j], i, j);
 
@@ -76,9 +80,15 @@ public class BoardGenerator : MonoBehaviour
 
     public void ResetGrid()
     {
-        foreach(Block b in gridblocks)
+        if(gridblocks != null && gridblocks.Count > 0)
         {
-            Destroy(b.gameObject);
+            foreach (Block b in gridblocks)
+            {
+                //Destroy(b.gameObject);
+                b.ResetBlock();
+                objectPool.ReturnObject(b);
+            }
+            gridblocks.Clear();
         }
     }
 }

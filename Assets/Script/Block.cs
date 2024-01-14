@@ -68,4 +68,16 @@ public class Block : MonoBehaviour
 
     public int Row_ID { get { return rowIndex; } }
     public int Coloum_ID { get { return coloumIndex; } }
+
+    public void ResetBlock()
+    {
+        this.rowIndex = -1;
+        this.coloumIndex = -1;
+        dotType = DotType.None;
+        highlightedDotType = DotType.None;
+        isDotPresent = false;
+
+        dotImage.gameObject.SetActive(false);
+        ResetAllHighlightDirection();
+    }
 }

@@ -50,7 +50,7 @@ public class UIController : Singleton<UIController>
             currentLevel = levelNumber;
 
             currentLevelData = levelDataSO.levels[levelNumber - 1];
-
+            boardGenerator.ResetGrid();
             boardGenerator.GenerateBoard(currentLevelData);
 
             levelButtonSpawner.gameObject.SetActive(false);
@@ -73,7 +73,6 @@ public class UIController : Singleton<UIController>
         {
             currentLevel++;
             if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
-
             LoadLevel(currentLevel);
         }
     }
