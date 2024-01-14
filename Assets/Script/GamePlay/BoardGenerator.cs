@@ -1,7 +1,9 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Generates and manages the game board by creating, positioning, and resetting blocks based on provided LevelData.
+/// </summary>
 public class BoardGenerator : MonoBehaviour
 {
     [SerializeField] private Block blockPrefab;
@@ -10,11 +12,20 @@ public class BoardGenerator : MonoBehaviour
 
     private ObjectPool<Block> objectPool;
 
+
+    /// <summary>
+    /// Initializes the object pool for blocks with the specified prefab, capacity, and parent transform.
+    /// </summary>
     private void InitializePool()
     {
         objectPool = new ObjectPool<Block>(blockPrefab, 16, thisTransform);
     }
 
+
+    /// <summary>
+    /// Generate blocks based on level data
+    /// </summary>
+    /// <param name="data">The LevelData containing grid size, block size, block space, and grid rows</param>
     public void GenerateBoard(LevelData data)
     {
         if(objectPool == null) { InitializePool(); }
@@ -53,6 +64,14 @@ public class BoardGenerator : MonoBehaviour
         }
     }
 
+
+    /// <summary>
+    /// Calculates the starting X-coordinate for the grid based on block size, row size, and block space.
+    /// </summary>
+    /// <param name="blockSize">Size of each block.</param>
+    /// <param name="rowSize">Number of rows in the grid.</param>
+    /// <param name="blockSpace">Space between blocks.</param>
+    /// <returns>The calculated starting X-coordinate.</returns>
     private float GetStartPointX(float blockSize, int rowSize, int blockSpace)
     {
         //float totalWidth = (blockSize * rowSize) + ((rowSize - 1) * blockSpace);
@@ -61,6 +80,13 @@ public class BoardGenerator : MonoBehaviour
     }
 
 
+    /// <summary>
+    /// Calculates the starting Y-coordinate for the grid based on block size, column size, and block space.
+    /// </summary>
+    /// <param name="blockSize">Size of each block.</param>
+    /// <param name="columnSize">Number of columns in the grid.</param>
+    /// <param name="blockSpace">Space between blocks.</param>
+    /// <returns>The calculated starting Y-coordinate.</returns>
     private float GetStartPointY(float blockSize, int columnSize, int blockSpace)
     {
         //float totalHeight = (blockSize * columnSize) + ((columnSize - 1) * blockSpace);
@@ -68,16 +94,35 @@ public class BoardGenerator : MonoBehaviour
         return ((totalHeight / 2) - (blockSize / 2));
     }
 
+
+    /// <summary>
+    /// Calculates the total width of the grid based on block size, row size, and block space.
+    /// </summary>
+    /// <param name="blockSize">Size of each block.</param>
+    /// <param name="rowSize">Number of rows in the grid.</param>
+    /// <param name="blockSpace">Space between blocks.</param>
+    /// <returns>The calculated total width of the grid.</returns>
     private float GetTotalWidth(float blockSize, int rowSize, int blockSpace)
     {
         return (blockSize * rowSize) + ((rowSize - 1) * blockSpace);
     }
 
+    /// <summary>
+    /// Calculates the total height of the grid based on block size, column size, and block space.
+    /// </summary>
+    /// <param name="blockSize">Size of each block.</param>
+    /// <param name="columnSize">Number of columns in the grid.</param>
+    /// <param name="blockSpace">Space between blocks.</param>
+    /// <returns>The calculated total height of the grid.</returns>
     private float GetTotalHeight(float blockSize, int columnSize, int blockSpace)
     {
         return (blockSize * columnSize) + ((columnSize - 1) * blockSpace);
     }
 
+
+    /// <summary>
+    /// Resets the grid by deactivating and returning blocks to the object pool.
+    /// </summary>
     public void ResetGrid()
     {
         if(gridblocks != null && gridblocks.Count > 0)

@@ -1,4 +1,3 @@
-
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "PairColorData", menuName = "SO/PairColorData", order = 2)]

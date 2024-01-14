@@ -1,8 +1,11 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
+
+/// <summary>
+/// Manages the gameplay logic and user interactions for a matching pairs game
+/// </summary>
 public class GamePlayController : Singleton<GamePlayController>
 {
     private GameState gameState;
@@ -94,9 +97,9 @@ public class GamePlayController : Singleton<GamePlayController>
                 }
 
                 // if the some blocks of pair highlighted, and clicked on the highlighted block
-                else if (completedPairs.ContainsKey(block.HighlightedDotType))
+                else if (completedPairs.ContainsKey(block.HighlightedColorType))
                 {
-                    List<Block> blocks = completedPairs[block.HighlightedDotType];
+                    List<Block> blocks = completedPairs[block.HighlightedColorType];
 
                     //check if the selected block is the last block of highlighted blocks list
                     if (IsEqual(blocks[blocks.Count - 1], block))
@@ -140,15 +143,15 @@ public class GamePlayController : Singleton<GamePlayController>
                 {
                     if ((!block.IsPairBlock) || //if not the normal blocks - without pair block
                         (block.IsPairBlock && block.PairColorType == selectedBlocks[0].PairColorType) || // if dot present, is it same as the selected
-                        (block.IsPairBlock && block.PairColorType == selectedBlocks[0].HighlightedDotType) || // selected block from middle one, dreag to same dot type block
+                        (block.IsPairBlock && block.PairColorType == selectedBlocks[0].HighlightedColorType) || // selected block from middle one, dreag to same dot type block
                         (!block.IsPairBlock && hasSelectExistingFromLast) || // keep adding to existing list
-                        (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedDotType))
+                        (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedColorType))
                     {
 
                         // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-                        if (completedPairs.ContainsKey(block.HighlightedDotType) && block.HighlightedDotType != selectedBlocks[0].HighlightedDotType)
+                        if (completedPairs.ContainsKey(block.HighlightedColorType) && block.HighlightedColorType != selectedBlocks[0].HighlightedColorType)
                         {
-                            List<Block> blocks = completedPairs[block.HighlightedDotType];
+                            List<Block> blocks = completedPairs[block.HighlightedColorType];
 
                             int indexToRemove = GetBlockIndex(blocks, block);
                             indexToRemove--;
@@ -166,10 +169,10 @@ public class GamePlayController : Singleton<GamePlayController>
                         // highlighted the new selected block and last selected block based on direction
                         if (dir != Direction.None)
                         {
-                            PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType : selectedBlocks[0].PairColorType;
+                            PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
                             if (hasSelectExistingFromMiddle)
                             {
-                                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType;
+                                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
                             }
 
                             //highlighting last selected block
@@ -202,7 +205,7 @@ public class GamePlayController : Singleton<GamePlayController>
                 // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
                 else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
                 {
-                    List<Block> blocks = completedPairs[(block.HighlightedDotType)];
+                    List<Block> blocks = completedPairs[(block.HighlightedColorType)];
 
                     //last highlighted block selected
                     if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
@@ -378,13 +381,13 @@ public class GamePlayController : Singleton<GamePlayController>
     /// </summary>
     private void AddSelectedBlocksToCompletedPairs()
     {
-        if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && completedPairs.ContainsKey(selectedBlocks[0].HighlightedDotType) && completedPairs[selectedBlocks[0].HighlightedDotType].Count > 0)
+        if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && completedPairs.ContainsKey(selectedBlocks[0].HighlightedColorType) && completedPairs[selectedBlocks[0].HighlightedColorType].Count > 0)
         {
             selectedBlocks.RemoveAt(0); // added two times
 
             if (selectedBlocks.Count > 0)
             {
-                completedPairs[selectedBlocks[0].HighlightedDotType].AddRange(new List<Block>(selectedBlocks));
+                completedPairs[selectedBlocks[0].HighlightedColorType].AddRange(new List<Block>(selectedBlocks));
                 //Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
             }
         }

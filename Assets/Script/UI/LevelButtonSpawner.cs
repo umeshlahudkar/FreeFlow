@@ -1,7 +1,10 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+
+/// <summary>
+/// Handles the spawning and management of level buttons on a level selection screen
+/// </summary>
 public class LevelButtonSpawner : MonoBehaviour
 {
     [SerializeField] private LevelButton levelButtonPrefab;
@@ -10,11 +13,19 @@ public class LevelButtonSpawner : MonoBehaviour
     private List<LevelButton> buttons = new List<LevelButton>();
     private ObjectPool<LevelButton> objectPool;
 
+    /// <summary>
+    /// Initializes the object pool for level buttons
+    /// </summary>
     private void InitializePool()
     {
         objectPool = new ObjectPool<LevelButton>(levelButtonPrefab, maxLevelPerScreen, levelButtonPrefab.transform.parent);
     }
-   
+
+
+    /// <summary>
+    /// Prepares the level selection screen by instantiating and setting up level buttons.
+    /// </summary>
+    /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
     public void PrepareLevelScreen(int unlockedLevels)
     {
         if(objectPool == null) { InitializePool(); }
@@ -28,6 +39,9 @@ public class LevelButtonSpawner : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// On level screen closed, Disables the buttons and returns all buttons to the object pool
+    /// </summary>
     private void OnDisable()
     {
         if (buttons != null && buttons.Count > 0)
