@@ -11,13 +11,14 @@ public class GamePlayController : Singleton<GamePlayController>
     private bool hasSelectExistingFromLast;
     private bool hasSelectExistingFromMiddle;
 
-    private Color[] colors;
     private List<Block> selectedBlocks;
-    private Dictionary<DotType, List<Block>> completedPairs;
+    private Dictionary<PairColorType, List<Block>> completedPairs;
    
     private EventSystem eventSystem;
     private List<RaycastResult> raycastResults;
     private PointerEventData eventData;
+
+    [SerializeField] private PairColorDataSO PairColorDataSO;
 
     private int moves;
 
@@ -29,9 +30,8 @@ public class GamePlayController : Singleton<GamePlayController>
         hasSelectExistingFromLast = false;
         hasSelectExistingFromMiddle = false;
 
-        colors = new Color[] { Color.red, Color.blue, Color.yellow, Color.green };
         selectedBlocks = new List<Block>();
-        completedPairs = new Dictionary<DotType, List<Block>>();
+        completedPairs = new Dictionary<PairColorType, List<Block>>();
 
         eventSystem = EventSystem.current;
         raycastResults = new List<RaycastResult>();
@@ -83,9 +83,18 @@ public class GamePlayController : Singleton<GamePlayController>
         return Direction.None;
     }
 
-    public Color GetColor(DotType type)
+    public Color GetColor(PairColorType type)
     {
-        return colors[((int)type - 1)];
+        Color color = Color.black;
+        for (int i = 0; i < PairColorDataSO.pairColorDatas.Length; i++)
+        {
+            if(type == PairColorDataSO.pairColorDatas[i].pairColorType)
+            {
+                color = PairColorDataSO.pairColorDatas[i].color;
+                break;
+            }
+        }
+        return color;
     }
 
     private void OnPointerDown()
@@ -261,7 +270,7 @@ public class GamePlayController : Singleton<GamePlayController>
 
                         if (dir != Direction.None)
                         {
-                            DotType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType : selectedBlocks[0].DotType;
+                            PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType : selectedBlocks[0].DotType;
                             if (hasSelectExistingFromMiddle)
                             {
                                 type = selectedBlocks[selectedBlocks.Count - 1].HighlightedDotType;
@@ -375,7 +384,7 @@ public class GamePlayController : Singleton<GamePlayController>
         int count = 0;
         foreach (var kvp in completedPairs)
         {
-            DotType key = kvp.Key;
+            PairColorType key = kvp.Key;
             List<Block> blockList = kvp.Value;
 
 

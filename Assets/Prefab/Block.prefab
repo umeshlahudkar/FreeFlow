@@ -475,7 +475,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f62f4759889196845a8556036a0d8be2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  dotImage: {fileID: 5434266648506400393}
+  pairDotImage: {fileID: 5434266648506400393}
   directionImages:
   - {fileID: 2986915657513523067}
   - {fileID: 7764930234073326804}

@@ -329,16 +329,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 144211c2743f425449a5f2976a1facee, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  boardGenerator: {fileID: 119048342}
   levelButtonSpawner: {fileID: 1352806171}
   mainMenuScreen: {fileID: 562033758}
   mainMenuCanvas: {fileID: 151962111}
   gamePlayCanvas: {fileID: 1163539287}
+  boardGenerator: {fileID: 119048342}
   levelCompleteScreen: {fileID: 908086010}
   levelCompleteMovesCount: {fileID: 524867518}
   gameplaylevelText: {fileID: 869958233}
   gameplayPairText: {fileID: 859829429}
   gameplayMoveText: {fileID: 1078077088}
+  levelDataSO: {fileID: 11400000, guid: aca3ed2aa9f901f418699f886dc9db51, type: 2}
 --- !u!1 &284026192
 GameObject:
   m_ObjectHideFlags: 0
@@ -586,6 +587,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 417475686a8035c498619c5900520262, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  PairColorDataSO: {fileID: 11400000, guid: c37c7ddbaf8ad2c46a45311b92f640b0, type: 2}
 --- !u!1 &519420028
 GameObject:
   m_ObjectHideFlags: 0
@@ -2411,13 +2413,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 30
+  m_fontSize: 40
   m_fontSizeBase: 24
   m_fontWeight: 400
   m_enableAutoSizing: 1
   m_fontSizeMin: 18
-  m_fontSizeMax: 30
-  m_fontStyle: 16
+  m_fontSizeMax: 40
+  m_fontStyle: 17
   m_HorizontalAlignment: 2
   m_VerticalAlignment: 512
   m_textAlignment: 65535
@@ -3427,7 +3429,7 @@ GameObject:
   - component: {fileID: 1892863230}
   - component: {fileID: 1892863229}
   m_Layer: 5
-  m_Name: BackButton
+  m_Name: MainMenuButton
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3451,8 +3453,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 157.73325, y: 88.87097}
-  m_SizeDelta: {x: 179.4665, y: 84.5061}
+  m_AnchoredPosition: {x: 204.74762, y: 102.97528}
+  m_SizeDelta: {x: 273.4952, y: 112.7147}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1892863229
 MonoBehaviour:

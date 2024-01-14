@@ -4,9 +4,9 @@ using UnityEngine;
 
 public class ObjectPool<T> where T: Component
 {
-    private readonly T prefab;
-    private readonly Transform parentTransform;
-    private readonly Queue<T> objectQueue = new Queue<T>();
+    private T prefab;
+    private Transform parentTransform;
+    private Queue<T> objectQueue = new Queue<T>();
 
     public ObjectPool(T prefab, int initialSize, Transform parentTransform = null)
     {

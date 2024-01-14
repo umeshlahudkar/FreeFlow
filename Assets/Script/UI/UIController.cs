@@ -5,12 +5,12 @@ using TMPro;
 
 public class UIController : Singleton<UIController>
 {
-    [SerializeField] private BoardGenerator boardGenerator;
+    [Header("Menu Screen")]
     [SerializeField] private LevelButtonSpawner levelButtonSpawner;
-
     [SerializeField] private GameObject mainMenuScreen;
     [SerializeField] private Canvas mainMenuCanvas;
     [SerializeField] private Canvas gamePlayCanvas;
+    [SerializeField] private BoardGenerator boardGenerator;
 
     [Header("Level Complete Screen")]
     [SerializeField] private GameObject levelCompleteScreen;
@@ -21,15 +21,10 @@ public class UIController : Singleton<UIController>
     [SerializeField] private TextMeshProUGUI gameplayPairText;
     [SerializeField] private TextMeshProUGUI gameplayMoveText;
 
-
-    private LevelDataSO levelDataSO;
+    [Header("Level Data SO")]
+    [SerializeField] LevelDataSO levelDataSO;
     private LevelData currentLevelData;
     private int currentLevel;
-
-    private void Awake()
-    {
-        levelDataSO = Resources.Load<LevelDataSO>("LevelData");
-    }
 
     private void Start()
     {

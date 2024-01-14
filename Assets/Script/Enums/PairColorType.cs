@@ -1,5 +1,5 @@
 
-public enum DotType 
+public enum PairColorType 
 {
    None = 0,
    Red = 1,
@@ -12,5 +12,5 @@ public enum DotType
 [System.Serializable]
 public struct GridRow
 {
-    public DotType[] coloum;
+    public PairColorType[] coloum;
 }
