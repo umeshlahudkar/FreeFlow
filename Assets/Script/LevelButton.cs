@@ -18,6 +18,9 @@ public class LevelButton : MonoBehaviour
 
     public void OnButtonClick()
     {
-        UIController.Instance.LoadLevel(levelNumber);
+        if(InputManager.Instance.CanInput())
+        {
+            UIController.Instance.LoadLevel(levelNumber);
+        }
     }
 }

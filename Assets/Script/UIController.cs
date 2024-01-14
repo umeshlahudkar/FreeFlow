@@ -69,35 +69,50 @@ public class UIController : Singleton<UIController>
 
     public void OnNextLevelButtonClick()
     {
-        currentLevel++;
-        if(currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
+        if(InputManager.Instance.CanInput())
+        {
+            currentLevel++;
+            if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
 
-        LoadLevel(currentLevel);
+            LoadLevel(currentLevel);
+        }
     }
 
     public void OnPlayButtonClick()
     {
-        levelButtonSpawner.gameObject.SetActive(true);
-        levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+        if (InputManager.Instance.CanInput())
+        {
+            levelButtonSpawner.gameObject.SetActive(true);
+            levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+        }
     }
 
     public void OnGameplayBackButtonClick()
     {
-        boardGenerator.ResetGrid();
+        if (InputManager.Instance.CanInput())
+        {
+            boardGenerator.ResetGrid();
 
-        levelButtonSpawner.gameObject.SetActive(false);
-        mainMenuCanvas.gameObject.SetActive(true);
-        gamePlayCanvas.gameObject.SetActive(false);
+            levelButtonSpawner.gameObject.SetActive(false);
+            mainMenuCanvas.gameObject.SetActive(true);
+            gamePlayCanvas.gameObject.SetActive(false);
+        }
     }
 
     public void OnLevelBackButtonClick()
     {
-        levelButtonSpawner.gameObject.SetActive(false);
+        if (InputManager.Instance.CanInput())
+        {
+            levelButtonSpawner.gameObject.SetActive(false);
+        }
     }
 
     public void OnQuitButtonClick()
     {
-        Application.Quit();
+        if (InputManager.Instance.CanInput())
+        {
+            Application.Quit();
+        }
     }
 
     public void ActivateLevelCompleteScreen(int movesCount)
