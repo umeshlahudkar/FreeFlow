@@ -495,4 +495,4 @@ MonoBehaviour:
   gameplayTrans: {fileID: 1283307996}
   blockPrefab: {fileID: -7526657886783105987, guid: e901e185e57555948a39a65a329fe0af, type: 3}
   levelDataSO: {fileID: 11400000, guid: aca3ed2aa9f901f418699f886dc9db51, type: 2}
-  currentLevel: 0
+  currentLevel: 2
