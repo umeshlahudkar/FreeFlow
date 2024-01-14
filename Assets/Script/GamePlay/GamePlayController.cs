@@ -144,7 +144,10 @@ namespace FreeFlow.GamePlay
                     Block block = raycastResults[0].gameObject.GetComponent<Block>();
 
                     // selected block is not select again, check for the new block
-                    if (block != null && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block))
+                    if(CanSelectToAdd(block))
+                    { 
+                        /*
+                    if (block != null && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block) && !(selectedBlocks[0].IsPairBlock && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1])))
                     {
                         if ((!block.IsPairBlock) || //if not the normal blocks - without pair block
                             (block.IsPairBlock && block.PairColorType == selectedBlocks[0].PairColorType) || // if dot present, is it same as the selected
@@ -152,6 +155,16 @@ namespace FreeFlow.GamePlay
                             (!block.IsPairBlock && hasSelectExistingFromLast) || // keep adding to existing list
                             (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedColorType))
                         {
+
+
+                           
+                            if((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1], selectedBlocks[0].HighlightedColorType))
+                            {
+                                Debug.Log("..........");
+                                return;
+                            }
+
+                        */
 
                             // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
                             if (completedPairs.ContainsKey(block.HighlightedColorType) && block.HighlightedColorType != selectedBlocks[0].HighlightedColorType)
@@ -205,7 +218,7 @@ namespace FreeFlow.GamePlay
 
                                 selectedBlocks.Add(block);
                             }
-                        }
+                        //}
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
                     else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
@@ -237,6 +250,43 @@ namespace FreeFlow.GamePlay
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Check can the block is added to to list by checking if it's not alredy added
+        /// </summary>
+        /// <param name="block">the block to check</param>
+        /// <returns></returns>
+        private bool CanSelectToAdd(Block block)
+        {
+            if (block == null || selectedBlocks.Count <= 0 || selectedBlocks.Contains(block))
+            {
+                return false;
+            }
+
+            bool isPairBlockComplete = selectedBlocks[0].IsPairBlock && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]);
+
+            if (!isPairBlockComplete)
+            {
+                if
+                (
+                    (!block.IsPairBlock) ||
+                    (block.IsPairBlock && block.PairColorType == selectedBlocks[0].PairColorType) ||
+                    (block.IsPairBlock && block.PairColorType == selectedBlocks[0].HighlightedColorType) ||
+                    (!block.IsPairBlock && hasSelectExistingFromLast) ||
+                    (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedColorType)
+                )
+                {
+                    if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1], selectedBlocks[0].HighlightedColorType))
+                    {
+                        return false;
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
         }
 
 
@@ -434,6 +484,11 @@ namespace FreeFlow.GamePlay
         private bool IsPairComplete(Block b1, Block b2)
         {
             return (!IsEqual(b1, b2) && b1.IsPairBlock && b2.IsPairBlock && b1.PairColorType == b2.PairColorType);
+        }
+
+        private bool IsPairComplete(Block b1, Block b2, PairColorType type)
+        {
+            return (!IsEqual(b1, b2) && b1.HighlightedColorType == b2.PairColorType);
         }
 
 
