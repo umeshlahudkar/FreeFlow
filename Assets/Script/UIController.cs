@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 
-public class UIController : MonoBehaviour
+public class UIController : Singleton<UIController>
 {
     [SerializeField] private BoardGenerator boardGenerator;
     [SerializeField] private LevelButtonSpawner levelButtonSpawner;
@@ -26,11 +26,8 @@ public class UIController : MonoBehaviour
     private LevelData currentLevelData;
     private int currentLevel;
 
-    public static UIController instance;
-
     private void Awake()
     {
-        instance = this;
         levelDataSO = Resources.Load<LevelDataSO>("LevelData");
     }
 
@@ -65,8 +62,8 @@ public class UIController : MonoBehaviour
             UpdatePairCount(0);
             UpdateMovesCount(0);
 
-            GamePlayController.instance.ResetGameplay();
-            GamePlayController.instance.GameState = GameState.Playing;
+            GamePlayController.Instance.ResetGameplay();
+            GamePlayController.Instance.GameState = GameState.Playing;
         }
     }
 

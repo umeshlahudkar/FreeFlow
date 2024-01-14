@@ -3,15 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-public class GamePlayController : MonoBehaviour
+public class GamePlayController : Singleton<GamePlayController>
 {
-    public static GamePlayController instance;
-
-    private void Awake()
-    {
-        instance = this;
-    }
-
     private GameState gameState;
 
     private bool isClicked;
@@ -353,19 +346,19 @@ public class GamePlayController : MonoBehaviour
                 if (selectedBlocks.Count > 0)
                 {
                     completedPairs[selectedBlocks[0].HighlightedDotType].AddRange(new List<Block>(selectedBlocks));
-                    Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
+                    //Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
                 }
             }
             else
             {
                 completedPairs[selectedBlocks[0].DotType] = new List<Block>(selectedBlocks);
-                Debug.Log("Storing value to new list " + selectedBlocks[0].DotType + " " + completedPairs[selectedBlocks[0].DotType].Count);
+                //Debug.Log("Storing value to new list " + selectedBlocks[0].DotType + " " + completedPairs[selectedBlocks[0].DotType].Count);
             }
 
             if(selectedBlocks.Count > 1) 
             {
                 moves++;
-                UIController.instance.UpdateMovesCount(moves);
+                UIController.Instance.UpdateMovesCount(moves);
             }
         }
 
@@ -393,12 +386,12 @@ public class GamePlayController : MonoBehaviour
             
         }
 
-        UIController.instance.UpdatePairCount(count);
+        UIController.Instance.UpdatePairCount(count);
 
-        if (count >= UIController.instance.CurrentLevelGoal)
+        if (count >= UIController.Instance.CurrentLevelGoal)
         {
             GameState = GameState.Ending;
-            UIController.instance.ActivateLevelCompleteScreen(moves);
+            UIController.Instance.ActivateLevelCompleteScreen(moves);
         }
     }
 
