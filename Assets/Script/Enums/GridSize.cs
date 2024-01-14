@@ -1,8 +1,11 @@
 
-public enum GridSize
+namespace FreeFlow.Enums
 {
-    GridSize_4X4 = 4,
-    GridSize_5X5 = 5,
-    GridSize_6X6 = 6
+    public enum GridSize
+    {
+        GridSize_4X4 = 4,
+        GridSize_5X5 = 5,
+        GridSize_6X6 = 6
+    }
 }
 

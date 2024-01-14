@@ -1,7 +1,10 @@
 
-public enum GameState 
+namespace FreeFlow.Enums
 {
-    Waiting = 0,
-    Playing,
-    Ending
+    public enum GameState
+    {
+        Waiting = 0,
+        Playing,
+        Ending
+    }
 }

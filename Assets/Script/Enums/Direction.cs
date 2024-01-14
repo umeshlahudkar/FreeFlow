@@ -1,10 +1,13 @@
 
 
-public enum Direction 
+namespace FreeFlow.Enums
 {
-   None,
-   Left,
-   Right,
-   Up,
-   Down
+    public enum Direction
+    {
+        None,
+        Left,
+        Right,
+        Up,
+        Down
+    }
 }

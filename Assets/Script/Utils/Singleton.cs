@@ -1,35 +1,38 @@
 using UnityEngine;
 
-public class Singleton<T> : MonoBehaviour where T : Component
+namespace FreeFlow.Util
 {
-    private static T instance;
-    public static T Instance
+    public class Singleton<T> : MonoBehaviour where T : Component
     {
-        get
+        private static T instance;
+        public static T Instance
         {
-            if (instance == null)
+            get
             {
-                instance = FindAnyObjectByType<T>();
-
                 if (instance == null)
                 {
-                    GameObject obj = new GameObject("Controller");
-                    instance = obj.AddComponent<T>();
-                }
-            }
-            return instance;
-        }
-    }
+                    instance = FindAnyObjectByType<T>();
 
-    private void Awake()
-    {
-        if (instance != null && instance != this)
-        {
-            DestroyImmediate(gameObject);
+                    if (instance == null)
+                    {
+                        GameObject obj = new GameObject("Controller");
+                        instance = obj.AddComponent<T>();
+                    }
+                }
+                return instance;
+            }
         }
-        else
+
+        private void Awake()
         {
-            instance = this as T;
+            if (instance != null && instance != this)
+            {
+                DestroyImmediate(gameObject);
+            }
+            else
+            {
+                instance = this as T;
+            }
         }
     }
 }

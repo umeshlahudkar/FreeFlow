@@ -1,6 +1,7 @@
+using FreeFlow.Enums;
 
 [System.Serializable]
-public struct LevelData 
+public struct LevelData
 {
     public GridSize gridSize;
     public int blockSize;
@@ -8,6 +9,12 @@ public struct LevelData
     public int pairCount;
 
     public GridRow[] gridRows;
+}
+
+[System.Serializable]
+public struct GridRow
+{
+    public PairColorType[] coloum;
 }
 
 

@@ -1,56 +1,60 @@
+using FreeFlow.Util;
 using System.Collections.Generic;
 using UnityEngine;
 
 
-/// <summary>
-/// Handles the spawning and management of level buttons on a level selection screen
-/// </summary>
-public class LevelButtonSpawner : MonoBehaviour
+namespace FreeFlow.UI
 {
-    [SerializeField] private LevelButton levelButtonPrefab;
-    [SerializeField] private int maxLevelPerScreen = 20;
-
-    private List<LevelButton> buttons = new List<LevelButton>();
-    private ObjectPool<LevelButton> objectPool;
-
     /// <summary>
-    /// Initializes the object pool for level buttons
+    /// Handles the spawning and management of level buttons on a level selection screen
     /// </summary>
-    private void InitializePool()
+    public class LevelButtonSpawner : MonoBehaviour
     {
-        objectPool = new ObjectPool<LevelButton>(levelButtonPrefab, maxLevelPerScreen, levelButtonPrefab.transform.parent);
-    }
+        [SerializeField] private LevelButton levelButtonPrefab;
+        [SerializeField] private int maxLevelPerScreen = 20;
 
+        private List<LevelButton> buttons = new List<LevelButton>();
+        private ObjectPool<LevelButton> objectPool;
 
-    /// <summary>
-    /// Prepares the level selection screen by instantiating and setting up level buttons.
-    /// </summary>
-    /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
-    public void PrepareLevelScreen(int unlockedLevels)
-    {
-        if(objectPool == null) { InitializePool(); }
-
-        for (int i = 0; i < maxLevelPerScreen; i++)
+        /// <summary>
+        /// Initializes the object pool for level buttons
+        /// </summary>
+        private void InitializePool()
         {
-            LevelButton button = objectPool.GetObject();
-            button.SetDetails((i + 1), (i + 1) <= unlockedLevels);
-
-            buttons.Add(button);
+            objectPool = new ObjectPool<LevelButton>(levelButtonPrefab, maxLevelPerScreen, levelButtonPrefab.transform.parent);
         }
-    }
 
-    /// <summary>
-    /// On level screen closed, Disables the buttons and returns all buttons to the object pool
-    /// </summary>
-    private void OnDisable()
-    {
-        if (buttons != null && buttons.Count > 0)
+
+        /// <summary>
+        /// Prepares the level selection screen by instantiating and setting up level buttons.
+        /// </summary>
+        /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
+        public void PrepareLevelScreen(int unlockedLevels)
         {
-            foreach (LevelButton button in buttons)
+            if (objectPool == null) { InitializePool(); }
+
+            for (int i = 0; i < maxLevelPerScreen; i++)
             {
-                objectPool.ReturnObject(button);
+                LevelButton button = objectPool.GetObject();
+                button.SetDetails((i + 1), (i + 1) <= unlockedLevels);
+
+                buttons.Add(button);
             }
-            buttons.Clear();
+        }
+
+        /// <summary>
+        /// On level screen closed, Disables the buttons and returns all buttons to the object pool
+        /// </summary>
+        private void OnDisable()
+        {
+            if (buttons != null && buttons.Count > 0)
+            {
+                foreach (LevelButton button in buttons)
+                {
+                    objectPool.ReturnObject(button);
+                }
+                buttons.Clear();
+            }
         }
     }
 }

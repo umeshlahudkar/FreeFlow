@@ -1,4 +1,5 @@
 using UnityEngine;
+using FreeFlow.Enums;
 
 [System.Serializable]
 public class PairColorData

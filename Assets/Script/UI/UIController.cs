@@ -1,168 +1,174 @@
 using UnityEngine;
 using TMPro;
+using FreeFlow.GamePlay;
+using FreeFlow.Input;
+using FreeFlow.Util;
+using FreeFlow.Enums;
 
-
-/// <summary>
-/// Manages the UI elements and controls the flow of the game
-/// </summary>
-public class UIController : Singleton<UIController>
+namespace FreeFlow.UI
 {
-    [Header("Menu Screen")]
-    [SerializeField] private LevelButtonSpawner levelButtonSpawner;
-    [SerializeField] private GameObject mainMenuScreen;
-    [SerializeField] private Canvas mainMenuCanvas;
-    [SerializeField] private Canvas gamePlayCanvas;
-    [SerializeField] private BoardGenerator boardGenerator;
-
-    [Header("Level Complete Screen")]
-    [SerializeField] private GameObject levelCompleteScreen;
-    [SerializeField] private TextMeshProUGUI levelCompleteMovesCount;
-
-    [Header("Gameplay")]
-    [SerializeField] private TextMeshProUGUI gameplaylevelText;
-    [SerializeField] private TextMeshProUGUI gameplayPairText;
-    [SerializeField] private TextMeshProUGUI gameplayMoveText;
-
-    [Header("Level Data SO")]
-    [SerializeField] LevelDataSO levelDataSO;
-
-    private LevelData currentLevelData;
-    private int currentLevel;
-
-    private void Start()
-    {
-        // Ensure the main menu canvas is active at the start.
-        if (!mainMenuCanvas.gameObject.activeSelf)
-         {
-            mainMenuCanvas.gameObject.SetActive(true);
-         }
-    }
-
-    public int CurrentLevel { get { return currentLevel; } }
-    
-    public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
-
     /// <summary>
-    /// Loads the specified game level and initializes relevant UI elements.
+    /// Manages the UI elements and controls the flow of the game
     /// </summary>
-    /// <param name="levelNumber">The number of the level to load.</param>
-    public void LoadLevel(int levelNumber)
+    public class UIController : Singleton<UIController>
     {
-        if(levelNumber <= levelDataSO.levels.Length)
+        [Header("Menu Screen")]
+        [SerializeField] private LevelButtonSpawner levelButtonSpawner;
+        [SerializeField] private GameObject mainMenuScreen;
+        [SerializeField] private Canvas mainMenuCanvas;
+        [SerializeField] private Canvas gamePlayCanvas;
+        [SerializeField] private BoardGenerator boardGenerator;
+
+        [Header("Level Complete Screen")]
+        [SerializeField] private GameObject levelCompleteScreen;
+        [SerializeField] private TextMeshProUGUI levelCompleteMovesCount;
+
+        [Header("Gameplay")]
+        [SerializeField] private TextMeshProUGUI gameplaylevelText;
+        [SerializeField] private TextMeshProUGUI gameplayPairText;
+        [SerializeField] private TextMeshProUGUI gameplayMoveText;
+
+        [Header("Level Data SO")]
+        [SerializeField] LevelDataSO levelDataSO;
+
+        private LevelData currentLevelData;
+        private int currentLevel;
+
+        private void Start()
         {
-            currentLevel = levelNumber;
-
-            currentLevelData = levelDataSO.levels[levelNumber - 1];
-            boardGenerator.ResetGrid();
-            boardGenerator.GenerateBoard(currentLevelData);
-
-            levelButtonSpawner.gameObject.SetActive(false);
-            mainMenuCanvas.gameObject.SetActive(false);
-            gamePlayCanvas.gameObject.SetActive(true);
-            levelCompleteScreen.SetActive(false);
-
-            gameplaylevelText.text = "Level : " + levelNumber;
-            UpdatePairCount(0);
-            UpdateMovesCount(0);
-
-            GamePlayController.Instance.ResetGameplay();
-            GamePlayController.Instance.GameState = GameState.Playing;
+            // Ensure the main menu canvas is active at the start.
+            if (!mainMenuCanvas.gameObject.activeSelf)
+            {
+                mainMenuCanvas.gameObject.SetActive(true);
+            }
         }
-    }
 
-    /// <summary>
-    /// Gets called when next level button click from the lwvwl win screen,
-    /// Handles the next level loading
-    /// </summary>
-    public void OnNextLevelButtonClick()
-    {
-        if(InputManager.Instance.CanInput())
+        public int CurrentLevel { get { return currentLevel; } }
+
+        public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
+
+        /// <summary>
+        /// Loads the specified game level and initializes relevant UI elements.
+        /// </summary>
+        /// <param name="levelNumber">The number of the level to load.</param>
+        public void LoadLevel(int levelNumber)
         {
-            currentLevel++;
-            if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
-            LoadLevel(currentLevel);
-        }
-    }
+            if (levelNumber <= levelDataSO.levels.Length)
+            {
+                currentLevel = levelNumber;
 
-    /// <summary>
-    /// Gets called when Play button click from main menu,
-    /// activates level screen
-    /// </summary>
-    public void OnPlayButtonClick()
-    {
-        if (InputManager.Instance.CanInput())
+                currentLevelData = levelDataSO.levels[levelNumber - 1];
+                boardGenerator.ResetGrid();
+                boardGenerator.GenerateBoard(currentLevelData);
+
+                levelButtonSpawner.gameObject.SetActive(false);
+                mainMenuCanvas.gameObject.SetActive(false);
+                gamePlayCanvas.gameObject.SetActive(true);
+                levelCompleteScreen.SetActive(false);
+
+                gameplaylevelText.text = "Level : " + levelNumber;
+                UpdatePairCount(0);
+                UpdateMovesCount(0);
+
+                GamePlayController.Instance.ResetGameplay();
+                GamePlayController.Instance.GameState = GameState.Playing;
+            }
+        }
+
+        /// <summary>
+        /// Gets called when next level button click from the lwvwl win screen,
+        /// Handles the next level loading
+        /// </summary>
+        public void OnNextLevelButtonClick()
         {
-            levelButtonSpawner.gameObject.SetActive(true);
-            levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+            if (InputManager.Instance.CanInput())
+            {
+                currentLevel++;
+                if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
+                LoadLevel(currentLevel);
+            }
         }
-    }
 
-    /// <summary>
-    ///  Gets called when Main-Menu button click from the gameplay screen,
-    ///  activates main menu screen
-    /// </summary>
-    public void OnGameplayBackButtonClick()
-    {
-        if (InputManager.Instance.CanInput())
+        /// <summary>
+        /// Gets called when Play button click from main menu,
+        /// activates level screen
+        /// </summary>
+        public void OnPlayButtonClick()
         {
-            boardGenerator.ResetGrid();
-
-            levelButtonSpawner.gameObject.SetActive(false);
-            mainMenuCanvas.gameObject.SetActive(true);
-            gamePlayCanvas.gameObject.SetActive(false);
+            if (InputManager.Instance.CanInput())
+            {
+                levelButtonSpawner.gameObject.SetActive(true);
+                levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+            }
         }
-    }
 
-    /// <summary>
-    ///  Gets called when Back button click from the level screen,
-    ///  activates main menu screen
-    /// </summary>
-    public void OnLevelBackButtonClick()
-    {
-        if (InputManager.Instance.CanInput())
+        /// <summary>
+        ///  Gets called when Main-Menu button click from the gameplay screen,
+        ///  activates main menu screen
+        /// </summary>
+        public void OnGameplayBackButtonClick()
         {
-            levelButtonSpawner.gameObject.SetActive(false);
-        }
-    }
+            if (InputManager.Instance.CanInput())
+            {
+                boardGenerator.ResetGrid();
 
-    /// <summary>
-    ///  Gets called when Quit button click from the Main menu screen,
-    ///  closes the game
-    /// </summary>
-    public void OnQuitButtonClick()
-    {
-        if (InputManager.Instance.CanInput())
+                levelButtonSpawner.gameObject.SetActive(false);
+                mainMenuCanvas.gameObject.SetActive(true);
+                gamePlayCanvas.gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        ///  Gets called when Back button click from the level screen,
+        ///  activates main menu screen
+        /// </summary>
+        public void OnLevelBackButtonClick()
         {
-            Application.Quit();
+            if (InputManager.Instance.CanInput())
+            {
+                levelButtonSpawner.gameObject.SetActive(false);
+            }
         }
-    }
 
-    /// <summary>
-    /// Activates level complete screen,
-    /// Updates move count on level screen
-    /// </summary>
-    /// <param name="movesCount"></param>
-    public void ActivateLevelCompleteScreen(int movesCount)
-    {
-        levelCompleteScreen.SetActive(true);
-        levelCompleteMovesCount.text = "You Completed the level in " + movesCount + " moves.";
-    }
+        /// <summary>
+        ///  Gets called when Quit button click from the Main menu screen,
+        ///  closes the game
+        /// </summary>
+        public void OnQuitButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                Application.Quit();
+            }
+        }
 
-    /// <summary>
-    /// Update and shows the completed pair count, basically on game screen
-    /// </summary>
-    /// <param name="completePair">Count of completed pairs</param>
-    public void UpdatePairCount(int completePair)
-    {
-        gameplayPairText.text = "Pair : " + completePair + "/" + currentLevelData.pairCount;
-    }
+        /// <summary>
+        /// Activates level complete screen,
+        /// Updates move count on level screen
+        /// </summary>
+        /// <param name="movesCount"></param>
+        public void ActivateLevelCompleteScreen(int movesCount)
+        {
+            levelCompleteScreen.SetActive(true);
+            levelCompleteMovesCount.text = "You Completed the level in " + movesCount + " moves.";
+        }
 
-    /// <summary>
-    /// Update and shows the completed moves count, basically on game screen
-    /// </summary>
-    /// <param name="moves">Number of moves</param>
-    public void UpdateMovesCount(int moves)
-    {
-        gameplayMoveText.text = "Moves : " + moves;
+        /// <summary>
+        /// Update and shows the completed pair count, basically on game screen
+        /// </summary>
+        /// <param name="completePair">Count of completed pairs</param>
+        public void UpdatePairCount(int completePair)
+        {
+            gameplayPairText.text = "Pair : " + completePair + "/" + currentLevelData.pairCount;
+        }
+
+        /// <summary>
+        /// Update and shows the completed moves count, basically on game screen
+        /// </summary>
+        /// <param name="moves">Number of moves</param>
+        public void UpdateMovesCount(int moves)
+        {
+            gameplayMoveText.text = "Moves : " + moves;
+        }
     }
 }
