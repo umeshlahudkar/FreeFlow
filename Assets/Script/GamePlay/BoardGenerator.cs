@@ -126,7 +126,7 @@ namespace FreeFlow.GamePlay
         /// <summary>
         /// Resets the grid by deactivating and returning blocks to the object pool.
         /// </summary>
-        public void ResetGrid()
+        public void ResetBoard()
         {
             if (gridblocks != null && gridblocks.Count > 0)
             {

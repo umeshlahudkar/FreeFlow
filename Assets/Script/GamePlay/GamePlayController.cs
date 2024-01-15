@@ -146,79 +146,58 @@ namespace FreeFlow.GamePlay
                     // selected block is not select again, check for the new block
                     if(CanSelectToAdd(block))
                     { 
-                        /*
-                    if (block != null && selectedBlocks.Count > 0 && !selectedBlocks.Contains(block) && !(selectedBlocks[0].IsPairBlock && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1])))
-                    {
-                        if ((!block.IsPairBlock) || //if not the normal blocks - without pair block
-                            (block.IsPairBlock && block.PairColorType == selectedBlocks[0].PairColorType) || // if dot present, is it same as the selected
-                            (block.IsPairBlock && block.PairColorType == selectedBlocks[0].HighlightedColorType) || // selected block from middle one, dreag to same dot type block
-                            (!block.IsPairBlock && hasSelectExistingFromLast) || // keep adding to existing list
-                            (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedColorType))
+                        // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
+                        if (completedPairs.ContainsKey(block.HighlightedColorType) && block.HighlightedColorType != selectedBlocks[0].HighlightedColorType)
                         {
+                            List<Block> blocks = completedPairs[block.HighlightedColorType];
 
+                            int indexToRemove = GetBlockIndex(blocks, block);
+                            indexToRemove--;
+                            if (indexToRemove <= -1) { indexToRemove = -1; }
 
-                           
-                            if((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1], selectedBlocks[0].HighlightedColorType))
+                            if (indexToRemove != -1)
                             {
-                                Debug.Log("..........");
-                                return;
+                                ResetBlockToRemove(blocks, indexToRemove);
+                            }
+                        }
+
+                        // gets the direction of new selected block with respect to last selected blocks
+                        Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
+
+                        // highlighted the new selected block and last selected block based on direction
+                        if (dir != Direction.None)
+                        {
+                            PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
+                            if (hasSelectExistingFromMiddle)
+                            {
+                                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
                             }
 
-                        */
+                            //highlighting last selected block
+                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlock(dir, type);
 
-                            // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-                            if (completedPairs.ContainsKey(block.HighlightedColorType) && block.HighlightedColorType != selectedBlocks[0].HighlightedColorType)
+                            //highlight new selected block
+                            switch (dir)
                             {
-                                List<Block> blocks = completedPairs[block.HighlightedColorType];
+                                case Direction.Left:
+                                    block.HighlightBlock(Direction.Right, type);
+                                    break;
 
-                                int indexToRemove = GetBlockIndex(blocks, block);
-                                indexToRemove--;
-                                if (indexToRemove <= -1) { indexToRemove = -1; }
+                                case Direction.Right:
+                                    block.HighlightBlock(Direction.Left, type);
+                                    break;
 
-                                if (indexToRemove != -1)
-                                {
-                                    ResetBlockToRemove(blocks, indexToRemove);
-                                }
+                                case Direction.Up:
+                                    block.HighlightBlock(Direction.Down, type);
+                                    break;
+
+                                case Direction.Down:
+                                    block.HighlightBlock(Direction.Up, type);
+                                    break;
                             }
 
-                            // gets the direction of new selected block with respect to last selected blocks
-                            Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
-
-                            // highlighted the new selected block and last selected block based on direction
-                            if (dir != Direction.None)
-                            {
-                                PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
-                                if (hasSelectExistingFromMiddle)
-                                {
-                                    type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
-                                }
-
-                                //highlighting last selected block
-                                selectedBlocks[selectedBlocks.Count - 1].HighlightBlock(dir, type);
-
-                                //highlight new selected block
-                                switch (dir)
-                                {
-                                    case Direction.Left:
-                                        block.HighlightBlock(Direction.Right, type);
-                                        break;
-
-                                    case Direction.Right:
-                                        block.HighlightBlock(Direction.Left, type);
-                                        break;
-
-                                    case Direction.Up:
-                                        block.HighlightBlock(Direction.Down, type);
-                                        break;
-
-                                    case Direction.Down:
-                                        block.HighlightBlock(Direction.Up, type);
-                                        break;
-                                }
-
-                                selectedBlocks.Add(block);
-                            }
-                        //}
+                            selectedBlocks.Add(block);
+                        }
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
                     else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
@@ -249,6 +228,34 @@ namespace FreeFlow.GamePlay
                         }
                     }
                 }
+            }
+        }
+
+        private void OnPointerUp()
+        {
+            if (selectedBlocks.Count > 0)
+            {
+                AddSelectedBlocksToCompletedPairs();
+
+                if (selectedBlocks.Count > 1)
+                {
+                    moves++;
+                    UIController.Instance.UpdateMovesCount(moves);
+                }
+            }
+
+            isClicked = false;
+            hasSelectExistingFromMiddle = false;
+            hasSelectExistingFromLast = false;
+            selectedBlocks.Clear();
+
+            int count = GetPairCompleteCount();
+            UIController.Instance.UpdatePairCount(count);
+
+            if (count >= UIController.Instance.CurrentLevelGoal)
+            {
+                GameState = GameState.Ending;
+                UIController.Instance.ActivateLevelCompleteScreen(moves);
             }
         }
 
@@ -340,8 +347,6 @@ namespace FreeFlow.GamePlay
             return color;
         }
 
-
-
         /// <summary>
         /// Gets the index of a specific block within a list
         /// </summary>
@@ -399,37 +404,6 @@ namespace FreeFlow.GamePlay
         {
             eventSystem.RaycastAll(eventData, results);
         }
-
-
-
-        private void OnPointerUp()
-        {
-            if (selectedBlocks.Count > 0)
-            {
-                AddSelectedBlocksToCompletedPairs();
-
-                if (selectedBlocks.Count > 1)
-                {
-                    moves++;
-                    UIController.Instance.UpdateMovesCount(moves);
-                }
-            }
-
-            isClicked = false;
-            hasSelectExistingFromMiddle = false;
-            hasSelectExistingFromLast = false;
-            selectedBlocks.Clear();
-
-            int count = GetPairCompleteCount();
-            UIController.Instance.UpdatePairCount(count);
-
-            if (count >= UIController.Instance.CurrentLevelGoal)
-            {
-                GameState = GameState.Ending;
-                UIController.Instance.ActivateLevelCompleteScreen(moves);
-            }
-        }
-
 
         /// <summary>
         /// Adds the selected blocks to the completed pairs

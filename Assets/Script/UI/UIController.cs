@@ -58,7 +58,7 @@ namespace FreeFlow.UI
                 currentLevel = levelNumber;
 
                 currentLevelData = levelDataSO.levels[levelNumber - 1];
-                boardGenerator.ResetGrid();
+                boardGenerator.ResetBoard();
                 boardGenerator.GenerateBoard(currentLevelData);
 
                 levelButtonSpawner.gameObject.SetActive(false);
@@ -110,7 +110,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                boardGenerator.ResetGrid();
+                boardGenerator.ResetBoard();
 
                 levelButtonSpawner.gameObject.SetActive(false);
                 mainMenuCanvas.gameObject.SetActive(true);
