@@ -1,7 +1,8 @@
 using FreeFlow.Util;
 using System.Collections.Generic;
 using UnityEngine;
-
+using DG.Tweening;
+using System.Collections;
 
 namespace FreeFlow.UI
 {
@@ -15,12 +16,14 @@ namespace FreeFlow.UI
 
         private List<LevelButton> buttons = new List<LevelButton>();
         private ObjectPool<LevelButton> objectPool;
+        private WaitForSeconds waitForSeconds;
 
         /// <summary>
         /// Initializes the object pool for level buttons
         /// </summary>
         private void InitializePool()
         {
+            waitForSeconds = new WaitForSeconds(0.02f);
             objectPool = new ObjectPool<LevelButton>(levelButtonPrefab, maxLevelPerScreen, levelButtonPrefab.transform.parent);
         }
 
@@ -32,13 +35,24 @@ namespace FreeFlow.UI
         public void PrepareLevelScreen(int unlockedLevels)
         {
             if (objectPool == null) { InitializePool(); }
+            StartCoroutine(InstantiateButton(unlockedLevels));
+        }
+
+        private IEnumerator InstantiateButton(int unlockedLevels)
+        {
+            yield return new WaitForSeconds(0.1f);
 
             for (int i = 0; i < maxLevelPerScreen; i++)
             {
                 LevelButton button = objectPool.GetObject();
+                button.ThisTransform.localScale = Vector3.zero;
+                button.ThisTransform.DOScale(1, 0.1f).SetEase(Ease.Linear);
+
                 button.SetDetails((i + 1), (i + 1) <= unlockedLevels);
 
                 buttons.Add(button);
+
+                yield return waitForSeconds;
             }
         }
 

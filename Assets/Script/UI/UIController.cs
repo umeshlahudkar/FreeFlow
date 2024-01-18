@@ -15,8 +15,6 @@ namespace FreeFlow.UI
         [Header("Menu Screen")]
         [SerializeField] private LevelButtonSpawner levelButtonSpawner;
         [SerializeField] private GameObject mainMenuScreen;
-        [SerializeField] private Canvas mainMenuCanvas;
-        [SerializeField] private Canvas gamePlayCanvas;
         [SerializeField] private BoardGenerator boardGenerator;
 
         [Header("Level Complete Screen")]
@@ -27,21 +25,13 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI gameplaylevelText;
         [SerializeField] private TextMeshProUGUI gameplayPairText;
         [SerializeField] private TextMeshProUGUI gameplayMoveText;
+        [SerializeField] private GameObject gameplayScreen;
 
         [Header("Level Data SO")]
         [SerializeField] LevelDataSO levelDataSO;
 
         private LevelData currentLevelData;
         private int currentLevel;
-
-        private void Start()
-        {
-            // Ensure the main menu canvas is active at the start.
-            if (!mainMenuCanvas.gameObject.activeSelf)
-            {
-                mainMenuCanvas.gameObject.SetActive(true);
-            }
-        }
 
         public int CurrentLevel { get { return currentLevel; } }
 
@@ -58,13 +48,16 @@ namespace FreeFlow.UI
                 currentLevel = levelNumber;
 
                 currentLevelData = levelDataSO.levels[levelNumber - 1];
-                boardGenerator.ResetBoard();
-                boardGenerator.GenerateBoard(currentLevelData);
 
                 levelButtonSpawner.gameObject.SetActive(false);
-                mainMenuCanvas.gameObject.SetActive(false);
-                gamePlayCanvas.gameObject.SetActive(true);
-                levelCompleteScreen.SetActive(false);
+                gameplayScreen.SetActive(false);
+                mainMenuScreen.SetActive(false);
+
+                levelCompleteScreen.Deactivate();
+                gameplayScreen.SetActive(true);
+
+                boardGenerator.ResetBoard();
+                boardGenerator.GenerateBoard(currentLevelData);
 
                 gameplaylevelText.text = "Level : " + levelNumber;
                 UpdatePairCount(0);
@@ -97,8 +90,10 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                levelButtonSpawner.gameObject.SetActive(true);
+                levelButtonSpawner.gameObject.Activate();
                 levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+
+                mainMenuScreen.SetActive(false);
             }
         }
 
@@ -113,8 +108,9 @@ namespace FreeFlow.UI
                 boardGenerator.ResetBoard();
 
                 levelButtonSpawner.gameObject.SetActive(false);
-                mainMenuCanvas.gameObject.SetActive(true);
-                gamePlayCanvas.gameObject.SetActive(false);
+                mainMenuScreen.SetActive(true);
+                gameplayScreen.SetActive(false);
+                levelCompleteScreen.SetActive(false);
             }
         }
 
@@ -126,7 +122,8 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                levelButtonSpawner.gameObject.SetActive(false);
+                mainMenuScreen.SetActive(true);
+                levelButtonSpawner.gameObject.Deactivate();
             }
         }
 
@@ -149,7 +146,8 @@ namespace FreeFlow.UI
         /// <param name="movesCount"></param>
         public void ActivateLevelCompleteScreen(int movesCount)
         {
-            levelCompleteScreen.SetActive(true);
+            //levelCompleteScreen.SetActive(true);
+            levelCompleteScreen.Activate();
             levelCompleteMovesCount.text = "You Completed the level in " + movesCount + " moves.";
         }
 

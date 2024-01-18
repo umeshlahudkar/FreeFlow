@@ -10,10 +10,13 @@ namespace FreeFlow.UI
     /// </summary>
     public class LevelButton : MonoBehaviour
     {
+        [SerializeField] private Transform thisTransform;
         [SerializeField] private Button thisButton;
         [SerializeField] private TextMeshProUGUI levelNumberText;
 
         private int levelNumber;
+
+        public Transform ThisTransform { get { return thisTransform; } }
 
         /// <summary>
         /// Sets the details for the level button, including the level number and its interactability.

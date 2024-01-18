@@ -1,4 +1,5 @@
 using FreeFlow.Util;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -14,6 +15,7 @@ namespace FreeFlow.GamePlay
         private List<Block> gridblocks;
 
         private ObjectPool<Block> objectPool;
+        private WaitForSeconds waitForSeconds;
 
 
         /// <summary>
@@ -21,6 +23,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void InitializePool()
         {
+            waitForSeconds = new WaitForSeconds(0.1f);
             objectPool = new ObjectPool<Block>(blockPrefab, 16, thisTransform);
         }
 
@@ -32,6 +35,17 @@ namespace FreeFlow.GamePlay
         public void GenerateBoard(LevelData data)
         {
             if (objectPool == null) { InitializePool(); }
+
+            StartCoroutine(GenerateBoardCo(data));
+        }
+
+        private IEnumerator GenerateBoardCo(LevelData data)
+        {
+            ScreenAnimation anim = gameObject.GetComponentInParent<ScreenAnimation>();
+            if (anim != null)
+            {
+                yield return new WaitForSeconds(anim.TotolTime);
+            }
 
             gridblocks = new List<Block>();
 
@@ -61,6 +75,8 @@ namespace FreeFlow.GamePlay
 
                     currentPositionX += (blockSize + blockSpace);
                     gridblocks.Add(block);
+
+                    yield return waitForSeconds;
                 }
                 currentPositionX = startPointX;
                 currentPositionY -= (blockSize + blockSpace);
