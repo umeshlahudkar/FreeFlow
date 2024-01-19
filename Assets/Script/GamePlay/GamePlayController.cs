@@ -289,6 +289,11 @@ namespace FreeFlow.GamePlay
                         return false;
                     }
 
+                    if(completedPairs.ContainsKey(block.HighlightedColorType) && completedPairs[block.HighlightedColorType].Contains(block) && block.HighlightedColorType == selectedBlocks[0].HighlightedColorType)
+                    {
+                        return false;
+                    }
+
                     return true;
                 }
             }

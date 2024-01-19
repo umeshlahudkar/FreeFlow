@@ -64,7 +64,6 @@ namespace FreeFlow.UI
                 UpdateMovesCount(0);
 
                 GamePlayController.Instance.ResetGameplay();
-                GamePlayController.Instance.GameState = GameState.Playing;
             }
         }
 

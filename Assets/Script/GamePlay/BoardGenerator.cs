@@ -81,6 +81,8 @@ namespace FreeFlow.GamePlay
                 currentPositionX = startPointX;
                 currentPositionY -= (blockSize + blockSpace);
             }
+
+            GamePlayController.Instance.GameState = Enums.GameState.Playing;
         }
 
 
