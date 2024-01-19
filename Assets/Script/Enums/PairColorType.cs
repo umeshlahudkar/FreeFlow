@@ -8,7 +8,11 @@ namespace FreeFlow.Enums
         Red = 1,
         Blue,
         Yellow,
-        Green
+        Green,
+        Orange,
+        Cyan,
+        Voilet,
+        Pink
     }
 }
 
