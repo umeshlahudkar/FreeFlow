@@ -12,7 +12,8 @@ namespace FreeFlow.Enums
         Orange,
         Cyan,
         Voilet,
-        Pink
+        Pink,
+        Purple
     }
 }
 

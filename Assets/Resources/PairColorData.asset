@@ -26,6 +26,8 @@ MonoBehaviour:
   - pairColorType: 6
     color: {r: 0, g: 1, b: 1, a: 1}
   - pairColorType: 7
-    color: {r: 0.5803922, g: 0, b: 0.827451, a: 1}
+    color: {r: 1, g: 0.73333335, b: 1, a: 1}
   - pairColorType: 8
-    color: {r: 1, g: 0.7529412, b: 0.79607844, a: 1}
+    color: {r: 0.54509807, g: 0.37254903, b: 0.39607844, a: 1}
+  - pairColorType: 9
+    color: {r: 0.60784316, g: 0.1882353, b: 1, a: 1}
