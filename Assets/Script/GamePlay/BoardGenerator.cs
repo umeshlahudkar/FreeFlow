@@ -76,7 +76,7 @@ namespace FreeFlow.GamePlay
                     currentPositionX += (blockSize + blockSpace);
                     gridblocks.Add(block);
 
-                    yield return waitForSeconds;
+                    //yield return waitForSeconds;
                 }
                 currentPositionX = startPointX;
                 currentPositionY -= (blockSize + blockSpace);

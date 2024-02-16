@@ -19,7 +19,7 @@ namespace FreeFlow.GamePlay
         private bool hasSelectExistingFromLast;
         private bool hasSelectExistingFromMiddle;
 
-        private List<Block> selectedBlocks;
+        [SerializeField] private List<Block> selectedBlocks;
         private Dictionary<PairColorType, List<Block>> completedPairs;
 
         private EventSystem eventSystem;
@@ -110,6 +110,7 @@ namespace FreeFlow.GamePlay
                         if (IsEqual(blocks[blocks.Count - 1], block))
                         {
                             hasSelectExistingFromLast = true;
+                           
                         }
 
                         //if selected block is the somewhere between first and last highlighted block,
@@ -125,7 +126,11 @@ namespace FreeFlow.GamePlay
                         }
 
                         isClicked = true;
-                        selectedBlocks.Add(block);
+                        selectedBlocks.Clear();
+                        selectedBlocks.AddRange(blocks);
+
+                        completedPairs.Remove(block.HighlightedColorType);
+                        //selectedBlocks.Add(block);
                     }
                 }
             }
@@ -200,30 +205,53 @@ namespace FreeFlow.GamePlay
                         }
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
-                    else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
+                    //else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
+                    //{
+                    //    List<Block> blocks = completedPairs[(block.HighlightedColorType)];
+
+                    //    //last highlighted block selected
+                    //    if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
+                    //    {
+                    //        return;
+                    //    }
+
+                    //    // selected somewhere between first and last pair, resets the blocks
+                    //    if (blocks.Count > 0 && blocks.Contains(block))
+                    //    {
+                    //        Block b = blocks[blocks.Count - 1];
+                    //        Direction dir = GetDirection(block, b);
+
+                    //        if (dir != Direction.None)
+                    //        {
+                    //            b.ResetAllHighlightDirection();
+                    //            block.ResetHighlightDirection(dir);
+
+                    //            blocks.RemoveAt(blocks.Count - 1);
+                    //            selectedBlocks.Clear();
+                    //            selectedBlocks.Add(block);
+                    //        }
+                    //        Debug.Log("from last");
+                    //    }
+                    //}
+                    else if(block != null && selectedBlocks.Contains(block))
                     {
-                        List<Block> blocks = completedPairs[(block.HighlightedColorType)];
-
-                        //last highlighted block selected
-                        if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
+                        if (!IsEqual(selectedBlocks[selectedBlocks.Count - 1], block) && 
+                            IsEqual(selectedBlocks[selectedBlocks.Count - 2], block))
                         {
-                            return;
-                        }
-
-                        // selected somewhere between first and last pair, resets the blocks
-                        if (blocks.Count > 0 && blocks.Contains(block))
-                        {
-                            Block b = blocks[blocks.Count - 1];
-                            Direction dir = GetDirection(block, b);
-
-                            if (dir != Direction.None)
+                            // selected somewhere between first and last pair, resets the blocks
+                            //if (blocks.Count > 0 && blocks.Contains(block))
                             {
-                                b.ResetAllHighlightDirection();
-                                block.ResetHighlightDirection(dir);
+                                Block b = selectedBlocks[selectedBlocks.Count - 1];
+                                Direction dir = GetDirection(block, b);
 
-                                blocks.RemoveAt(blocks.Count - 1);
-                                selectedBlocks.Clear();
-                                selectedBlocks.Add(block);
+                                if (dir != Direction.None)
+                                {
+                                    b.ResetAllHighlightDirection();
+                                    block.ResetHighlightDirection(dir);
+
+                                    selectedBlocks.Remove(b);
+                                    //selectedBlocks.Add(block);
+                                }
                             }
                         }
                     }

@@ -14,6 +14,11 @@ namespace FreeFlow.UI
         [SerializeField] private LevelButton levelButtonPrefab;
         [SerializeField] private int maxLevelPerScreen = 20;
 
+        [SerializeField] private GameObject levelScreen;
+
+        public int numberOfLevels = 100;
+        public int buttonPerPage = 20;
+
         private List<LevelButton> buttons = new List<LevelButton>();
         private ObjectPool<LevelButton> objectPool;
         private WaitForSeconds waitForSeconds;
@@ -34,8 +39,14 @@ namespace FreeFlow.UI
         /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
         public void PrepareLevelScreen(int unlockedLevels)
         {
-            if (objectPool == null) { InitializePool(); }
-            StartCoroutine(InstantiateButton(unlockedLevels));
+            int pages = Mathf.CeilToInt((float)numberOfLevels / buttonPerPage);
+            for(int i = 0; i < pages; i++)
+            {
+                GameObject screen = Instantiate(levelScreen, transform);
+                screen.transform.localPosition = new Vector3(levelScreen.transform.localPosition.x + Screen.width * i, levelScreen.transform.localPosition.y, levelScreen.transform.localPosition.z);
+            }
+            //if (objectPool == null) { InitializePool(); }
+            //StartCoroutine(InstantiateButton(unlockedLevels));
         }
 
         private IEnumerator InstantiateButton(int unlockedLevels)
