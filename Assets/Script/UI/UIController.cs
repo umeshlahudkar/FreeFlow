@@ -13,7 +13,7 @@ namespace FreeFlow.UI
     public class UIController : Singleton<UIController>
     {
         [Header("Menu Screen")]
-        [SerializeField] private LevelButtonSpawner levelButtonSpawner;
+        [SerializeField] private LevelScreenController levelButtonSpawner;
         [SerializeField] private GameObject mainMenuScreen;
         [SerializeField] private BoardGenerator boardGenerator;
 
