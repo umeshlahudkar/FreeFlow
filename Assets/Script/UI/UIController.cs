@@ -37,6 +37,11 @@ namespace FreeFlow.UI
 
         public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
 
+        private void Start()
+        {
+            levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+        }
+
         /// <summary>
         /// Loads the specified game level and initializes relevant UI elements.
         /// </summary>
@@ -90,8 +95,6 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 levelButtonSpawner.gameObject.Activate();
-                levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
-
                 mainMenuScreen.SetActive(false);
             }
         }
