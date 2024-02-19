@@ -13,7 +13,7 @@ namespace FreeFlow.GamePlay
     /// </summary>
     public class GamePlayController : Singleton<GamePlayController>
     {
-        private GameState gameState;
+        [SerializeField] private GameState gameState = GameState.Waiting;
 
         private bool isClicked;
         private bool hasSelectExistingFromLast;
@@ -32,8 +32,6 @@ namespace FreeFlow.GamePlay
 
         private void Start()
         {
-            gameState = GameState.Waiting;
-
             isClicked = false;
             hasSelectExistingFromLast = false;
             hasSelectExistingFromMiddle = false;

@@ -37,7 +37,6 @@ namespace FreeFlow.Util
         {
             if (objectQueue.Count == 0)
             {
-                Debug.Log("Creating new");
                 T newObj = CreateNewObject();
                 objectQueue.Enqueue(newObj);
             }

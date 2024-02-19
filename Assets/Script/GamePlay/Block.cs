@@ -1,6 +1,7 @@
 using FreeFlow.Enums;
 using UnityEngine;
 using UnityEngine.UI;
+using DG.Tweening;
 
 namespace FreeFlow.GamePlay
 {
@@ -20,7 +21,6 @@ namespace FreeFlow.GamePlay
         private PairColorType pairColorType;
         private PairColorType highlightedColorType;
 
-
         /// <summary>
         /// Sets the properties of the block, including its position, pair color type,
         /// </summary>
@@ -38,6 +38,9 @@ namespace FreeFlow.GamePlay
                 isPairBlock = true;
                 pairDotImage.gameObject.SetActive(true);
                 pairDotImage.color = GamePlayController.Instance.GetColor(type);
+
+                pairDotImage.transform.localScale = Vector3.zero;
+                pairDotImage.transform.DOScale(1, 0.5f);
             }
         }
 
@@ -103,6 +106,7 @@ namespace FreeFlow.GamePlay
             pairColorType = PairColorType.None;
             highlightedColorType = PairColorType.None;
             isPairBlock = false;
+            pairDotImage.transform.localScale = Vector3.zero;
 
             pairDotImage.gameObject.SetActive(false);
             ResetAllHighlightDirection();

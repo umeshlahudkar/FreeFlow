@@ -50,6 +50,8 @@ namespace FreeFlow.UI
         {
             if (levelNumber <= levelDataSO.levels.Length)
             {
+                GamePlayController.Instance.ResetGameplay();
+
                 currentLevel = levelNumber;
 
                 currentLevelData = levelDataSO.levels[levelNumber - 1];
@@ -67,8 +69,6 @@ namespace FreeFlow.UI
                 gameplaylevelText.text = "Level : " + levelNumber;
                 UpdatePairCount(0);
                 UpdateMovesCount(0);
-
-                GamePlayController.Instance.ResetGameplay();
             }
         }
 
