@@ -17,9 +17,10 @@ namespace FreeFlow.UI
         [SerializeField] private GameObject mainMenuScreen;
         [SerializeField] private BoardGenerator boardGenerator;
 
-        [Header("Level Complete Screen")]
-        [SerializeField] private GameObject levelCompleteScreen;
-        [SerializeField] private TextMeshProUGUI levelCompleteMovesCount;
+        [Header("Game over Screen")]
+        [SerializeField] private GameObject gameOverScreen;
+        [SerializeField] private TextMeshProUGUI gameOverMsgText;
+        [SerializeField] private TextMeshProUGUI gameOverLevelText;
 
         [Header("Gameplay")]
         [SerializeField] private TextMeshProUGUI gameplaylevelText;
@@ -63,7 +64,7 @@ namespace FreeFlow.UI
                 gameplayScreen.SetActive(false);
                 mainMenuScreen.SetActive(false);
 
-                levelCompleteScreen.Deactivate();
+                gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(true);
 
                 boardGenerator.ResetBoard();
@@ -79,14 +80,11 @@ namespace FreeFlow.UI
         /// Gets called when next level button click from the lwvwl win screen,
         /// Handles the next level loading
         /// </summary>
-        public void OnNextLevelButtonClick()
+        private void LoadNextLevel()
         {
-            if (InputManager.Instance.CanInput())
-            {
-                currentLevel++;
-                if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
-                LoadLevel(currentLevel);
-            }
+            currentLevel++;
+            if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
+            LoadLevel(currentLevel);
         }
 
         /// <summary>
@@ -115,7 +113,7 @@ namespace FreeFlow.UI
                 levelButtonSpawner.gameObject.SetActive(false);
                 mainMenuScreen.SetActive(true);
                 gameplayScreen.SetActive(false);
-                levelCompleteScreen.SetActive(false);
+                gameOverScreen.SetActive(false);
             }
         }
 
@@ -144,7 +142,7 @@ namespace FreeFlow.UI
             }
         }
 
-        public void OnRetryButtonClick()
+        public void OnPauseScreenRetryButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
@@ -161,11 +159,11 @@ namespace FreeFlow.UI
             }
         }
 
-        public void OnHomeButtonClick()
+        public void OnPauseScreenHomeButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
-                levelCompleteScreen.SetActive(false);
+                gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
 
                 pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
@@ -210,9 +208,63 @@ namespace FreeFlow.UI
         /// <param name="movesCount"></param>
         public void ActivateLevelCompleteScreen(int movesCount)
         {
-            //levelCompleteScreen.SetActive(true);
-            levelCompleteScreen.Activate();
-            levelCompleteMovesCount.text = "You Completed the level in " + movesCount + " moves.";
+            gameOverScreen.SetActive(true);
+            gameOverMsgText.text = "Congrats!, You Completed the level in " + movesCount + " moves.";
+            gameOverLevelText.text = "Level " + currentLevel;
+
+            gameOverScreen.transform.localPosition += new Vector3(Screen.width, 0, 0);
+            gameOverScreen.transform.DOLocalMove(Vector3.zero, 0.25f);
+        }
+
+        public void OnGameOverScreenRetryButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
+                {
+                    gameOverScreen.SetActive(false);
+                    gameOverScreen.transform.localPosition = Vector3.zero;
+
+                    LoadLevel(currentLevel);
+                });
+            }
+        }
+
+        public void OnGameOverScreenHomeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                pauseScreen.SetActive(false);
+                gameplayScreen.SetActive(false);
+
+                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
+                {
+                    gameOverScreen.SetActive(false);
+                    gameOverScreen.transform.localPosition = Vector3.zero;
+
+                    mainMenuScreen.SetActive(true);
+                });
+            }
+        }
+
+        public void OnGameOverScreenNextButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
+                {
+                    gameOverScreen.SetActive(false);
+                    gameOverScreen.transform.localPosition = Vector3.zero;
+
+                    LoadNextLevel();
+                });
+            }
         }
 
         /// <summary>
