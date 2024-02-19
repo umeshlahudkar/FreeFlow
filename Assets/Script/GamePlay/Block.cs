@@ -49,7 +49,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         /// <param name="dir">The direction in which to highlight the block.</param>
         /// <param name="type">The pair color type used for the highlight color.</param>
-        public void HighlightBlock(Direction dir, PairColorType type)
+        public void HighlightBlockDirection(Direction dir, PairColorType type)
         {
             highlightedColorType = type;
             directionImages[((int)dir - 1)].gameObject.SetActive(true);
@@ -76,6 +76,16 @@ namespace FreeFlow.GamePlay
         public void ResetHighlightDirection(Direction dir)
         {
             directionImages[((int)dir - 1)].gameObject.SetActive(false);
+        }
+
+        public void HighlightBlock()
+        {
+            pairDotImage.transform.DOScale(1.3f, 0.5f);
+        }
+
+        public void ResetHighlightBlock()
+        {
+            pairDotImage.transform.DOScale(1f, 0.5f);
         }
 
         public bool IsPairBlock

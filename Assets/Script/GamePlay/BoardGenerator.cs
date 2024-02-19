@@ -12,7 +12,7 @@ namespace FreeFlow.GamePlay
     {
         [SerializeField] private Block blockPrefab;
         [SerializeField] private RectTransform thisTransform;
-        private List<Block> gridblocks;
+        //private List<Block> gridblocks;
 
         private ObjectPool<Block> objectPool;
 
@@ -33,10 +33,12 @@ namespace FreeFlow.GamePlay
         {
             if (objectPool == null) { InitializePool(); }
 
-            gridblocks = new List<Block>();
+            //gridblocks = new List<Block>();
 
             int rowSize = (int)data.gridSize;
             int coloumSize = (int)data.gridSize;
+
+            GamePlayController.Instance.InitGrid(rowSize, coloumSize);
 
             float totalScreenWidth = thisTransform.rect.width;
             float totalScreenHeight = thisTransform.rect.height;
@@ -70,7 +72,9 @@ namespace FreeFlow.GamePlay
                     block.SetBlock(data.gridRows[i].coloum[j], i, j);
 
                     currentPositionX += (blockSize + blockSpace);
-                    gridblocks.Add(block);
+                    //gridblocks.Add(block);
+
+                    GamePlayController.Instance.grid[i, j] = block;
                 }
                 currentPositionX = startPointX;
                 currentPositionY -= (blockSize + blockSpace);
@@ -139,16 +143,18 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public void ResetBoard()
         {
-            if (gridblocks != null && gridblocks.Count > 0)
-            {
-                foreach (Block b in gridblocks)
-                {
-                    //Destroy(b.gameObject);
-                    b.ResetBlock();
-                    objectPool.ReturnObject(b);
-                }
-                gridblocks.Clear();
-            }
+            //if (gridblocks != null && gridblocks.Count > 0)
+            //{
+            //    foreach (Block b in gridblocks)
+            //    {
+            //        //Destroy(b.gameObject);
+            //        b.ResetBlock();
+            //        objectPool.ReturnObject(b);
+            //    }
+            //    gridblocks.Clear();
+            //}
+
+            GamePlayController.Instance.ResetBlocks(objectPool);
         }
     }
 }
