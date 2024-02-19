@@ -341,7 +341,6 @@ namespace FreeFlow.GamePlay
                     if (blockCount >= 2) { break; }
                 }
             }
-           
 
             highlightedBlock[0].HighlightBlock();
             highlightedBlock[1].HighlightBlock();
