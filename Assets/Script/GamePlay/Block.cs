@@ -11,6 +11,7 @@ namespace FreeFlow.GamePlay
     public class Block : MonoBehaviour
     {
         [SerializeField] private Image pairDotImage;
+        [SerializeField] private Image blockBgHighlightImage;
         [SerializeField] private Image[] directionImages;
 
         private int row_ID;
@@ -53,7 +54,9 @@ namespace FreeFlow.GamePlay
         {
             highlightedColorType = type;
             directionImages[((int)dir - 1)].gameObject.SetActive(true);
-            directionImages[((int)dir - 1)].color = GamePlayController.Instance.GetColor(type);
+
+            Color color = GamePlayController.Instance.GetColor(type);
+            directionImages[((int)dir - 1)].color = color;
         }
 
         /// <summary>
@@ -66,6 +69,7 @@ namespace FreeFlow.GamePlay
                 directionImages[i].gameObject.SetActive(false);
             }
 
+            ResetHighlightBlockBg();
             highlightedColorType = PairColorType.None;
         }
 
@@ -76,16 +80,42 @@ namespace FreeFlow.GamePlay
         public void ResetHighlightDirection(Direction dir)
         {
             directionImages[((int)dir - 1)].gameObject.SetActive(false);
+
+            int count = 0;
+            for (int i = 0; i < directionImages.Length; i++)
+            {
+                if(directionImages[i].gameObject.activeSelf) { break; }
+                count++;
+            }
+
+            if(count >= directionImages.Length)
+            {
+                ResetHighlightBlockBg();
+            }
         }
 
         public void HighlightBlock()
         {
-            pairDotImage.transform.DOScale(1.3f, 0.5f);
+            pairDotImage.transform.DOScale(1.3f, 0.35f);
         }
 
         public void ResetHighlightBlock()
         {
-            pairDotImage.transform.DOScale(1f, 0.5f);
+            pairDotImage.transform.DOScale(1f, 0.35f);
+        }
+
+        public void HighlightBlockBg()
+        {
+            blockBgHighlightImage.gameObject.SetActive(true);
+
+            Color color = GamePlayController.Instance.GetColor(highlightedColorType);
+            color.a = blockBgHighlightImage.color.a;
+            blockBgHighlightImage.color = color;
+        }
+
+        public void ResetHighlightBlockBg()
+        {
+            blockBgHighlightImage.gameObject.SetActive(false);
         }
 
         public bool IsPairBlock

@@ -3,6 +3,7 @@ using FreeFlow.UI;
 using FreeFlow.Util;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
 
@@ -32,6 +33,7 @@ namespace FreeFlow.GamePlay
         private Block[] highlightedBlock = new Block[2];
 
         [SerializeField] private PairColorDataSO PairColorDataSO;
+        [SerializeField] private Image touchPointer;
 
         private int moves;
 
@@ -103,7 +105,6 @@ namespace FreeFlow.GamePlay
                         isClicked = true;
                         selectedBlocks.Add(block);
 
-                        HighlightSelectedColorTypeBlock(block);
                     }
 
                     //if click on pair dot and block is not clicked before
@@ -112,7 +113,7 @@ namespace FreeFlow.GamePlay
                         isClicked = true;
                         selectedBlocks.Add(block);
 
-                        HighlightSelectedColorTypeBlock(block);
+                        //HighlightSelectedColorTypeBlock(block);
                     }
 
                     // if the some blocks of pair highlighted, and clicked on the highlighted block
@@ -145,7 +146,15 @@ namespace FreeFlow.GamePlay
 
                         completedPairs.Remove(block.HighlightedColorType);
                         //selectedBlocks.Add(block);
+                        //HighlightSelectedColorTypeBlock(block);
+                    }
+
+                    if(isClicked)
+                    {
                         HighlightSelectedColorTypeBlock(block);
+                        Color clr = (block.IsPairBlock ? GetColor(block.PairColorType) : GetColor(block.HighlightedColorType));
+                        MoveTouchPointer(UnityEngine.Input.mousePosition);
+                        SetTouchPointerImage(clr);
                     }
                 }
             }
@@ -158,6 +167,8 @@ namespace FreeFlow.GamePlay
                 eventData.position = UnityEngine.Input.mousePosition;
                 raycastResults.Clear();
                 PerformRaycast(eventData, raycastResults);
+
+                MoveTouchPointer(UnityEngine.Input.mousePosition);
 
                 if (raycastResults.Count > 0)
                 {
@@ -285,8 +296,14 @@ namespace FreeFlow.GamePlay
                     moves++;
                     UIController.Instance.UpdateMovesCount(moves);
                 }
+
+                for(int i = 0; i < selectedBlocks.Count; i++)
+                {
+                    selectedBlocks[i].HighlightBlockBg();
+                }
             }
 
+            ResetTouchPointer();
             ResetHighlightSelectedColorTypeBlock();
 
             isClicked = false;
@@ -582,6 +599,23 @@ namespace FreeFlow.GamePlay
         {
             get { return gameState; }
             set { gameState = value; }
+        }
+
+        private void SetTouchPointerImage(Color color)
+        {
+            touchPointer.gameObject.SetActive(true);
+            color.a = touchPointer.color.a;
+            touchPointer.color = color;
+        }
+
+        private void ResetTouchPointer()
+        {
+            touchPointer.gameObject.SetActive(false);
+        }
+
+        private void MoveTouchPointer(Vector3 position)
+        {
+            touchPointer.transform.position = position;
         }
 
 
