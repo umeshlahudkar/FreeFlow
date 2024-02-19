@@ -5,6 +5,7 @@ namespace FreeFlow.Enums
     {
         Waiting = 0,
         Playing,
+        Paused,
         Ending
     }
 }

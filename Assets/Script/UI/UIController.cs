@@ -3,7 +3,7 @@ using TMPro;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
 using FreeFlow.Util;
-using FreeFlow.Enums;
+using DG.Tweening;
 
 namespace FreeFlow.UI
 {
@@ -29,6 +29,9 @@ namespace FreeFlow.UI
 
         [Header("Level Data SO")]
         [SerializeField] LevelDataSO levelDataSO;
+
+        [Header("Pause screen")]
+        [SerializeField] GameObject pauseScreen;
 
         private LevelData currentLevelData;
         private int currentLevel;
@@ -113,6 +116,65 @@ namespace FreeFlow.UI
                 mainMenuScreen.SetActive(true);
                 gameplayScreen.SetActive(false);
                 levelCompleteScreen.SetActive(false);
+            }
+        }
+
+        public void OnPauseButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                GamePlayController.Instance.GameState = Enums.GameState.Paused;
+
+                pauseScreen.transform.localPosition += new Vector3(Screen.width, 0, 0);
+                pauseScreen.SetActive(true);
+                pauseScreen.transform.DOLocalMove(Vector3.zero, 0.25f);
+            }
+        }
+
+        public void OnResumeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete( ()=> 
+                {
+                    GamePlayController.Instance.GameState = Enums.GameState.Playing;
+                    pauseScreen.SetActive(false);
+                    pauseScreen.transform.localPosition = Vector3.zero;
+                });
+            }
+        }
+
+        public void OnRetryButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
+                {
+                    pauseScreen.SetActive(false);
+                    pauseScreen.transform.localPosition = Vector3.zero;
+
+                    LoadLevel(currentLevel);
+                });
+            }
+        }
+
+        public void OnHomeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                levelCompleteScreen.SetActive(false);
+                gameplayScreen.SetActive(false);
+
+                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
+                {
+                    pauseScreen.SetActive(false);
+                    pauseScreen.transform.localPosition = Vector3.zero;
+
+                    mainMenuScreen.SetActive(true);
+                });
             }
         }
 
