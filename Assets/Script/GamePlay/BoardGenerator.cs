@@ -14,7 +14,7 @@ namespace FreeFlow.GamePlay
         [SerializeField] private RectTransform thisTransform;
         //private List<Block> gridblocks;
 
-        private ObjectPool<Block> objectPool;
+        [SerializeField] private ObjectPool<Block> objectPool;
 
         /// <summary>
         /// Initializes the object pool for blocks with the specified prefab, capacity, and parent transform.

@@ -638,13 +638,17 @@ namespace FreeFlow.GamePlay
 
         public void ResetBlocks(ObjectPool<Block> blockPool)
         {
-            for (int i = 0; i < gridRow; i++)
+            if(grid != null)
             {
-                for (int j = 0; j < gridCol; j++)
+                for (int i = 0; i < gridRow; i++)
                 {
-                    grid[i, j].ResetBlock();
-                    blockPool.ReturnObject(grid[i, j]);
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        grid[i, j].ResetBlock();
+                        blockPool.ReturnObject(grid[i, j]);
+                    }
                 }
+                grid = null;
             }
         }
     }

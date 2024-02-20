@@ -55,6 +55,7 @@ namespace FreeFlow.UI
             if (levelNumber <= levelDataSO.levels.Length)
             {
                 GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
 
                 currentLevel = levelNumber;
 
@@ -67,7 +68,7 @@ namespace FreeFlow.UI
                 gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(true);
 
-                boardGenerator.ResetBoard();
+                //boardGenerator.ResetBoard();
                 boardGenerator.GenerateBoard(currentLevelData);
 
                 gameplaylevelText.text = "Level : " + levelNumber;
@@ -164,6 +165,9 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
                 gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
 
@@ -238,6 +242,9 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
                 pauseScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
 
