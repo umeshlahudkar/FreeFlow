@@ -97,6 +97,7 @@ namespace FreeFlow.UI
             {
                 levelButtonSpawner.gameObject.Activate();
                 mainMenuScreen.SetActive(false);
+                levelButtonSpawner.LoadLevelScreen(levelDataSO.levels.Length);
             }
         }
 

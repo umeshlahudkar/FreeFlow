@@ -41,6 +41,14 @@ namespace FreeFlow.UI
 
         private Vector3 stageScreenPosition;
 
+        public void LoadLevelScreen(int unlockedLevel)
+        {
+            currentstageOnScreen = Mathf.CeilToInt((float)unlockedLevel / levelButtonPerScreen);
+            currentstageOnScreen--;
+
+            MoveLevelStages(currentstageOnScreen);
+        }
+
         /// <summary>
         /// Prepares the level selection screen by instantiating and setting up level buttons.
         /// </summary>
@@ -49,6 +57,7 @@ namespace FreeFlow.UI
         {
             numberOfLevels = 100;
             currentstageOnScreen = 0;
+
             int pages = Mathf.CeilToInt((float)numberOfLevels / levelButtonPerScreen);
 
             levelStages = new GameObject[pages];
