@@ -15,6 +15,9 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI levelNumberText;
         [SerializeField] private Image buttonImg;
 
+        [SerializeField] private GameObject move;
+        [SerializeField] private TextMeshProUGUI movesText;
+
         private int levelNumber;
 
         public RectTransform ThisTransform { get { return thisTransform; } }
@@ -24,12 +27,22 @@ namespace FreeFlow.UI
         /// </summary>
         /// <param name="_levelNumber">The number associated with this level button.</param>
         /// <param name="interactable">Whether the button should be interactable.</param>
-        public void SetDetails(int _levelNumber, bool interactable, Color imgColor)
+        public void SetDetails(int _levelNumber, bool interactable, Color imgColor, int movesCount = 0)
         {
             levelNumber = _levelNumber;
             thisButton.interactable = interactable;
             levelNumberText.text = levelNumber.ToString();
             buttonImg.color = imgColor;
+
+            if(movesCount > 0)
+            {
+                move.SetActive(true);
+                movesText.text = "Moves : " + movesCount;
+            }
+            else
+            {
+                move.SetActive(false);
+            }
         }
 
         /// <summary>

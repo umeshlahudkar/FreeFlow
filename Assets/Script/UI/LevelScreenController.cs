@@ -21,7 +21,6 @@ namespace FreeFlow.UI
         [SerializeField] private Color unlockedLevel;
         [SerializeField] private Color lockedLevel;
 
-        private int numberOfLevels = 100;
         private int levelButtonPerScreen = 30;
 
         [SerializeField] private List<LevelButton> levelButtons = new List<LevelButton>();
@@ -41,24 +40,21 @@ namespace FreeFlow.UI
 
         private Vector3 stageScreenPosition;
 
-        public void LoadLevelScreen(int unlockedLevel)
+       
+        private void OnEnable()
         {
-            currentstageOnScreen = Mathf.CeilToInt((float)unlockedLevel / levelButtonPerScreen);
-            currentstageOnScreen--;
-
-            MoveLevelStages(currentstageOnScreen);
+            SetButtons();
         }
 
         /// <summary>
         /// Prepares the level selection screen by instantiating and setting up level buttons.
         /// </summary>
         /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
-        public void PrepareLevelScreen(int unlockedLevels)
+        public void SpawnLevelButtons(int totalLevels)
         {
-            numberOfLevels = 100;
             currentstageOnScreen = 0;
 
-            int pages = Mathf.CeilToInt((float)numberOfLevels / levelButtonPerScreen);
+            int pages = Mathf.CeilToInt((float) totalLevels / levelButtonPerScreen);
 
             levelStages = new GameObject[pages];
 
@@ -75,7 +71,7 @@ namespace FreeFlow.UI
             float currentX = startX;
             float currentY = startY;
 
-            int levelNumber = 0;
+            int spawnedLevelCount = 0;
             stageScreenPosition = levelStagePrefab.transform.localPosition;
 
             for (int i = 0; i < pages; i++)
@@ -90,14 +86,11 @@ namespace FreeFlow.UI
                 {
                     for (int k = 0; k < 5; k++)
                     {
-                        levelNumber++;
+                        spawnedLevelCount++;
                         LevelButton button = Instantiate<LevelButton>(levelButtonPrefab, levelStage.transform);
                         button.ThisTransform.SetParent(levelStage.transform);
                         button.ThisTransform.localScale = Vector3.one;
-
-
-                        Color color = levelNumber <= unlockedLevels ? (levelNumber == unlockedLevels ? unlockedLevel : completeLevel) : lockedLevel; 
-                        button.SetDetails(levelNumber, levelNumber <= unlockedLevels, color);
+                        
                         button.gameObject.SetActive(true);
                         button.ThisTransform.sizeDelta = new Vector2(buttonWidth, buttonWidth);
                         button.ThisTransform.localPosition = new Vector3(currentX, currentY);
@@ -106,7 +99,7 @@ namespace FreeFlow.UI
 
                         currentX += buttonWidth + horizontalSpacing;
 
-                        if(levelNumber == numberOfLevels) { return; }
+                        if(spawnedLevelCount == totalLevels) { return; }
                     }
 
                     currentX = startX;
@@ -116,6 +109,34 @@ namespace FreeFlow.UI
                 currentX = startX;
                 currentY = startY ;
             }
+        }
+
+        private void SetButtons()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            int completedLevels = data.completedLevel;
+            int currentUnlockedLevel = completedLevels + 1;
+
+            for(int i = 0; i < levelButtons.Count; i++)
+            {
+                int level = i + 1;
+                bool isUnlocked = (level <= currentUnlockedLevel);
+                bool isCompleted = (level <= completedLevels);
+
+                int levelCompletionMoves = 0;
+                if(isCompleted)
+                {
+                    levelCompletionMoves = data.completedlevelMoves[level - 1];
+                }
+
+                Color color = isUnlocked ? (isCompleted ? completeLevel : unlockedLevel) : lockedLevel;
+                levelButtons[i].SetDetails(level, isUnlocked, color, levelCompletionMoves);
+            }
+
+            currentstageOnScreen = Mathf.CeilToInt((float)currentUnlockedLevel / levelButtonPerScreen);
+            currentstageOnScreen--;
+
+            MoveLevelStages(currentstageOnScreen);
         }
 
         private void Update()

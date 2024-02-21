@@ -325,7 +325,36 @@ namespace FreeFlow.GamePlay
             {
                 GameState = GameState.Ending;
                 UIController.Instance.ActivateLevelCompleteScreen(moves);
+                SaveLevelData();
             }
+        }
+
+        private void SaveLevelData()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            int currentLevel = UIController.Instance.CurrentLevel;
+
+            if(currentLevel < data.completedLevel) 
+            {
+                data.completedlevelMoves[currentLevel - 1] = moves;
+            }
+            else
+            {
+                int[] movesData = data.completedlevelMoves;
+                int[] newMovesData = new int[currentLevel];
+
+                for (int i = 0; i < movesData.Length; i++)
+                {
+                    newMovesData[i] = movesData[i];
+                }
+
+                newMovesData[currentLevel - 1] = moves;
+
+                data.completedLevel = currentLevel;
+                data.completedlevelMoves = newMovesData;
+            }
+
+            SavingSystem.Instance.Save(data);
         }
 
         private void HighlightSelectedColorTypeBlock(Block selectedBlock)

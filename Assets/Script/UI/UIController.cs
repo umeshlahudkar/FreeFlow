@@ -45,7 +45,7 @@ namespace FreeFlow.UI
 
         private void Start()
         {
-            levelScreenController.PrepareLevelScreen(levelDataSO.levels.Length);
+            levelScreenController.SpawnLevelButtons(levelDataSO.levels.Length);
         }
 
         /// <summary>
@@ -99,7 +99,7 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 mainMenuScreen.SetActive(false);
-                levelScreenController.LoadLevelScreen(levelDataSO.levels.Length);
+                //levelScreenController.LoadLevelScreen(levelDataSO.levels.Length);
 
                 levelScreenController.gameObject.Activate();
             }

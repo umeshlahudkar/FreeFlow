@@ -14,9 +14,8 @@ public class SavingSystem : Singleton<SavingSystem>
         if (!File.Exists(filePath))
         {
             SaveData data = new();
-            data.username = string.Empty;
-            data.avtarIndex = 0;
-            data.coins = 0;
+            data.completedLevel = 0;
+            data.completedlevelMoves = null;
 
             data.audioData.isMusicMute = false;
             data.audioData.isSoundMute = false;
@@ -56,9 +55,8 @@ public class SavingSystem : Singleton<SavingSystem>
 [System.Serializable]
 public struct SaveData
 {
-    public string username;
-    public int avtarIndex;
-    public int coins;
+    public int completedLevel;
+    public int[] completedlevelMoves;
 
     public AudioData audioData;
 }

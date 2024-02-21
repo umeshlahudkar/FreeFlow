@@ -24,12 +24,12 @@ public class AudioManager : Singleton<AudioManager>
 
     private void Start()
     {
-        //AudioData data = SavingSystem.Instance.Load().audioData;
+        AudioData data = SavingSystem.Instance.Load().audioData;
 
-        //isBgMute = data.isMusicMute;
-        //isSfxMute = data.isSoundMute;
-        //bgVolume = data.musicVolume;
-        //sfxVolume = data.soundVolume;
+        isBgMute = data.isMusicMute;
+        isSfxMute = data.isSoundMute;
+        bgVolume = data.musicVolume;
+        sfxVolume = data.soundVolume;
 
         bgAudioSource.mute = isBgMute;
         sfxAudioSource.mute = isSfxMute;
@@ -96,14 +96,14 @@ public class AudioManager : Singleton<AudioManager>
 
     private void SaveAudioData()
     {
-        //SaveData saveData = SavingSystem.Instance.Load();
+        SaveData saveData = SavingSystem.Instance.Load();
 
-        //saveData.audioData.isMusicMute = isBgMute;
-        //saveData.audioData.isSoundMute = isSfxMute;
-        //saveData.audioData.musicVolume = bgVolume;
-        //saveData.audioData.soundVolume = sfxVolume;
+        saveData.audioData.isMusicMute = isBgMute;
+        saveData.audioData.isSoundMute = isSfxMute;
+        saveData.audioData.musicVolume = bgVolume;
+        saveData.audioData.soundVolume = sfxVolume;
 
-        //SavingSystem.Instance.Save(saveData);
+        SavingSystem.Instance.Save(saveData);
     }
 }
 
