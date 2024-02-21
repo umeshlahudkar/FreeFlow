@@ -151,6 +151,8 @@ namespace FreeFlow.GamePlay
 
                     if(isClicked)
                     {
+                        AudioManager.Instance.PlayBlockSelectSound();
+
                         HighlightSelectedColorTypeBlock(block);
                         Color clr = (block.IsPairBlock ? GetColor(block.PairColorType) : GetColor(block.HighlightedColorType));
                         MoveTouchPointer(UnityEngine.Input.mousePosition);
@@ -300,6 +302,11 @@ namespace FreeFlow.GamePlay
                 for(int i = 0; i < selectedBlocks.Count; i++)
                 {
                     selectedBlocks[i].HighlightBlockBg();
+                }
+
+                if (IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]))
+                {
+                    AudioManager.Instance.PlayPairCompleteSound();
                 }
             }
 
