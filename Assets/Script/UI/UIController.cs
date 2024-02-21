@@ -3,7 +3,6 @@ using TMPro;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
 using FreeFlow.Util;
-using DG.Tweening;
 
 namespace FreeFlow.UI
 {
@@ -13,7 +12,7 @@ namespace FreeFlow.UI
     public class UIController : Singleton<UIController>
     {
         [Header("Menu Screen")]
-        [SerializeField] private LevelScreenController levelButtonSpawner;
+        [SerializeField] private LevelScreenController levelScreenController;
         [SerializeField] private GameObject mainMenuScreen;
         [SerializeField] private BoardGenerator boardGenerator;
 
@@ -34,6 +33,9 @@ namespace FreeFlow.UI
         [Header("Pause screen")]
         [SerializeField] GameObject pauseScreen;
 
+        [Header("Setting screen")]
+        [SerializeField] GameObject settingScreen;
+
         private LevelData currentLevelData;
         private int currentLevel;
 
@@ -43,7 +45,7 @@ namespace FreeFlow.UI
 
         private void Start()
         {
-            levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
+            levelScreenController.PrepareLevelScreen(levelDataSO.levels.Length);
         }
 
         /// <summary>
@@ -61,14 +63,13 @@ namespace FreeFlow.UI
 
                 currentLevelData = levelDataSO.levels[levelNumber - 1];
 
-                levelButtonSpawner.gameObject.SetActive(false);
+                levelScreenController.gameObject.SetActive(false);
                 gameplayScreen.SetActive(false);
                 mainMenuScreen.SetActive(false);
 
                 gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(true);
 
-                //boardGenerator.ResetBoard();
                 boardGenerator.GenerateBoard(currentLevelData);
 
                 gameplaylevelText.text = "Level : " + levelNumber;
@@ -96,26 +97,20 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                levelButtonSpawner.gameObject.Activate();
+                AudioManager.Instance.PlayButtonClickSound();
                 mainMenuScreen.SetActive(false);
-                levelButtonSpawner.LoadLevelScreen(levelDataSO.levels.Length);
+                levelScreenController.LoadLevelScreen(levelDataSO.levels.Length);
+
+                levelScreenController.gameObject.Activate();
             }
         }
 
-        /// <summary>
-        ///  Gets called when Main-Menu button click from the gameplay screen,
-        ///  activates main menu screen
-        /// </summary>
-        public void OnGameplayBackButtonClick()
+        public void OnLevelScreenBackButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
-                boardGenerator.ResetBoard();
-
-                levelButtonSpawner.gameObject.SetActive(false);
-                mainMenuScreen.SetActive(true);
-                gameplayScreen.SetActive(false);
-                gameOverScreen.SetActive(false);
+                AudioManager.Instance.PlayButtonClickSound();
+                levelScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
             }
         }
 
@@ -123,11 +118,9 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.GameState = Enums.GameState.Paused;
-
-                pauseScreen.transform.localPosition += new Vector3(Screen.width, 0, 0);
-                pauseScreen.SetActive(true);
-                pauseScreen.transform.DOLocalMove(Vector3.zero, 0.25f);
+                pauseScreen.Activate();
             }
         }
 
@@ -135,12 +128,8 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete( ()=> 
-                {
-                    GamePlayController.Instance.GameState = Enums.GameState.Playing;
-                    pauseScreen.SetActive(false);
-                    pauseScreen.transform.localPosition = Vector3.zero;
-                });
+                AudioManager.Instance.PlayButtonClickSound();
+                pauseScreen.Deactivate(0.25f, () => GamePlayController.Instance.GameState = Enums.GameState.Playing);
             }
         }
 
@@ -148,16 +137,10 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
-
-                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
-                {
-                    pauseScreen.SetActive(false);
-                    pauseScreen.transform.localPosition = Vector3.zero;
-
-                    LoadLevel(currentLevel);
-                });
+                pauseScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
             }
         }
 
@@ -165,32 +148,14 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
                 gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
 
-                pauseScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
-                {
-                    pauseScreen.SetActive(false);
-                    pauseScreen.transform.localPosition = Vector3.zero;
-
-                    mainMenuScreen.SetActive(true);
-                });
-            }
-        }
-
-        /// <summary>
-        ///  Gets called when Back button click from the level screen,
-        ///  activates main menu screen
-        /// </summary>
-        public void OnLevelBackButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                mainMenuScreen.SetActive(true);
-                levelButtonSpawner.gameObject.Deactivate();
+                pauseScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
             }
         }
 
@@ -202,6 +167,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 Application.Quit();
             }
         }
@@ -217,24 +183,18 @@ namespace FreeFlow.UI
             gameOverMsgText.text = "Congrats!, You Completed the level in " + movesCount + " moves.";
             gameOverLevelText.text = "Level " + currentLevel;
 
-            gameOverScreen.transform.localPosition += new Vector3(Screen.width, 0, 0);
-            gameOverScreen.transform.DOLocalMove(Vector3.zero, 0.25f);
+            gameOverScreen.Activate();
         }
 
         public void OnGameOverScreenRetryButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
-                {
-                    gameOverScreen.SetActive(false);
-                    gameOverScreen.transform.localPosition = Vector3.zero;
-
-                    LoadLevel(currentLevel);
-                });
+                gameOverScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
             }
         }
 
@@ -242,19 +202,14 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
                 pauseScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
 
-                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
-                {
-                    gameOverScreen.SetActive(false);
-                    gameOverScreen.transform.localPosition = Vector3.zero;
-
-                    mainMenuScreen.SetActive(true);
-                });
+                gameOverScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
             }
         }
 
@@ -262,16 +217,20 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), 0.25f).OnComplete(() =>
-                {
-                    gameOverScreen.SetActive(false);
-                    gameOverScreen.transform.localPosition = Vector3.zero;
+                gameOverScreen.Deactivate(0.25f, ()=>LoadNextLevel());
+            }
+        }
 
-                    LoadNextLevel();
-                });
+        public void OnSeetingButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                settingScreen.Activate();
             }
         }
 
