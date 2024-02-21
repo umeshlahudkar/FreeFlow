@@ -11,19 +11,16 @@ namespace FreeFlow.GamePlay
     public class BoardGenerator : MonoBehaviour
     {
         [SerializeField] private Block blockPrefab;
-        [SerializeField] private Transform thisTransform;
-        private List<Block> gridblocks;
+        [SerializeField] private RectTransform thisTransform;
+        //private List<Block> gridblocks;
 
-        private ObjectPool<Block> objectPool;
-        private WaitForSeconds waitForSeconds;
-
+        [SerializeField] private ObjectPool<Block> objectPool;
 
         /// <summary>
         /// Initializes the object pool for blocks with the specified prefab, capacity, and parent transform.
         /// </summary>
         private void InitializePool()
         {
-            waitForSeconds = new WaitForSeconds(0.1f);
             objectPool = new ObjectPool<Block>(blockPrefab, 16, thisTransform);
         }
 
@@ -36,27 +33,28 @@ namespace FreeFlow.GamePlay
         {
             if (objectPool == null) { InitializePool(); }
 
-            StartCoroutine(GenerateBoardCo(data));
-        }
-
-        private IEnumerator GenerateBoardCo(LevelData data)
-        {
-            ScreenAnimation anim = gameObject.GetComponentInParent<ScreenAnimation>();
-            if (anim != null)
-            {
-                yield return new WaitForSeconds(anim.TotolTime);
-            }
-
-            gridblocks = new List<Block>();
+            //gridblocks = new List<Block>();
 
             int rowSize = (int)data.gridSize;
             int coloumSize = (int)data.gridSize;
 
-            int blockSize = data.blockSize;
-            int blockSpace = data.blockSpace;
+            GamePlayController.Instance.InitGrid(rowSize, coloumSize);
 
-            float startPointX = GetStartPointX(blockSize, coloumSize, blockSpace);
-            float startPointY = GetStartPointY(blockSize, rowSize, blockSpace);
+            float totalScreenWidth = thisTransform.rect.width;
+            float totalScreenHeight = thisTransform.rect.height;
+
+            float useableWidth = totalScreenWidth * 0.9f;
+
+            int maxBlockInRowCol = rowSize > coloumSize ? rowSize : coloumSize;
+            float blockSize = useableWidth / maxBlockInRowCol;
+
+            float horizontalSpacing = (totalScreenWidth - (blockSize * coloumSize)) / 2;
+            float verticalSpacing = (totalScreenHeight - (blockSize * rowSize)) / 2;
+
+            float startPointX = -((totalScreenWidth / 2) - (blockSize / 2) - (horizontalSpacing));
+            float startPointY = ((totalScreenHeight / 2) - (blockSize / 2) - (verticalSpacing));
+
+            int blockSpace = 0;
 
             float currentPositionX = startPointX;
             float currentPositionY = startPointY;
@@ -74,9 +72,9 @@ namespace FreeFlow.GamePlay
                     block.SetBlock(data.gridRows[i].coloum[j], i, j);
 
                     currentPositionX += (blockSize + blockSpace);
-                    gridblocks.Add(block);
+                    //gridblocks.Add(block);
 
-                    yield return waitForSeconds;
+                    GamePlayController.Instance.grid[i, j] = block;
                 }
                 currentPositionX = startPointX;
                 currentPositionY -= (blockSize + blockSpace);
@@ -84,7 +82,6 @@ namespace FreeFlow.GamePlay
 
             GamePlayController.Instance.GameState = Enums.GameState.Playing;
         }
-
 
         /// <summary>
         /// Calculates the starting X-coordinate for the grid based on block size, row size, and block space.
@@ -146,16 +143,18 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public void ResetBoard()
         {
-            if (gridblocks != null && gridblocks.Count > 0)
-            {
-                foreach (Block b in gridblocks)
-                {
-                    //Destroy(b.gameObject);
-                    b.ResetBlock();
-                    objectPool.ReturnObject(b);
-                }
-                gridblocks.Clear();
-            }
+            //if (gridblocks != null && gridblocks.Count > 0)
+            //{
+            //    foreach (Block b in gridblocks)
+            //    {
+            //        //Destroy(b.gameObject);
+            //        b.ResetBlock();
+            //        objectPool.ReturnObject(b);
+            //    }
+            //    gridblocks.Clear();
+            //}
+
+            GamePlayController.Instance.ResetBlocks(objectPool);
         }
     }
 }

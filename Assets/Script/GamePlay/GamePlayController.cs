@@ -3,6 +3,7 @@ using FreeFlow.UI;
 using FreeFlow.Util;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
 
@@ -13,7 +14,7 @@ namespace FreeFlow.GamePlay
     /// </summary>
     public class GamePlayController : Singleton<GamePlayController>
     {
-        private GameState gameState;
+        [SerializeField] private GameState gameState = GameState.Waiting;
 
         private bool isClicked;
         private bool hasSelectExistingFromLast;
@@ -26,14 +27,18 @@ namespace FreeFlow.GamePlay
         private List<RaycastResult> raycastResults;
         private PointerEventData eventData;
 
+        public Block[,] grid;
+        public int gridRow;
+        public int gridCol;
+        private Block[] highlightedBlock = new Block[2];
+
         [SerializeField] private PairColorDataSO PairColorDataSO;
+        [SerializeField] private Image touchPointer;
 
         private int moves;
 
         private void Start()
         {
-            gameState = GameState.Waiting;
-
             isClicked = false;
             hasSelectExistingFromLast = false;
             hasSelectExistingFromMiddle = false;
@@ -46,6 +51,13 @@ namespace FreeFlow.GamePlay
             eventData = new PointerEventData(eventSystem);
 
             moves = 0;
+        }
+
+        public void InitGrid(int row, int col)
+        {
+            gridRow = row;
+            gridCol = col;
+            grid = new Block[gridRow, gridCol];
         }
 
         void Update()
@@ -92,6 +104,7 @@ namespace FreeFlow.GamePlay
 
                         isClicked = true;
                         selectedBlocks.Add(block);
+
                     }
 
                     //if click on pair dot and block is not clicked before
@@ -99,6 +112,8 @@ namespace FreeFlow.GamePlay
                     {
                         isClicked = true;
                         selectedBlocks.Add(block);
+
+                        //HighlightSelectedColorTypeBlock(block);
                     }
 
                     // if the some blocks of pair highlighted, and clicked on the highlighted block
@@ -110,6 +125,7 @@ namespace FreeFlow.GamePlay
                         if (IsEqual(blocks[blocks.Count - 1], block))
                         {
                             hasSelectExistingFromLast = true;
+                           
                         }
 
                         //if selected block is the somewhere between first and last highlighted block,
@@ -125,7 +141,22 @@ namespace FreeFlow.GamePlay
                         }
 
                         isClicked = true;
-                        selectedBlocks.Add(block);
+                        selectedBlocks.Clear();
+                        selectedBlocks.AddRange(blocks);
+
+                        completedPairs.Remove(block.HighlightedColorType);
+                        //selectedBlocks.Add(block);
+                        //HighlightSelectedColorTypeBlock(block);
+                    }
+
+                    if(isClicked)
+                    {
+                        AudioManager.Instance.PlayBlockSelectSound();
+
+                        HighlightSelectedColorTypeBlock(block);
+                        Color clr = (block.IsPairBlock ? GetColor(block.PairColorType) : GetColor(block.HighlightedColorType));
+                        MoveTouchPointer(UnityEngine.Input.mousePosition);
+                        SetTouchPointerImage(clr);
                     }
                 }
             }
@@ -138,6 +169,8 @@ namespace FreeFlow.GamePlay
                 eventData.position = UnityEngine.Input.mousePosition;
                 raycastResults.Clear();
                 PerformRaycast(eventData, raycastResults);
+
+                MoveTouchPointer(UnityEngine.Input.mousePosition);
 
                 if (raycastResults.Count > 0)
                 {
@@ -174,25 +207,25 @@ namespace FreeFlow.GamePlay
                             }
 
                             //highlighting last selected block
-                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlock(dir, type);
+                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
 
                             //highlight new selected block
                             switch (dir)
                             {
                                 case Direction.Left:
-                                    block.HighlightBlock(Direction.Right, type);
+                                    block.HighlightBlockDirection(Direction.Right, type);
                                     break;
 
                                 case Direction.Right:
-                                    block.HighlightBlock(Direction.Left, type);
+                                    block.HighlightBlockDirection(Direction.Left, type);
                                     break;
 
                                 case Direction.Up:
-                                    block.HighlightBlock(Direction.Down, type);
+                                    block.HighlightBlockDirection(Direction.Down, type);
                                     break;
 
                                 case Direction.Down:
-                                    block.HighlightBlock(Direction.Up, type);
+                                    block.HighlightBlockDirection(Direction.Up, type);
                                     break;
                             }
 
@@ -200,30 +233,53 @@ namespace FreeFlow.GamePlay
                         }
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
-                    else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
+                    //else if (hasSelectExistingFromLast && block != null && selectedBlocks.Contains(block))
+                    //{
+                    //    List<Block> blocks = completedPairs[(block.HighlightedColorType)];
+
+                    //    //last highlighted block selected
+                    //    if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
+                    //    {
+                    //        return;
+                    //    }
+
+                    //    // selected somewhere between first and last pair, resets the blocks
+                    //    if (blocks.Count > 0 && blocks.Contains(block))
+                    //    {
+                    //        Block b = blocks[blocks.Count - 1];
+                    //        Direction dir = GetDirection(block, b);
+
+                    //        if (dir != Direction.None)
+                    //        {
+                    //            b.ResetAllHighlightDirection();
+                    //            block.ResetHighlightDirection(dir);
+
+                    //            blocks.RemoveAt(blocks.Count - 1);
+                    //            selectedBlocks.Clear();
+                    //            selectedBlocks.Add(block);
+                    //        }
+                    //        Debug.Log("from last");
+                    //    }
+                    //}
+                    else if(block != null && selectedBlocks.Contains(block))
                     {
-                        List<Block> blocks = completedPairs[(block.HighlightedColorType)];
-
-                        //last highlighted block selected
-                        if (blocks.Count > 0 && IsEqual(blocks[blocks.Count - 1], block))
+                        if (!IsEqual(selectedBlocks[selectedBlocks.Count - 1], block) && 
+                            IsEqual(selectedBlocks[selectedBlocks.Count - 2], block))
                         {
-                            return;
-                        }
-
-                        // selected somewhere between first and last pair, resets the blocks
-                        if (blocks.Count > 0 && blocks.Contains(block))
-                        {
-                            Block b = blocks[blocks.Count - 1];
-                            Direction dir = GetDirection(block, b);
-
-                            if (dir != Direction.None)
+                            // selected somewhere between first and last pair, resets the blocks
+                            //if (blocks.Count > 0 && blocks.Contains(block))
                             {
-                                b.ResetAllHighlightDirection();
-                                block.ResetHighlightDirection(dir);
+                                Block b = selectedBlocks[selectedBlocks.Count - 1];
+                                Direction dir = GetDirection(block, b);
 
-                                blocks.RemoveAt(blocks.Count - 1);
-                                selectedBlocks.Clear();
-                                selectedBlocks.Add(block);
+                                if (dir != Direction.None)
+                                {
+                                    b.ResetAllHighlightDirection();
+                                    block.ResetHighlightDirection(dir);
+
+                                    selectedBlocks.Remove(b);
+                                    //selectedBlocks.Add(block);
+                                }
                             }
                         }
                     }
@@ -242,7 +298,20 @@ namespace FreeFlow.GamePlay
                     moves++;
                     UIController.Instance.UpdateMovesCount(moves);
                 }
+
+                for(int i = 0; i < selectedBlocks.Count; i++)
+                {
+                    selectedBlocks[i].HighlightBlockBg();
+                }
+
+                if (IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]))
+                {
+                    AudioManager.Instance.PlayPairCompleteSound();
+                }
             }
+
+            ResetTouchPointer();
+            ResetHighlightSelectedColorTypeBlock();
 
             isClicked = false;
             hasSelectExistingFromMiddle = false;
@@ -256,6 +325,86 @@ namespace FreeFlow.GamePlay
             {
                 GameState = GameState.Ending;
                 UIController.Instance.ActivateLevelCompleteScreen(moves);
+                SaveLevelData();
+            }
+        }
+
+        private void SaveLevelData()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            int currentLevel = UIController.Instance.CurrentLevel;
+
+            if(currentLevel < data.completedLevel) 
+            {
+                data.completedlevelMoves[currentLevel - 1] = moves;
+            }
+            else
+            {
+                int[] movesData = data.completedlevelMoves;
+                int[] newMovesData = new int[currentLevel];
+
+                for (int i = 0; i < movesData.Length; i++)
+                {
+                    newMovesData[i] = movesData[i];
+                }
+
+                newMovesData[currentLevel - 1] = moves;
+
+                data.completedLevel = currentLevel;
+                data.completedlevelMoves = newMovesData;
+            }
+
+            SavingSystem.Instance.Save(data);
+        }
+
+        private void HighlightSelectedColorTypeBlock(Block selectedBlock)
+        {
+            if(selectedBlock.IsPairBlock)
+            {
+                highlightedBlock[0] = selectedBlock;
+                bool blockFound = false;
+                for (int i = 0; i < gridRow; i++)
+                {
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        if (grid[i, j].IsPairBlock && grid[i, j] != selectedBlock && grid[i, j].PairColorType == selectedBlock.PairColorType)
+                        {
+                            highlightedBlock[1] = grid[i, j];
+                            blockFound = true;
+                            break;
+                        }
+                    }
+                    if (blockFound) { break; }
+                }
+            }
+            else
+            {
+                int blockCount = 0;
+                for (int i = 0; i < gridRow; i++)
+                {
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        if (grid[i, j].IsPairBlock && grid[i, j].PairColorType == selectedBlock.HighlightedColorType)
+                        {
+                            blockCount++;
+                            highlightedBlock[blockCount-1] = grid[i, j];
+                            if (blockCount >= 2) { break; }
+                        }
+                    }
+                    if (blockCount >= 2) { break; }
+                }
+            }
+
+            highlightedBlock[0].HighlightBlock();
+            highlightedBlock[1].HighlightBlock();
+        }
+
+        private void ResetHighlightSelectedColorTypeBlock()
+        {
+            if(isClicked)
+            {
+                highlightedBlock[0].ResetHighlightBlock();
+                highlightedBlock[1].ResetHighlightBlock();
             }
         }
 
@@ -488,6 +637,23 @@ namespace FreeFlow.GamePlay
             set { gameState = value; }
         }
 
+        private void SetTouchPointerImage(Color color)
+        {
+            touchPointer.gameObject.SetActive(true);
+            color.a = touchPointer.color.a;
+            touchPointer.color = color;
+        }
+
+        private void ResetTouchPointer()
+        {
+            touchPointer.gameObject.SetActive(false);
+        }
+
+        private void MoveTouchPointer(Vector3 position)
+        {
+            touchPointer.transform.position = position;
+        }
+
 
         /// <summary>
         /// Resets the gameplay state to its initial conditions
@@ -504,6 +670,22 @@ namespace FreeFlow.GamePlay
             isClicked = false;
             hasSelectExistingFromLast = false;
             hasSelectExistingFromMiddle = false;
+        }
+
+        public void ResetBlocks(ObjectPool<Block> blockPool)
+        {
+            if(grid != null)
+            {
+                for (int i = 0; i < gridRow; i++)
+                {
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        grid[i, j].ResetBlock();
+                        blockPool.ReturnObject(grid[i, j]);
+                    }
+                }
+                grid = null;
+            }
         }
     }
 }

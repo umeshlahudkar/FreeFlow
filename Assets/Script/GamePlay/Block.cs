@@ -1,6 +1,7 @@
 using FreeFlow.Enums;
 using UnityEngine;
 using UnityEngine.UI;
+using DG.Tweening;
 
 namespace FreeFlow.GamePlay
 {
@@ -10,6 +11,7 @@ namespace FreeFlow.GamePlay
     public class Block : MonoBehaviour
     {
         [SerializeField] private Image pairDotImage;
+        [SerializeField] private Image blockBgHighlightImage;
         [SerializeField] private Image[] directionImages;
 
         private int row_ID;
@@ -19,7 +21,6 @@ namespace FreeFlow.GamePlay
 
         private PairColorType pairColorType;
         private PairColorType highlightedColorType;
-
 
         /// <summary>
         /// Sets the properties of the block, including its position, pair color type,
@@ -38,6 +39,9 @@ namespace FreeFlow.GamePlay
                 isPairBlock = true;
                 pairDotImage.gameObject.SetActive(true);
                 pairDotImage.color = GamePlayController.Instance.GetColor(type);
+
+                pairDotImage.transform.localScale = Vector3.zero;
+                pairDotImage.transform.DOScale(1, 0.5f);
             }
         }
 
@@ -46,11 +50,13 @@ namespace FreeFlow.GamePlay
         /// </summary>
         /// <param name="dir">The direction in which to highlight the block.</param>
         /// <param name="type">The pair color type used for the highlight color.</param>
-        public void HighlightBlock(Direction dir, PairColorType type)
+        public void HighlightBlockDirection(Direction dir, PairColorType type)
         {
             highlightedColorType = type;
             directionImages[((int)dir - 1)].gameObject.SetActive(true);
-            directionImages[((int)dir - 1)].color = GamePlayController.Instance.GetColor(type);
+
+            Color color = GamePlayController.Instance.GetColor(type);
+            directionImages[((int)dir - 1)].color = color;
         }
 
         /// <summary>
@@ -63,6 +69,7 @@ namespace FreeFlow.GamePlay
                 directionImages[i].gameObject.SetActive(false);
             }
 
+            ResetHighlightBlockBg();
             highlightedColorType = PairColorType.None;
         }
 
@@ -73,6 +80,42 @@ namespace FreeFlow.GamePlay
         public void ResetHighlightDirection(Direction dir)
         {
             directionImages[((int)dir - 1)].gameObject.SetActive(false);
+
+            int count = 0;
+            for (int i = 0; i < directionImages.Length; i++)
+            {
+                if(directionImages[i].gameObject.activeSelf) { break; }
+                count++;
+            }
+
+            if(count >= directionImages.Length)
+            {
+                ResetHighlightBlockBg();
+            }
+        }
+
+        public void HighlightBlock()
+        {
+            pairDotImage.transform.DOScale(1.3f, 0.35f);
+        }
+
+        public void ResetHighlightBlock()
+        {
+            pairDotImage.transform.DOScale(1f, 0.35f);
+        }
+
+        public void HighlightBlockBg()
+        {
+            blockBgHighlightImage.gameObject.SetActive(true);
+
+            Color color = GamePlayController.Instance.GetColor(highlightedColorType);
+            color.a = blockBgHighlightImage.color.a;
+            blockBgHighlightImage.color = color;
+        }
+
+        public void ResetHighlightBlockBg()
+        {
+            blockBgHighlightImage.gameObject.SetActive(false);
         }
 
         public bool IsPairBlock
@@ -103,6 +146,7 @@ namespace FreeFlow.GamePlay
             pairColorType = PairColorType.None;
             highlightedColorType = PairColorType.None;
             isPairBlock = false;
+            pairDotImage.transform.localScale = Vector3.zero;
 
             pairDotImage.gameObject.SetActive(false);
             ResetAllHighlightDirection();

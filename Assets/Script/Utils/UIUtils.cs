@@ -1,18 +1,26 @@
 using UnityEngine;
 using DG.Tweening;
+using UnityEngine.Events;
 
 public static class UIUtils
 {
-    public static void Activate(this GameObject obj, float duration = 0.25f)
+    public static void Activate(this GameObject obj, float duration = 0.25f, UnityAction action = null)
     {
-        obj.transform.localScale = Vector3.zero;
+        obj.transform.localPosition = new Vector3(Screen.width, 0, 0);
         obj.SetActive(true);
-        obj.transform.DOScale(Vector3.one, duration).SetEase(Ease.Linear);
+        obj.transform.DOLocalMove(Vector3.zero, duration).OnComplete(() =>
+        {
+            action?.Invoke();
+        });
     }
 
-    public static void Deactivate(this GameObject obj, float duration = 0.1f)
+    public static void Deactivate(this GameObject obj, float duration = 0.25f, UnityAction action = null)
     {
-        obj.transform.DOScale(Vector3.zero, duration).SetEase(Ease.Linear)
-            .OnComplete(() => obj.SetActive(false));
+        obj.transform.DOLocalMove(new Vector3(Screen.width, 0, 0), duration).OnComplete(() =>
+        {
+            obj.SetActive(false);
+            obj.transform.localPosition = Vector3.zero;
+            action?.Invoke();
+        });
     }
 }

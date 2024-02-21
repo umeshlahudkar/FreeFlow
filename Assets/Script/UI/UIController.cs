@@ -3,7 +3,6 @@ using TMPro;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
 using FreeFlow.Util;
-using FreeFlow.Enums;
 
 namespace FreeFlow.UI
 {
@@ -13,13 +12,14 @@ namespace FreeFlow.UI
     public class UIController : Singleton<UIController>
     {
         [Header("Menu Screen")]
-        [SerializeField] private LevelButtonSpawner levelButtonSpawner;
+        [SerializeField] private LevelScreenController levelScreenController;
         [SerializeField] private GameObject mainMenuScreen;
         [SerializeField] private BoardGenerator boardGenerator;
 
-        [Header("Level Complete Screen")]
-        [SerializeField] private GameObject levelCompleteScreen;
-        [SerializeField] private TextMeshProUGUI levelCompleteMovesCount;
+        [Header("Game over Screen")]
+        [SerializeField] private GameObject gameOverScreen;
+        [SerializeField] private TextMeshProUGUI gameOverMsgText;
+        [SerializeField] private TextMeshProUGUI gameOverLevelText;
 
         [Header("Gameplay")]
         [SerializeField] private TextMeshProUGUI gameplaylevelText;
@@ -30,12 +30,23 @@ namespace FreeFlow.UI
         [Header("Level Data SO")]
         [SerializeField] LevelDataSO levelDataSO;
 
+        [Header("Pause screen")]
+        [SerializeField] GameObject pauseScreen;
+
+        [Header("Setting screen")]
+        [SerializeField] GameObject settingScreen;
+
         private LevelData currentLevelData;
         private int currentLevel;
 
         public int CurrentLevel { get { return currentLevel; } }
 
         public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
+
+        private void Start()
+        {
+            levelScreenController.SpawnLevelButtons(levelDataSO.levels.Length);
+        }
 
         /// <summary>
         /// Loads the specified game level and initializes relevant UI elements.
@@ -45,25 +56,25 @@ namespace FreeFlow.UI
         {
             if (levelNumber <= levelDataSO.levels.Length)
             {
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
                 currentLevel = levelNumber;
 
                 currentLevelData = levelDataSO.levels[levelNumber - 1];
 
-                levelButtonSpawner.gameObject.SetActive(false);
+                levelScreenController.gameObject.SetActive(false);
                 gameplayScreen.SetActive(false);
                 mainMenuScreen.SetActive(false);
 
-                levelCompleteScreen.Deactivate();
+                gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(true);
 
-                boardGenerator.ResetBoard();
                 boardGenerator.GenerateBoard(currentLevelData);
 
                 gameplaylevelText.text = "Level : " + levelNumber;
                 UpdatePairCount(0);
                 UpdateMovesCount(0);
-
-                GamePlayController.Instance.ResetGameplay();
             }
         }
 
@@ -71,14 +82,11 @@ namespace FreeFlow.UI
         /// Gets called when next level button click from the lwvwl win screen,
         /// Handles the next level loading
         /// </summary>
-        public void OnNextLevelButtonClick()
+        private void LoadNextLevel()
         {
-            if (InputManager.Instance.CanInput())
-            {
-                currentLevel++;
-                if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
-                LoadLevel(currentLevel);
-            }
+            currentLevel++;
+            if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
+            LoadLevel(currentLevel);
         }
 
         /// <summary>
@@ -89,40 +97,65 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                levelButtonSpawner.gameObject.Activate();
-                levelButtonSpawner.PrepareLevelScreen(levelDataSO.levels.Length);
-
+                AudioManager.Instance.PlayButtonClickSound();
                 mainMenuScreen.SetActive(false);
+                //levelScreenController.LoadLevelScreen(levelDataSO.levels.Length);
+
+                levelScreenController.gameObject.Activate();
             }
         }
 
-        /// <summary>
-        ///  Gets called when Main-Menu button click from the gameplay screen,
-        ///  activates main menu screen
-        /// </summary>
-        public void OnGameplayBackButtonClick()
+        public void OnLevelScreenBackButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
+                levelScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+            }
+        }
+
+        public void OnPauseButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.GameState = Enums.GameState.Paused;
+                pauseScreen.Activate();
+            }
+        }
+
+        public void OnResumeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                pauseScreen.Deactivate(0.25f, () => GamePlayController.Instance.GameState = Enums.GameState.Playing);
+            }
+        }
+
+        public void OnPauseScreenRetryButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+                pauseScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
+            }
+        }
+
+        public void OnPauseScreenHomeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                levelButtonSpawner.gameObject.SetActive(false);
-                mainMenuScreen.SetActive(true);
+                gameOverScreen.SetActive(false);
                 gameplayScreen.SetActive(false);
-                levelCompleteScreen.SetActive(false);
-            }
-        }
 
-        /// <summary>
-        ///  Gets called when Back button click from the level screen,
-        ///  activates main menu screen
-        /// </summary>
-        public void OnLevelBackButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                mainMenuScreen.SetActive(true);
-                levelButtonSpawner.gameObject.Deactivate();
+                pauseScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
             }
         }
 
@@ -134,6 +167,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
+                AudioManager.Instance.PlayButtonClickSound();
                 Application.Quit();
             }
         }
@@ -145,9 +179,59 @@ namespace FreeFlow.UI
         /// <param name="movesCount"></param>
         public void ActivateLevelCompleteScreen(int movesCount)
         {
-            //levelCompleteScreen.SetActive(true);
-            levelCompleteScreen.Activate();
-            levelCompleteMovesCount.text = "You Completed the level in " + movesCount + " moves.";
+            gameOverScreen.SetActive(true);
+            gameOverMsgText.text = "Congrats!, You Completed the level in " + movesCount + " moves.";
+            gameOverLevelText.text = "Level " + currentLevel;
+
+            gameOverScreen.Activate();
+        }
+
+        public void OnGameOverScreenRetryButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                gameOverScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
+            }
+        }
+
+        public void OnGameOverScreenHomeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                pauseScreen.SetActive(false);
+                gameplayScreen.SetActive(false);
+
+                gameOverScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+            }
+        }
+
+        public void OnGameOverScreenNextButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+
+                gameOverScreen.Deactivate(0.25f, ()=>LoadNextLevel());
+            }
+        }
+
+        public void OnSeetingButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                settingScreen.Activate();
+            }
         }
 
         /// <summary>
