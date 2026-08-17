@@ -27,8 +27,12 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI gameplayMoveText;
         [SerializeField] private GameObject gameplayScreen;
 
-        [Header("Level Data SO")]
-        [SerializeField] LevelDataSO levelDataSO;
+        [Header("Level Data")]
+        // total level count is authored metadata, not derived from a loaded array --
+        // each level's grid data now lives in its own SingleLevelDataSO under
+        // Resources/Levels/, loaded on demand so memory scales with levels visited,
+        // not levels that exist. Keep this in sync when adding new level assets.
+        [SerializeField] private int totalLevelCount;
 
         [Header("Pause screen")]
         [SerializeField] GameObject pauseScreen;
@@ -37,15 +41,17 @@ namespace FreeFlow.UI
         [SerializeField] GameObject settingScreen;
 
         private LevelData currentLevelData;
+        private SingleLevelDataSO currentLevelDataAsset;
         private int currentLevel;
 
         public int CurrentLevel { get { return currentLevel; } }
+        public int TotalLevelCount { get { return totalLevelCount; } }
 
         public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
 
         private void Start()
         {
-            levelScreenController.SpawnLevelButtons(levelDataSO.levels.Length);
+            levelScreenController.SpawnLevelButtons(totalLevelCount);
         }
 
         /// <summary>
@@ -54,14 +60,19 @@ namespace FreeFlow.UI
         /// <param name="levelNumber">The number of the level to load.</param>
         public void LoadLevel(int levelNumber)
         {
-            if (levelNumber <= levelDataSO.levels.Length)
+            if (levelNumber <= totalLevelCount)
             {
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
                 currentLevel = levelNumber;
 
-                currentLevelData = levelDataSO.levels[levelNumber - 1];
+                if (currentLevelDataAsset != null)
+                {
+                    Resources.UnloadAsset(currentLevelDataAsset);
+                }
+                currentLevelDataAsset = Resources.Load<SingleLevelDataSO>("Levels/Level_" + levelNumber);
+                currentLevelData = currentLevelDataAsset.levelData;
 
                 levelScreenController.gameObject.SetActive(false);
                 gameplayScreen.SetActive(false);
@@ -85,7 +96,7 @@ namespace FreeFlow.UI
         private void LoadNextLevel()
         {
             currentLevel++;
-            if (currentLevel > levelDataSO.levels.Length) { currentLevel = 1; }
+            if (currentLevel > totalLevelCount) { currentLevel = 1; }
             LoadLevel(currentLevel);
         }
 

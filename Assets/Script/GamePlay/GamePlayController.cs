@@ -21,7 +21,7 @@ namespace FreeFlow.GamePlay
         private bool hasSelectExistingFromMiddle;
 
         private List<Block> selectedBlocks;
-        private Dictionary<PairColorType, List<Block>> completedPairs;
+        private Dictionary<int, List<Block>> completedPairs;
 
         private EventSystem eventSystem;
         private List<RaycastResult> raycastResults;
@@ -37,6 +37,13 @@ namespace FreeFlow.GamePlay
 
         private int moves;
 
+        private PairConstraint[] pairConstraints;
+
+        // Which direction (if any) on the current last selected block is showing a live,
+        // not-yet-committed drag-progress preview. Tracked so the preview can be cleared
+        // when the pointer's candidate direction changes.
+        private Direction activePreviewDirection = Direction.None;
+
         private void Start()
         {
             isClicked = false;
@@ -44,13 +51,18 @@ namespace FreeFlow.GamePlay
             hasSelectExistingFromMiddle = false;
 
             selectedBlocks = new List<Block>();
-            completedPairs = new Dictionary<PairColorType, List<Block>>();
+            completedPairs = new Dictionary<int, List<Block>>();
 
             eventSystem = EventSystem.current;
             raycastResults = new List<RaycastResult>();
             eventData = new PointerEventData(eventSystem);
 
             moves = 0;
+
+            // must stay off: if enabled, this Image sits over the grid every frame during a
+            // drag and the raycast in OnPointerMoved/OnPointerUp would hit it instead of the
+            // Block underneath, stalling the drag entirely.
+            touchPointer.raycastTarget = false;
         }
 
         public void InitGrid(int row, int col)
@@ -58,6 +70,46 @@ namespace FreeFlow.GamePlay
             gridRow = row;
             gridCol = col;
             grid = new Block[gridRow, gridCol];
+        }
+
+        /// <summary>
+        /// Per-pair path-length requirements for the level currently being generated.
+        /// Pass null/empty when the level has none.
+        /// </summary>
+        public void SetLevelConstraints(PairConstraint[] constraints)
+        {
+            pairConstraints = constraints;
+        }
+
+        /// <summary>
+        /// Verifies every pair-block's PairId appears exactly twice on the current grid.
+        /// Call once the grid is fully populated. Logs an error per malformed id rather than
+        /// throwing, since bad level content shouldn't crash the game outright.
+        /// </summary>
+        public void ValidateLevelPairs()
+        {
+            Dictionary<int, int> pairIdCounts = new Dictionary<int, int>();
+
+            for (int i = 0; i < gridRow; i++)
+            {
+                for (int j = 0; j < gridCol; j++)
+                {
+                    Block block = grid[i, j];
+                    if (block.IsPairBlock)
+                    {
+                        int id = block.PairId;
+                        pairIdCounts[id] = pairIdCounts.TryGetValue(id, out int existing) ? existing + 1 : 1;
+                    }
+                }
+            }
+
+            foreach (var kvp in pairIdCounts)
+            {
+                if (kvp.Value != 2)
+                {
+                    Debug.LogError("FreeFlow level data error: pair id " + kvp.Key + " appears " + kvp.Value + " time(s) on this board, expected exactly 2.");
+                }
+            }
         }
 
         void Update()
@@ -93,14 +145,14 @@ namespace FreeFlow.GamePlay
                 {
                     // if click on pair dot and the block is already clicked before, clears all highlighted blocks
                     // for the pair and removed it from the completed pairs list
-                    if (block.IsPairBlock && completedPairs.ContainsKey(block.PairColorType))
+                    if (block.IsPairBlock && completedPairs.ContainsKey(block.PairId))
                     {
-                        List<Block> blocks = completedPairs[block.PairColorType];
+                        List<Block> blocks = completedPairs[block.PairId];
                         foreach (Block b in blocks)
                         {
-                            b.ResetAllHighlightDirection();
+                            b.ResetAllHighlightDirection(block.PairId);
                         }
-                        completedPairs.Remove(block.PairColorType);
+                        completedPairs.Remove(block.PairId);
 
                         isClicked = true;
                         selectedBlocks.Add(block);
@@ -117,15 +169,15 @@ namespace FreeFlow.GamePlay
                     }
 
                     // if the some blocks of pair highlighted, and clicked on the highlighted block
-                    else if (completedPairs.ContainsKey(block.HighlightedColorType))
+                    else if (completedPairs.ContainsKey(block.HighlightedPairId))
                     {
-                        List<Block> blocks = completedPairs[block.HighlightedColorType];
+                        List<Block> blocks = completedPairs[block.HighlightedPairId];
 
                         //check if the selected block is the last block of highlighted blocks list
                         if (IsEqual(blocks[blocks.Count - 1], block))
                         {
                             hasSelectExistingFromLast = true;
-                           
+
                         }
 
                         //if selected block is the somewhere between first and last highlighted block,
@@ -144,7 +196,7 @@ namespace FreeFlow.GamePlay
                         selectedBlocks.Clear();
                         selectedBlocks.AddRange(blocks);
 
-                        completedPairs.Remove(block.HighlightedColorType);
+                        completedPairs.Remove(block.HighlightedPairId);
                         //selectedBlocks.Add(block);
                         //HighlightSelectedColorTypeBlock(block);
                     }
@@ -178,58 +230,31 @@ namespace FreeFlow.GamePlay
 
                     // selected block is not select again, check for the new block
                     if(CanSelectToAdd(block))
-                    { 
-                        // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-                        if (completedPairs.ContainsKey(block.HighlightedColorType) && block.HighlightedColorType != selectedBlocks[0].HighlightedColorType)
-                        {
-                            List<Block> blocks = completedPairs[block.HighlightedColorType];
-
-                            int indexToRemove = GetBlockIndex(blocks, block);
-                            indexToRemove--;
-                            if (indexToRemove <= -1) { indexToRemove = -1; }
-
-                            if (indexToRemove != -1)
-                            {
-                                ResetBlockToRemove(blocks, indexToRemove);
-                            }
-                        }
-
-                        // gets the direction of new selected block with respect to last selected blocks
+                    {
                         Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
 
-                        // highlighted the new selected block and last selected block based on direction
                         if (dir != Direction.None)
                         {
-                            PairColorType type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
-                            if (hasSelectExistingFromMiddle)
+                            ProcessBlockStep(block, dir);
+                        }
+                        else
+                        {
+                            // fast swipes can raycast a cell that isn't exactly adjacent to the last
+                            // selected block; walk the straight-line path between them instead of
+                            // silently dropping the step
+                            List<Block> path = GetStraightLinePath(selectedBlocks[selectedBlocks.Count - 1], block);
+                            if (path != null)
                             {
-                                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
+                                foreach (Block cell in path)
+                                {
+                                    if (!CanSelectToAdd(cell)) { break; }
+
+                                    Direction stepDir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], cell);
+                                    if (stepDir == Direction.None) { break; }
+
+                                    ProcessBlockStep(cell, stepDir);
+                                }
                             }
-
-                            //highlighting last selected block
-                            selectedBlocks[selectedBlocks.Count - 1].HighlightBlockDirection(dir, type);
-
-                            //highlight new selected block
-                            switch (dir)
-                            {
-                                case Direction.Left:
-                                    block.HighlightBlockDirection(Direction.Right, type);
-                                    break;
-
-                                case Direction.Right:
-                                    block.HighlightBlockDirection(Direction.Left, type);
-                                    break;
-
-                                case Direction.Up:
-                                    block.HighlightBlockDirection(Direction.Down, type);
-                                    break;
-
-                                case Direction.Down:
-                                    block.HighlightBlockDirection(Direction.Up, type);
-                                    break;
-                            }
-
-                            selectedBlocks.Add(block);
                         }
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
@@ -261,34 +286,77 @@ namespace FreeFlow.GamePlay
                     //        Debug.Log("from last");
                     //    }
                     //}
-                    else if(block != null && selectedBlocks.Contains(block))
+                    else if(block != null && selectedBlocks.Contains(block)
+                        && !IsEqual(selectedBlocks[selectedBlocks.Count - 1], block))
                     {
-                        if (!IsEqual(selectedBlocks[selectedBlocks.Count - 1], block) && 
-                            IsEqual(selectedBlocks[selectedBlocks.Count - 2], block))
+                        // Pointer landed back on an earlier point already in the path -- could be
+                        // exactly one step back, or several at once (e.g. a fast drag straight
+                        // back toward the start skips over the in-between cells' raycasts
+                        // entirely). Retreat all the way to wherever this block actually sits,
+                        // not just the immediately-previous one, otherwise a multi-step jump back
+                        // matches neither this branch's old exact Count-2 check nor the forward
+                        // CanSelectToAdd branch, and the last selected block's bars are never
+                        // reset -- they just keep getting live-updated against a pointer that's
+                        // no longer anywhere near that cell, leaving them stuck on-screen.
+                        int targetIndex = GetBlockIndex(selectedBlocks, block);
+                        if (targetIndex != -1)
                         {
-                            // selected somewhere between first and last pair, resets the blocks
-                            //if (blocks.Count > 0 && blocks.Contains(block))
-                            {
-                                Block b = selectedBlocks[selectedBlocks.Count - 1];
-                                Direction dir = GetDirection(block, b);
-
-                                if (dir != Direction.None)
-                                {
-                                    b.ResetAllHighlightDirection();
-                                    block.ResetHighlightDirection(dir);
-
-                                    selectedBlocks.Remove(b);
-                                    //selectedBlocks.Add(block);
-                                }
-                            }
+                            // Still selectedBlocks[Count-1] at this point, so this clears whatever
+                            // direction the live preview (including an in-progress turn) was
+                            // showing on it. ResetBlockToRemove below only clears COMMITTED bars
+                            // (directionOwnerPairId == pairId) -- a preview that never got fully
+                            // committed has no owner, so without this it's left stuck on-screen.
+                            ClearDragPreview();
+                            ResetBlockToRemove(selectedBlocks, targetIndex);
                         }
                     }
                 }
+
+                UpdateDragPreview();
             }
         }
 
         private void OnPointerUp()
         {
+            ClearDragPreview();
+
+            // The last selected block may have only just been entered when the pointer was
+            // released -- its entry bar could still be sitting well under fully connected.
+            // Logically the step is already committed either way, but visually that reads as
+            // "half-drawn yet somehow highlighted as part of the path" once HighlightBlockBg
+            // washes the whole cell below. Apply the same 50% rule used for a mid-cell turn:
+            // below half-connected, treat the step as not really taken and undo it; at or
+            // above half, snap it to fully connected so the visual matches the logical state.
+            if (selectedBlocks.Count >= 2)
+            {
+                Block releasedLast = selectedBlocks[selectedBlocks.Count - 1];
+                Block releasedPrev = selectedBlocks[selectedBlocks.Count - 2];
+                Direction entryDir = GetDirection(releasedLast, releasedPrev);
+
+                if (entryDir != Direction.None)
+                {
+                    if (releasedLast.GetDirectionFillAmount(entryDir) < 0.5f)
+                    {
+                        // releasedPrev.PairId is that BLOCK's own static level-data id -- 0 for
+                        // any non-dot cell. The bar was actually marked owned under the pair
+                        // that's dragging (selectedBlocks[0].PairId), so resetting by
+                        // releasedPrev.PairId silently matches nothing on a mid-path cell and
+                        // leaves the bar stuck.
+                        Direction forwardDir = GetDirection(releasedPrev, releasedLast);
+                        releasedLast.ResetAllHighlightDirection(selectedBlocks[0].PairId);
+                        if (forwardDir != Direction.None)
+                        {
+                            releasedPrev.ResetHighlightDirection(forwardDir);
+                        }
+                        selectedBlocks.RemoveAt(selectedBlocks.Count - 1);
+                    }
+                    else
+                    {
+                        releasedLast.SetDirectionFillAmount(entryDir, 1f);
+                    }
+                }
+            }
+
             if (selectedBlocks.Count > 0)
             {
                 AddSelectedBlocksToCompletedPairs();
@@ -299,12 +367,15 @@ namespace FreeFlow.GamePlay
                     UIController.Instance.UpdateMovesCount(moves);
                 }
 
-                for(int i = 0; i < selectedBlocks.Count; i++)
+                if (selectedBlocks.Count > 1)
                 {
-                    selectedBlocks[i].HighlightBlockBg();
+                    for (int i = 0; i < selectedBlocks.Count; i++)
+                    {
+                        selectedBlocks[i].HighlightBlockBg();
+                    }
                 }
 
-                if (IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]))
+                if (IsPathFullyComplete(selectedBlocks))
                 {
                     AudioManager.Instance.PlayPairCompleteSound();
                 }
@@ -320,6 +391,7 @@ namespace FreeFlow.GamePlay
 
             int count = GetPairCompleteCount();
             UIController.Instance.UpdatePairCount(count);
+            RefreshGateVisuals();
 
             if (count >= UIController.Instance.CurrentLevelGoal)
             {
@@ -333,25 +405,25 @@ namespace FreeFlow.GamePlay
         {
             SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
+            int totalLevelCount = UIController.Instance.TotalLevelCount;
 
-            if(currentLevel < data.completedLevel) 
+            // sized once to the total level count, rather than growing by one slot (and
+            // copying the whole array) on every single level completion
+            if (data.completedlevelMoves == null || data.completedlevelMoves.Length < totalLevelCount)
             {
-                data.completedlevelMoves[currentLevel - 1] = moves;
-            }
-            else
-            {
-                int[] movesData = data.completedlevelMoves;
-                int[] newMovesData = new int[currentLevel];
-
-                for (int i = 0; i < movesData.Length; i++)
+                int[] resized = new int[totalLevelCount];
+                if (data.completedlevelMoves != null)
                 {
-                    newMovesData[i] = movesData[i];
+                    System.Array.Copy(data.completedlevelMoves, resized, data.completedlevelMoves.Length);
                 }
+                data.completedlevelMoves = resized;
+            }
 
-                newMovesData[currentLevel - 1] = moves;
+            data.completedlevelMoves[currentLevel - 1] = moves;
 
+            if (currentLevel > data.completedLevel)
+            {
                 data.completedLevel = currentLevel;
-                data.completedlevelMoves = newMovesData;
             }
 
             SavingSystem.Instance.Save(data);
@@ -359,6 +431,9 @@ namespace FreeFlow.GamePlay
 
         private void HighlightSelectedColorTypeBlock(Block selectedBlock)
         {
+            highlightedBlock[0] = null;
+            highlightedBlock[1] = null;
+
             if(selectedBlock.IsPairBlock)
             {
                 highlightedBlock[0] = selectedBlock;
@@ -367,7 +442,7 @@ namespace FreeFlow.GamePlay
                 {
                     for (int j = 0; j < gridCol; j++)
                     {
-                        if (grid[i, j].IsPairBlock && grid[i, j] != selectedBlock && grid[i, j].PairColorType == selectedBlock.PairColorType)
+                        if (grid[i, j].IsPairBlock && grid[i, j] != selectedBlock && grid[i, j].PairId == selectedBlock.PairId)
                         {
                             highlightedBlock[1] = grid[i, j];
                             blockFound = true;
@@ -384,7 +459,7 @@ namespace FreeFlow.GamePlay
                 {
                     for (int j = 0; j < gridCol; j++)
                     {
-                        if (grid[i, j].IsPairBlock && grid[i, j].PairColorType == selectedBlock.HighlightedColorType)
+                        if (grid[i, j].IsPairBlock && grid[i, j].PairId == selectedBlock.HighlightedPairId)
                         {
                             blockCount++;
                             highlightedBlock[blockCount-1] = grid[i, j];
@@ -395,16 +470,18 @@ namespace FreeFlow.GamePlay
                 }
             }
 
-            highlightedBlock[0].HighlightBlock();
-            highlightedBlock[1].HighlightBlock();
+            // guarded: level-data validation (ValidateLevelPairs) should catch a color/id
+            // appearing without its partner before play starts, but don't NRE on it here
+            if (highlightedBlock[0] != null) { highlightedBlock[0].HighlightBlock(); }
+            if (highlightedBlock[1] != null) { highlightedBlock[1].HighlightBlock(); }
         }
 
         private void ResetHighlightSelectedColorTypeBlock()
         {
             if(isClicked)
             {
-                highlightedBlock[0].ResetHighlightBlock();
-                highlightedBlock[1].ResetHighlightBlock();
+                if (highlightedBlock[0] != null) { highlightedBlock[0].ResetHighlightBlock(); }
+                if (highlightedBlock[1] != null) { highlightedBlock[1].ResetHighlightBlock(); }
             }
         }
 
@@ -420,6 +497,11 @@ namespace FreeFlow.GamePlay
                 return false;
             }
 
+            if (!block.CanEnter(selectedBlocks[0].PairId))
+            {
+                return false;
+            }
+
             bool isPairBlockComplete = selectedBlocks[0].IsPairBlock && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]);
 
             if (!isPairBlockComplete)
@@ -427,18 +509,18 @@ namespace FreeFlow.GamePlay
                 if
                 (
                     (!block.IsPairBlock) ||
-                    (block.IsPairBlock && block.PairColorType == selectedBlocks[0].PairColorType) ||
-                    (block.IsPairBlock && block.PairColorType == selectedBlocks[0].HighlightedColorType) ||
+                    (block.IsPairBlock && block.PairId == selectedBlocks[0].PairId) ||
+                    (block.IsPairBlock && block.PairId == selectedBlocks[0].HighlightedPairId) ||
                     (!block.IsPairBlock && hasSelectExistingFromLast) ||
-                    (block.IsPairBlock && hasSelectExistingFromLast && block.PairColorType == selectedBlocks[0].HighlightedColorType)
+                    (block.IsPairBlock && hasSelectExistingFromLast && block.PairId == selectedBlocks[0].HighlightedPairId)
                 )
                 {
-                    if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1], selectedBlocks[0].HighlightedColorType))
+                    if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsHighlightedPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]))
                     {
                         return false;
                     }
 
-                    if(completedPairs.ContainsKey(block.HighlightedColorType) && completedPairs[block.HighlightedColorType].Contains(block) && block.HighlightedColorType == selectedBlocks[0].HighlightedColorType)
+                    if(completedPairs.ContainsKey(block.HighlightedPairId) && completedPairs[block.HighlightedPairId].Contains(block) && block.HighlightedPairId == selectedBlocks[0].HighlightedPairId)
                     {
                         return false;
                     }
@@ -452,33 +534,364 @@ namespace FreeFlow.GamePlay
 
 
         /// <summary>
-        /// Determines the direction of block2 with respect to block1
+        /// Determines the direction of block2 with respect to block1. Returns None both when
+        /// they aren't adjacent AND when they are adjacent but the move is mechanically
+        /// disallowed (a wall on the shared edge, or block2 is a one-way cell requiring a
+        /// different entry direction) -- callers already treat "None" as "can't step there,"
+        /// so folding these checks in here means nothing downstream needs to know about walls
+        /// or one-way cells at all.
         /// </summary>
         /// <param name="block1">The first block.</param>
         /// <param name="block2">The second block.</param>
-        /// <returns>The direction of block2(Right, Left, Up, Down) from block1, or None if they are not adjacent.</returns>
+        /// <returns>The direction of block2(Right, Left, Up, Down) from block1, or None if they are not adjacent or the move is disallowed.</returns>
         private Direction GetDirection(Block block1, Block block2)
         {
+            Direction dir = Direction.None;
+
             if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID < block2.Coloum_ID && block2.Coloum_ID - block1.Coloum_ID == 1)
             {
-                return Direction.Right;
+                dir = Direction.Right;
+            }
+            else if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID > block2.Coloum_ID && block1.Coloum_ID - block2.Coloum_ID == 1)
+            {
+                dir = Direction.Left;
+            }
+            else if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID > block2.Row_ID && block1.Row_ID - block2.Row_ID == 1)
+            {
+                dir = Direction.Up;
+            }
+            else if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID < block2.Row_ID && block2.Row_ID - block1.Row_ID == 1)
+            {
+                dir = Direction.Down;
             }
 
-            if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID > block2.Coloum_ID && block1.Coloum_ID - block2.Coloum_ID == 1)
+            if (dir == Direction.None)
             {
-                return Direction.Left;
+                return Direction.None;
             }
 
-            if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID > block2.Row_ID && block1.Row_ID - block2.Row_ID == 1)
+            if (block1.HasWall(dir) || block2.HasWall(OppositeDirection(dir)))
             {
-                return Direction.Up;
+                return Direction.None;
             }
 
-            if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID < block2.Row_ID && block2.Row_ID - block1.Row_ID == 1)
+            if (!block2.CanEnterFrom(dir))
             {
-                return Direction.Down;
+                return Direction.None;
             }
-            return Direction.None;
+
+            return dir;
+        }
+
+        private Direction OppositeDirection(Direction dir)
+        {
+            switch (dir)
+            {
+                case Direction.Left: return Direction.Right;
+                case Direction.Right: return Direction.Left;
+                case Direction.Up: return Direction.Down;
+                case Direction.Down: return Direction.Up;
+                default: return Direction.None;
+            }
+        }
+
+        /// <summary>
+        /// Applies one drag step onto <paramref name="block"/>: resolves cell-stealing against
+        /// another highlighted pair, highlights both ends in <paramref name="dir"/>, and appends
+        /// the block to <see cref="selectedBlocks"/>. Shared by the single-adjacent-cell case and
+        /// the multi-cell interpolation used when a fast swipe skips over intermediate cells.
+        /// </summary>
+        private void ProcessBlockStep(Block block, Direction dir)
+        {
+            // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
+            // -- Mixed cells are exempt: they're meant to be shared, not stolen from another pair
+            if (block.BlockType != BlockType.Mixed && completedPairs.ContainsKey(block.HighlightedPairId) && block.HighlightedPairId != selectedBlocks[0].HighlightedPairId)
+            {
+                List<Block> blocks = completedPairs[block.HighlightedPairId];
+
+                int indexToRemove = GetBlockIndex(blocks, block);
+                indexToRemove--;
+                if (indexToRemove <= -1) { indexToRemove = -1; }
+
+                if (indexToRemove != -1)
+                {
+                    ResetBlockToRemove(blocks, indexToRemove);
+                }
+            }
+
+            PairColorType type;
+            int pairId;
+            GetCurrentDragColorAndPairId(out type, out pairId);
+
+            Block oldLast = selectedBlocks[selectedBlocks.Count - 1];
+
+            // The block we're leaving stops receiving live entry-fill updates the moment it's
+            // no longer the last selected block, so snap its own entry edge (if any) to fully
+            // connected now -- normally it's already ~1 from the live per-frame tracking, but
+            // a sharp turn can trigger this step before the pointer passed dead center.
+            if (selectedBlocks.Count >= 2)
+            {
+                Direction oldEntryDir = GetDirection(oldLast, selectedBlocks[selectedBlocks.Count - 2]);
+                if (oldEntryDir != Direction.None)
+                {
+                    oldLast.SetDirectionFillAmount(oldEntryDir, 1f);
+                }
+            }
+
+            //highlighting last selected block
+            oldLast.HighlightBlockDirection(dir, type, pairId);
+
+            //highlight new selected block -- growFromFarEdge: this is the cell being entered,
+            //so its bar should fill from the shared edge inward, not from its own center outward
+            switch (dir)
+            {
+                case Direction.Left:
+                    block.HighlightBlockDirection(Direction.Right, type, pairId, growFromFarEdge: true);
+                    break;
+
+                case Direction.Right:
+                    block.HighlightBlockDirection(Direction.Left, type, pairId, growFromFarEdge: true);
+                    break;
+
+                case Direction.Up:
+                    block.HighlightBlockDirection(Direction.Down, type, pairId, growFromFarEdge: true);
+                    break;
+
+                case Direction.Down:
+                    block.HighlightBlockDirection(Direction.Up, type, pairId, growFromFarEdge: true);
+                    break;
+            }
+
+            selectedBlocks.Add(block);
+        }
+
+        /// <summary>
+        /// Resolves which pair color/id the currently active drag is drawing with -- the
+        /// same rule ProcessBlockStep uses to color a newly committed step, reused by the
+        /// live drag preview so the preview bar matches the color it'll commit as.
+        /// </summary>
+        private void GetCurrentDragColorAndPairId(out PairColorType type, out int pairId)
+        {
+            type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
+            pairId = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedPairId : selectedBlocks[0].PairId;
+            if (hasSelectExistingFromMiddle)
+            {
+                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
+                pairId = selectedBlocks[selectedBlocks.Count - 1].HighlightedPairId;
+            }
+        }
+
+        /// <summary>
+        /// Grows the last selected block's bar toward whichever neighbor the pointer is
+        /// currently heading for, proportional to how far across that cell it's travelled --
+        /// a live preview of the step that ProcessBlockStep will commit once the pointer
+        /// actually lands on the neighbor. Purely visual: never touches selectedBlocks or
+        /// completedPairs.
+        /// </summary>
+        private void UpdateDragPreview()
+        {
+            UpdateDragPreview(UnityEngine.Input.mousePosition);
+        }
+
+        /// <summary>
+        /// Testable core of the live drag preview: takes the pointer's screen position
+        /// explicitly instead of reading Input.mousePosition directly, so the geometry can
+        /// be exercised deterministically without real hardware input.
+        /// </summary>
+        private void UpdateDragPreview(Vector2 pointerScreenPosition)
+        {
+            if (selectedBlocks.Count == 0) { return; }
+
+            Block lastBlock = selectedBlocks[selectedBlocks.Count - 1];
+            RectTransform lastRect = lastBlock.transform as RectTransform;
+            if (lastRect == null) { return; }
+
+            Vector3 blockScreenCenter = RectTransformUtility.WorldToScreenPoint(null, lastRect.position);
+            Vector3 edgeWorld = lastRect.TransformPoint(new Vector3(lastRect.rect.width / 2f, 0f, 0f));
+            Vector3 edgeScreen = RectTransformUtility.WorldToScreenPoint(null, edgeWorld);
+            float cellHalfSizeScreen = Vector3.Distance(blockScreenCenter, edgeScreen);
+
+            Vector2 offset = pointerScreenPosition - (Vector2)blockScreenCenter;
+
+            // entryDir/entryFraction track the edge this cell was entered through, growing
+            // from 0 (just crossed the edge) to 1 (reached this cell's center) as the pointer
+            // moves -- replaces the old fixed-duration commit tween, which finished on its own
+            // schedule regardless of where the pointer actually was. Defaults to "no entry
+            // edge, already complete" for the very first block of a drag (the starting dot).
+            Direction entryDir = Direction.None;
+            float entryFraction = 1f;
+            if (selectedBlocks.Count >= 2 && cellHalfSizeScreen > 0.01f)
+            {
+                entryDir = GetDirection(lastBlock, selectedBlocks[selectedBlocks.Count - 2]);
+                if (entryDir != Direction.None)
+                {
+                    entryFraction = ComputeEdgeToCenterFraction(entryDir, offset, cellHalfSizeScreen);
+                }
+            }
+
+            Direction candidate = Direction.None;
+            float fraction = 0f;
+
+            if (cellHalfSizeScreen > 0.01f)
+            {
+                if (entryDir != Direction.None && entryFraction < 1f)
+                {
+                    // Still connecting from the entry edge: a perpendicular direction only
+                    // counts as a deliberate turn once the pointer has pushed more than halfway
+                    // from center toward that edge. Below that, ordinary wobble while still
+                    // approaching this cell's center would otherwise flash an unrelated bar
+                    // (e.g. Down) even though the drag is really just moving straight through.
+                    // Once it crosses that point, finish the entry edge immediately and switch
+                    // to filling the turn, rather than blending the two together.
+                    bool enteredHorizontally = entryDir == Direction.Left || entryDir == Direction.Right;
+                    float turnAxisOffset = enteredHorizontally ? offset.y : offset.x;
+                    float turnFraction = Mathf.Clamp01(Mathf.Abs(turnAxisOffset) / cellHalfSizeScreen);
+
+                    if (turnFraction > 0.5f)
+                    {
+                        entryFraction = 1f;
+                        candidate = enteredHorizontally
+                            ? (offset.y > 0 ? Direction.Up : Direction.Down)
+                            : (offset.x > 0 ? Direction.Right : Direction.Left);
+                        fraction = turnFraction;
+                    }
+                }
+                else
+                {
+                    // No entry edge to protect (starting dot) or already past this cell's
+                    // center -- normal dominant-axis preview toward the next step.
+                    if (Mathf.Abs(offset.x) >= Mathf.Abs(offset.y))
+                    {
+                        candidate = offset.x > 0 ? Direction.Right : Direction.Left;
+                        fraction = Mathf.Abs(offset.x) / cellHalfSizeScreen;
+                    }
+                    else
+                    {
+                        candidate = offset.y > 0 ? Direction.Up : Direction.Down;
+                        fraction = Mathf.Abs(offset.y) / cellHalfSizeScreen;
+                    }
+                    fraction = Mathf.Clamp01(fraction);
+                }
+            }
+
+            if (entryDir != Direction.None)
+            {
+                lastBlock.SetDirectionFillAmount(entryDir, entryFraction);
+            }
+
+            Block neighbor = candidate != Direction.None ? GetNeighbor(lastBlock, candidate) : null;
+            bool candidateIsLegal = neighbor != null
+                && CanSelectToAdd(neighbor)
+                && GetDirection(lastBlock, neighbor) == candidate;
+
+            if (!candidateIsLegal)
+            {
+                candidate = Direction.None;
+                fraction = 0f;
+            }
+
+            if (activePreviewDirection != Direction.None && activePreviewDirection != candidate)
+            {
+                lastBlock.SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
+            }
+
+            if (candidate != Direction.None)
+            {
+                PairColorType type;
+                int pairId;
+                GetCurrentDragColorAndPairId(out type, out pairId);
+                lastBlock.SetDirectionPreview(candidate, fraction, type);
+            }
+
+            activePreviewDirection = candidate;
+        }
+
+        /// <summary>
+        /// Fraction (0-1) of how far the pointer has travelled from the cell edge facing
+        /// <paramref name="entryDir"/> toward this cell's center: 0 right at the edge (just
+        /// crossed into the cell), 1 once the pointer reaches the center (fully connected).
+        /// <paramref name="offsetFromCenter"/> and <paramref name="cellHalfSizeScreen"/> are
+        /// the same screen-space values UpdateDragPreview already computes for the outgoing
+        /// candidate, reused here for the incoming edge instead.
+        /// </summary>
+        private float ComputeEdgeToCenterFraction(Direction entryDir, Vector2 offsetFromCenter, float cellHalfSizeScreen)
+        {
+            float axisValue;
+            float edgeSign;
+
+            switch (entryDir)
+            {
+                case Direction.Right: axisValue = offsetFromCenter.x; edgeSign = 1f; break;
+                case Direction.Left: axisValue = offsetFromCenter.x; edgeSign = -1f; break;
+                case Direction.Up: axisValue = offsetFromCenter.y; edgeSign = 1f; break;
+                case Direction.Down: axisValue = offsetFromCenter.y; edgeSign = -1f; break;
+                default: return 1f;
+            }
+
+            return Mathf.Clamp01(1f - edgeSign * axisValue / cellHalfSizeScreen);
+        }
+
+        /// <summary>
+        /// Clears any live preview left on the last selected block. Call before a drag ends
+        /// or its "last block" reference is about to change/clear.
+        /// </summary>
+        private void ClearDragPreview()
+        {
+            if (activePreviewDirection == Direction.None || selectedBlocks.Count == 0) { return; }
+
+            selectedBlocks[selectedBlocks.Count - 1].SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
+            activePreviewDirection = Direction.None;
+        }
+
+        private Block GetNeighbor(Block from, Direction dir)
+        {
+            int r = from.Row_ID;
+            int c = from.Coloum_ID;
+            switch (dir)
+            {
+                case Direction.Left: c--; break;
+                case Direction.Right: c++; break;
+                case Direction.Up: r--; break;
+                case Direction.Down: r++; break;
+                default: return null;
+            }
+            if (r < 0 || r >= gridRow || c < 0 || c >= gridCol) { return null; }
+            return grid[r, c];
+        }
+
+        /// <summary>
+        /// Returns the cells strictly between <paramref name="from"/> and <paramref name="to"/>
+        /// (exclusive of <paramref name="from"/>, inclusive of <paramref name="to"/>) when they
+        /// share a row or column, in travel order. Returns null when they aren't aligned (e.g. a
+        /// diagonal jump), since that can't be walked as a sequence of orthogonal grid steps.
+        /// </summary>
+        private List<Block> GetStraightLinePath(Block from, Block to)
+        {
+            List<Block> path = new List<Block>();
+
+            if (from.Row_ID == to.Row_ID && from.Coloum_ID != to.Coloum_ID)
+            {
+                int step = to.Coloum_ID > from.Coloum_ID ? 1 : -1;
+                for (int c = from.Coloum_ID + step; ; c += step)
+                {
+                    path.Add(grid[from.Row_ID, c]);
+                    if (c == to.Coloum_ID) { break; }
+                }
+                return path;
+            }
+
+            if (from.Coloum_ID == to.Coloum_ID && from.Row_ID != to.Row_ID)
+            {
+                int step = to.Row_ID > from.Row_ID ? 1 : -1;
+                for (int r = from.Row_ID + step; ; r += step)
+                {
+                    path.Add(grid[r, from.Coloum_ID]);
+                    if (r == to.Row_ID) { break; }
+                }
+                return path;
+            }
+
+            return null;
         }
 
 
@@ -527,6 +940,9 @@ namespace FreeFlow.GamePlay
         /// <param name="indexToRemove">The index of the block to start resetting and removing from.</param>
         private void ResetBlockToRemove(List<Block> blocks, int indexToRemove)
         {
+            // index 0 of any stored path is always a dot, so this is the pair's own identity
+            int pairId = blocks[0].PairId;
+
             for (int i = indexToRemove; i < blocks.Count; i++)
             {
                 Block b = blocks[i];
@@ -540,7 +956,7 @@ namespace FreeFlow.GamePlay
                 }
                 else
                 {
-                    b.ResetAllHighlightDirection();
+                    b.ResetAllHighlightDirection(pairId);
                 }
             }
 
@@ -564,21 +980,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void AddSelectedBlocksToCompletedPairs()
         {
-            if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && completedPairs.ContainsKey(selectedBlocks[0].HighlightedColorType) && completedPairs[selectedBlocks[0].HighlightedColorType].Count > 0)
-            {
-                selectedBlocks.RemoveAt(0); // added two times
-
-                if (selectedBlocks.Count > 0)
-                {
-                    completedPairs[selectedBlocks[0].HighlightedColorType].AddRange(new List<Block>(selectedBlocks));
-                    //Debug.Log("Storing value to existing list " + selectedBlocks[0].HighlightedDotType + " " + completedPairs[selectedBlocks[0].HighlightedDotType].Count);
-                }
-            }
-            else
-            {
-                completedPairs[selectedBlocks[0].PairColorType] = new List<Block>(selectedBlocks);
-                //Debug.Log("Storing value to new list " + selectedBlocks[0].DotType + " " + completedPairs[selectedBlocks[0].DotType].Count);
-            }
+            completedPairs[selectedBlocks[0].PairId] = new List<Block>(selectedBlocks);
         }
 
 
@@ -591,15 +993,38 @@ namespace FreeFlow.GamePlay
             int count = 0;
             foreach (var kvp in completedPairs)
             {
-                PairColorType key = kvp.Key;
-                List<Block> blockList = kvp.Value;
-
-                if (blockList.Count > 0 && IsPairComplete(blockList[0], blockList[blockList.Count - 1]))
+                if (IsPathFullyComplete(kvp.Value))
                 {
                     count++;
                 }
             }
             return count;
+        }
+
+        /// <summary>
+        /// Whether the given pair's currently drawn path is a fully valid completion.
+        /// The dependency-tracking hook a Gate cell checks before opening. Re-evaluates
+        /// live from current path state, so a gate opens/re-locks immediately as its
+        /// dependency pair's solved state changes.
+        /// </summary>
+        public bool IsPairSolved(int pairId)
+        {
+            return completedPairs.TryGetValue(pairId, out List<Block> path) && IsPathFullyComplete(path);
+        }
+
+        /// <summary>
+        /// Updates every Gate cell's visual to reflect whether its dependency pair is
+        /// currently solved. Called after any change to pair-completion state.
+        /// </summary>
+        private void RefreshGateVisuals()
+        {
+            for (int i = 0; i < gridRow; i++)
+            {
+                for (int j = 0; j < gridCol; j++)
+                {
+                    grid[i, j].RefreshGateVisual();
+                }
+            }
         }
 
 
@@ -611,12 +1036,67 @@ namespace FreeFlow.GamePlay
         /// <returns>True if the pair is complete, false otherwise.</returns>
         private bool IsPairComplete(Block b1, Block b2)
         {
-            return (!IsEqual(b1, b2) && b1.IsPairBlock && b2.IsPairBlock && b1.PairColorType == b2.PairColorType);
+            return (!IsEqual(b1, b2) && b1.IsPairBlock && b2.IsPairBlock && b1.PairId == b2.PairId);
         }
 
-        private bool IsPairComplete(Block b1, Block b2, PairColorType type)
+        private bool IsHighlightedPairComplete(Block b1, Block b2)
         {
-            return (!IsEqual(b1, b2) && b1.HighlightedColorType == b2.PairColorType);
+            return (!IsEqual(b1, b2) && b1.HighlightedPairId == b2.PairId);
+        }
+
+        /// <summary>
+        /// Whether a drawn path counts as a fully valid completion: its endpoints connect
+        /// AND every checkpoint/length constraint for that pair is satisfied.
+        /// </summary>
+        private bool IsPathFullyComplete(List<Block> path)
+        {
+            if (path.Count == 0 || !IsPairComplete(path[0], path[path.Count - 1]))
+            {
+                return false;
+            }
+
+            int pairId = path[0].PairId;
+            return PathSatisfiesCheckpoints(path, pairId) && PathSatisfiesLength(path, pairId);
+        }
+
+        /// <summary>
+        /// Every grid cell marked BlockType.Checkpoint for this pairId must be part of the path.
+        /// </summary>
+        private bool PathSatisfiesCheckpoints(List<Block> path, int pairId)
+        {
+            for (int i = 0; i < gridRow; i++)
+            {
+                for (int j = 0; j < gridCol; j++)
+                {
+                    Block cell = grid[i, j];
+                    if (cell.BlockType == BlockType.Checkpoint && cell.PairId == pairId && !path.Contains(cell))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private bool PathSatisfiesLength(List<Block> path, int pairId)
+        {
+            int requiredLength = GetRequiredPathLength(pairId);
+            return requiredLength <= 0 || path.Count == requiredLength;
+        }
+
+        /// <summary>
+        /// The exact path length required for this pairId to count as complete, or 0 if
+        /// that pair has no length constraint. Public so Block can show it on the dot.
+        /// </summary>
+        public int GetRequiredPathLength(int pairId)
+        {
+            if (pairConstraints == null) { return 0; }
+
+            for (int i = 0; i < pairConstraints.Length; i++)
+            {
+                if (pairConstraints[i].pairId == pairId) { return pairConstraints[i].requiredPathLength; }
+            }
+            return 0;
         }
 
 
@@ -666,6 +1146,7 @@ namespace FreeFlow.GamePlay
 
             selectedBlocks.Clear();
             completedPairs.Clear();
+            pairConstraints = null;
 
             isClicked = false;
             hasSelectExistingFromLast = false;

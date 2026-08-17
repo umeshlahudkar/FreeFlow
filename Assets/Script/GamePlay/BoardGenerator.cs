@@ -1,3 +1,4 @@
+using FreeFlow.Enums;
 using FreeFlow.Util;
 using System.Collections;
 using System.Collections.Generic;
@@ -21,7 +22,9 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void InitializePool()
         {
-            objectPool = new ObjectPool<Block>(blockPrefab, 16, thisTransform);
+            // pre-sized to the max grid (8x8 = 64) so the first 8x8 level doesn't pay an
+            // auto-grow allocation/instantiate spike mid-play
+            objectPool = new ObjectPool<Block>(blockPrefab, 64, thisTransform);
         }
 
 
@@ -39,6 +42,7 @@ namespace FreeFlow.GamePlay
             int coloumSize = (int)data.gridSize;
 
             GamePlayController.Instance.InitGrid(rowSize, coloumSize);
+            GamePlayController.Instance.SetLevelConstraints(data.pairConstraints);
 
             float totalScreenWidth = thisTransform.rect.width;
             float totalScreenHeight = thisTransform.rect.height;
@@ -69,7 +73,30 @@ namespace FreeFlow.GamePlay
                     block.transform.localPosition = new Vector3(currentPositionX, currentPositionY, 0);
                     block.GetComponent<RectTransform>().sizeDelta = Vector3.one * blockSize;
 
-                    block.SetBlock(data.gridRows[i].coloum[j], i, j);
+                    PairColorType colorType = data.gridRows[i].coloum[j];
+                    int[] pairIds = data.gridRows[i].pairId;
+                    BlockType[] blockTypes = data.gridRows[i].blockType;
+                    int[] wallMasks = data.gridRows[i].wallMask;
+                    Direction[] requiredEntryDirections = data.gridRows[i].requiredEntryDirection;
+
+                    // explicit pairId wins (needed for >9 simultaneous pairs); otherwise fall
+                    // back to the color's own value so existing hand-authored levels (which
+                    // never set pairId) behave exactly as before
+                    int pairId = (pairIds != null && j < pairIds.Length && pairIds[j] != 0)
+                        ? pairIds[j]
+                        : (int)colorType;
+
+                    BlockType blockType = (blockTypes != null && j < blockTypes.Length)
+                        ? blockTypes[j]
+                        : BlockType.Normal;
+
+                    int wallMask = (wallMasks != null && j < wallMasks.Length) ? wallMasks[j] : 0;
+
+                    Direction requiredEntryDirection = (requiredEntryDirections != null && j < requiredEntryDirections.Length)
+                        ? requiredEntryDirections[j]
+                        : Direction.None;
+
+                    block.SetBlock(colorType, pairId, blockType, wallMask, requiredEntryDirection, i, j);
 
                     currentPositionX += (blockSize + blockSpace);
                     //gridblocks.Add(block);
@@ -80,6 +107,7 @@ namespace FreeFlow.GamePlay
                 currentPositionY -= (blockSize + blockSpace);
             }
 
+            GamePlayController.Instance.ValidateLevelPairs();
             GamePlayController.Instance.GameState = Enums.GameState.Playing;
         }
 

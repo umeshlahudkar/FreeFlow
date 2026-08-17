@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using FreeFlow.Util;
 
@@ -15,6 +16,10 @@ public class AudioManager : Singleton<AudioManager>
 
     private bool isBgMute = false;
     private bool isSfxMute = false;
+
+    private const float SaveDebounceDelay = 0.3f;
+    private Coroutine saveDebounceCoroutine;
+    private bool hasPendingSave;
 
     public float BgVolume { get { return bgVolume; } }
     public float SFXVolume { get { return sfxVolume; } }
@@ -47,7 +52,7 @@ public class AudioManager : Singleton<AudioManager>
         bgVolume = Mathf.Clamp(bgVolume, 0, 1);
         bgAudioSource.volume = bgVolume;
 
-        SaveAudioData();
+        ScheduleSave();
     }
 
     public void UpdateSFXVolume(float volume)
@@ -58,8 +63,47 @@ public class AudioManager : Singleton<AudioManager>
         sfxVolume = volume;
         sfxVolume = Mathf.Clamp(sfxVolume, 0, 1);
         sfxAudioSource.volume = sfxVolume;
-        
+
+        ScheduleSave();
+    }
+
+    // sliders fire UpdateBgVolume/UpdateSFXVolume on every onValueChanged tick while being
+    // dragged; debounce so the full SaveData read-modify-write only happens once dragging
+    // settles, not on every tick
+    private void ScheduleSave()
+    {
+        hasPendingSave = true;
+
+        if (saveDebounceCoroutine != null)
+        {
+            StopCoroutine(saveDebounceCoroutine);
+        }
+        saveDebounceCoroutine = StartCoroutine(SaveAfterDelay());
+    }
+
+    private IEnumerator SaveAfterDelay()
+    {
+        yield return new WaitForSeconds(SaveDebounceDelay);
+        FlushPendingSave();
+    }
+
+    private void FlushPendingSave()
+    {
+        if (!hasPendingSave) { return; }
+
         SaveAudioData();
+        hasPendingSave = false;
+        saveDebounceCoroutine = null;
+    }
+
+    private void OnApplicationQuit()
+    {
+        FlushPendingSave();
+    }
+
+    private void OnDisable()
+    {
+        FlushPendingSave();
     }
 
     public void PlayButtonClickSound()
