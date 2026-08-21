@@ -1,4 +1,4 @@
-using FreeFlow.Enums;
+﻿using FreeFlow.Enums;
 using FreeFlow.Util;
 using System.Collections;
 using System.Collections.Generic;
@@ -12,7 +12,21 @@ namespace FreeFlow.GamePlay
     public class BoardGenerator : MonoBehaviour
     {
         [SerializeField] private Block blockPrefab;
+        // The board area: a flexible-height row in GameplayScreen's VerticalLayoutGroup, so
+        // it is handed whatever vertical space the header, stats row and footer leave over.
+        // Cell size is measured off this at runtime rather than authored per level.
         [SerializeField] private RectTransform thisTransform;
+
+        // The square play area: a child of the board area carrying an AspectRatioFitter set
+        // to FitInParent at 1:1, so it is always the largest centred square that fits whatever
+        // the layout group hands its parent. Cell size is measured off THIS, which is why the
+        // grid stays square without any min(width, height) arithmetic here -- and it gives the
+        // board a real rect to parent blocks to and to hang a frame or background on.
+        [SerializeField] private RectTransform boardArea;
+
+        // Breathing room kept clear inside the square, per side, so the grid never runs flush
+        // into the screen edge on a narrow phone.
+        [SerializeField] private float boardPadding = 40f;
         //private List<Block> gridblocks;
 
         [SerializeField] private ObjectPool<Block> objectPool;
@@ -24,14 +38,14 @@ namespace FreeFlow.GamePlay
         {
             // pre-sized to the max grid (8x8 = 64) so the first 8x8 level doesn't pay an
             // auto-grow allocation/instantiate spike mid-play
-            objectPool = new ObjectPool<Block>(blockPrefab, 64, thisTransform);
+            objectPool = new ObjectPool<Block>(blockPrefab, 64, BoardArea);
         }
 
 
         /// <summary>
         /// Generate blocks based on level data
         /// </summary>
-        /// <param name="data">The LevelData containing grid size, block size, block space, and grid rows</param>
+        /// <param name="data">The LevelData containing grid size and grid rows</param>
         public void GenerateBoard(LevelData data)
         {
             if (objectPool == null) { InitializePool(); }
@@ -44,25 +58,6 @@ namespace FreeFlow.GamePlay
             GamePlayController.Instance.InitGrid(rowSize, coloumSize);
             GamePlayController.Instance.SetLevelConstraints(data.pairConstraints);
 
-            float totalScreenWidth = thisTransform.rect.width;
-            float totalScreenHeight = thisTransform.rect.height;
-
-            float useableWidth = totalScreenWidth * 0.9f;
-
-            int maxBlockInRowCol = rowSize > coloumSize ? rowSize : coloumSize;
-            float blockSize = useableWidth / maxBlockInRowCol;
-
-            float horizontalSpacing = (totalScreenWidth - (blockSize * coloumSize)) / 2;
-            float verticalSpacing = (totalScreenHeight - (blockSize * rowSize)) / 2;
-
-            float startPointX = -((totalScreenWidth / 2) - (blockSize / 2) - (horizontalSpacing));
-            float startPointY = ((totalScreenHeight / 2) - (blockSize / 2) - (verticalSpacing));
-
-            int blockSpace = 0;
-
-            float currentPositionX = startPointX;
-            float currentPositionY = startPointY;
-
             for (int i = 0; i < rowSize; i++)
             {
                 for (int j = 0; j < coloumSize; j++)
@@ -70,8 +65,6 @@ namespace FreeFlow.GamePlay
                     //Block block = Instantiate(blockPrefab, transform);
                     Block block = objectPool.GetObject();
                     block.gameObject.name = "Block_" + i + " " + j;
-                    block.transform.localPosition = new Vector3(currentPositionX, currentPositionY, 0);
-                    block.GetComponent<RectTransform>().sizeDelta = Vector3.one * blockSize;
 
                     PairColorType colorType = data.gridRows[i].coloum[j];
                     int[] pairIds = data.gridRows[i].pairId;
@@ -98,73 +91,92 @@ namespace FreeFlow.GamePlay
 
                     block.SetBlock(colorType, pairId, blockType, wallMask, requiredEntryDirection, i, j);
 
-                    currentPositionX += (blockSize + blockSpace);
-                    //gridblocks.Add(block);
-
                     GamePlayController.Instance.grid[i, j] = block;
                 }
-                currentPositionX = startPointX;
-                currentPositionY -= (blockSize + blockSpace);
             }
+
+            // Placement is a second pass: every block has to exist before the board can be
+            // measured and laid out, and LayoutBoard is the same code path a screen resize
+            // goes through, so there is only one copy of the arithmetic.
+            LayoutBoard();
 
             GamePlayController.Instance.ValidateLevelPairs();
             GamePlayController.Instance.GameState = Enums.GameState.Playing;
         }
 
         /// <summary>
-        /// Calculates the starting X-coordinate for the grid based on block size, row size, and block space.
+        /// Sizes and positions every block from the square play area's current rect. The
+        /// AspectRatioFitter has already reduced "how much room is there" to a single number --
+        /// a tall phone leaves a square limited by width, a tablet one limited by height --
+        /// so cell size is just that width divided by the grid. This is the only place cell
+        /// size is decided; it used to be a per-level authored number and then a hardcoded
+        /// fraction of the 1080-unit reference width, neither of which knew anything about the
+        /// space actually available.
         /// </summary>
-        /// <param name="blockSize">Size of each block.</param>
-        /// <param name="rowSize">Number of rows in the grid.</param>
-        /// <param name="blockSpace">Space between blocks.</param>
-        /// <returns>The calculated starting X-coordinate.</returns>
-        private float GetStartPointX(float blockSize, int rowSize, int blockSpace)
+        private void LayoutBoard()
         {
-            //float totalWidth = (blockSize * rowSize) + ((rowSize - 1) * blockSpace);
-            float totalWidth = GetTotalWidth(blockSize, rowSize, blockSpace);
-            return -((totalWidth / 2) - (blockSize / 2));
-        }
+            Block[,] grid = GamePlayController.Instance.grid;
+            if (grid == null) { return; }
 
+            int rowSize = GamePlayController.Instance.gridRow;
+            int coloumSize = GamePlayController.Instance.gridCol;
+            if (rowSize <= 0 || coloumSize <= 0) { return; }
+
+            // Two rebuilds, outer first: the layout group above may not have run yet on the
+            // frame a level loads, and the fitter only reacts to its parent's new size after
+            // that. Rebuilding just the group would leave the square a frame behind, since the
+            // fitter's own response is normally deferred to the end of frame.
+            RectTransform layoutRoot = thisTransform.parent as RectTransform;
+            if (layoutRoot != null)
+            {
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(layoutRoot);
+            }
+            UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(BoardArea);
+
+            float usable = BoardArea.rect.width - (boardPadding * 2f);
+            if (usable <= 0f) { return; }
+
+            int maxBlockInRowCol = rowSize > coloumSize ? rowSize : coloumSize;
+            float blockSize = usable / maxBlockInRowCol;
+
+            // centre the grid in the board area; row 0 is the top row
+            float startPointX = -((blockSize * coloumSize) / 2f) + (blockSize / 2f);
+            float startPointY = ((blockSize * rowSize) / 2f) - (blockSize / 2f);
+
+            for (int i = 0; i < rowSize; i++)
+            {
+                for (int j = 0; j < coloumSize; j++)
+                {
+                    Block block = grid[i, j];
+                    if (block == null) { continue; }
+
+                    RectTransform blockRect = (RectTransform)block.transform;
+                    blockRect.sizeDelta = new Vector2(blockSize, blockSize);
+                    blockRect.localPosition = new Vector3(startPointX + (blockSize * j),
+                                                          startPointY - (blockSize * i),
+                                                          0f);
+                }
+            }
+        }
 
         /// <summary>
-        /// Calculates the starting Y-coordinate for the grid based on block size, column size, and block space.
+        /// Re-lays the board when the area it lives in changes size -- a device rotation, or a
+        /// resized player window. Nothing needs regenerating, only measuring again.
         /// </summary>
-        /// <param name="blockSize">Size of each block.</param>
-        /// <param name="columnSize">Number of columns in the grid.</param>
-        /// <param name="blockSpace">Space between blocks.</param>
-        /// <returns>The calculated starting Y-coordinate.</returns>
-        private float GetStartPointY(float blockSize, int columnSize, int blockSpace)
+        private void OnRectTransformDimensionsChange()
         {
-            //float totalHeight = (blockSize * columnSize) + ((columnSize - 1) * blockSpace);
-            float totalHeight = GetTotalHeight(blockSize, columnSize, blockSpace);
-            return ((totalHeight / 2) - (blockSize / 2));
-        }
-
-
-        /// <summary>
-        /// Calculates the total width of the grid based on block size, row size, and block space.
-        /// </summary>
-        /// <param name="blockSize">Size of each block.</param>
-        /// <param name="rowSize">Number of rows in the grid.</param>
-        /// <param name="blockSpace">Space between blocks.</param>
-        /// <returns>The calculated total width of the grid.</returns>
-        private float GetTotalWidth(float blockSize, int rowSize, int blockSpace)
-        {
-            return (blockSize * rowSize) + ((rowSize - 1) * blockSpace);
+            if (thisTransform == null || GamePlayController.Instance == null) { return; }
+            LayoutBoard();
         }
 
         /// <summary>
-        /// Calculates the total height of the grid based on block size, column size, and block space.
+        /// The square play area, falling back to the board area itself if the child was never
+        /// wired up -- blocks laid out in a slightly non-square area beats a null reference.
         /// </summary>
-        /// <param name="blockSize">Size of each block.</param>
-        /// <param name="columnSize">Number of columns in the grid.</param>
-        /// <param name="blockSpace">Space between blocks.</param>
-        /// <returns>The calculated total height of the grid.</returns>
-        private float GetTotalHeight(float blockSize, int columnSize, int blockSpace)
+        private RectTransform BoardArea
         {
-            return (blockSize * columnSize) + ((columnSize - 1) * blockSpace);
+            get { return boardArea != null ? boardArea : thisTransform; }
         }
-
 
         /// <summary>
         /// Resets the grid by deactivating and returning blocks to the object pool.

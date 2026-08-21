@@ -1,4 +1,4 @@
-using FreeFlow.Enums;
+﻿using FreeFlow.Enums;
 using FreeFlow.UI;
 using FreeFlow.Util;
 using System.Collections.Generic;
@@ -39,10 +39,14 @@ namespace FreeFlow.GamePlay
 
         private PairConstraint[] pairConstraints;
 
-        // Which direction (if any) on the current last selected block is showing a live,
-        // not-yet-committed drag-progress preview. Tracked so the preview can be cleared
-        // when the pointer's candidate direction changes.
+        // Which direction (if any) is showing a live, not-yet-committed drag-progress
+        // preview, and the block it's drawn on. The block has to be tracked too: the preview
+        // lives on whichever cell was last when it was drawn, and a committed step moves
+        // "last" on to the next cell before the preview gets cleared. Clearing by direction
+        // alone then wipes that direction on the NEW last block -- which never had a preview --
+        // and strands the real one on the previous cell for the rest of the level.
         private Direction activePreviewDirection = Direction.None;
+        private Block activePreviewBlock;
 
         private void Start()
         {
@@ -790,9 +794,15 @@ namespace FreeFlow.GamePlay
                 fraction = 0f;
             }
 
-            if (activePreviewDirection != Direction.None && activePreviewDirection != candidate)
+            // Clear the outgoing preview whenever EITHER the direction or the block it sits
+            // on has moved on. Testing the direction alone misses the case where the drag
+            // commits a step and then keeps heading the same way -- candidate is unchanged, so
+            // the stale bar on the previous cell would never be taken down. Committed bars are
+            // safe from this: SetDirectionPreview ignores any slot that already has an owner.
+            if (activePreviewBlock != null
+                && (activePreviewBlock != lastBlock || activePreviewDirection != candidate))
             {
-                lastBlock.SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
+                activePreviewBlock.SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
             }
 
             if (candidate != Direction.None)
@@ -804,6 +814,7 @@ namespace FreeFlow.GamePlay
             }
 
             activePreviewDirection = candidate;
+            activePreviewBlock = candidate != Direction.None ? lastBlock : null;
         }
 
         /// <summary>
@@ -837,10 +848,11 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ClearDragPreview()
         {
-            if (activePreviewDirection == Direction.None || selectedBlocks.Count == 0) { return; }
+            if (activePreviewDirection == Direction.None || activePreviewBlock == null) { return; }
 
-            selectedBlocks[selectedBlocks.Count - 1].SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
+            activePreviewBlock.SetDirectionPreview(activePreviewDirection, 0f, PairColorType.None);
             activePreviewDirection = Direction.None;
+            activePreviewBlock = null;
         }
 
         private Block GetNeighbor(Block from, Direction dir)

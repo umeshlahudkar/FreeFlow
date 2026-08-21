@@ -1,4 +1,4 @@
-using FreeFlow.Enums;
+﻿using FreeFlow.Enums;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -13,6 +13,11 @@ namespace FreeFlow.GamePlay
     {
         [SerializeField] private Image pairDotImage;
         [SerializeField] private Image blockBgHighlightImage;
+
+        // The black inset sitting on top of the cell's white root Image. The white left
+        // showing around it IS this cell's share of the grid line, so its inset per edge is
+        // the line's half-width -- see ApplyGridLineInsets.
+        [SerializeField] private RectTransform gridLineBackground;
         [SerializeField] private Image[] directionImages;
 
         // Edge bars, indexed like directionImages ((int)Direction - 1: Left=0, Right=1,
@@ -60,6 +65,18 @@ namespace FreeFlow.GamePlay
         // the calling pair's own slots without touching another pair's.
         private int[] directionOwnerPairId = new int[4];
 
+        // How much of each direction bar is drawn, 0-1. The bars are capsules (rounded cap at
+        // both ends) grown by resizing their RectTransform, not by Image.fillAmount -- a
+        // partial fill cuts the sprite with a straight edge and would slice the far cap clean
+        // off, which is exactly why the dragged tip used to end in a hard square. Width is the
+        // one growth mechanism that keeps a rounded end rounded at every length.
+        private float[] directionBarFraction = new float[4];
+
+        // Which end of each bar is pinned while it grows. False = pinned at the cell center,
+        // growing outward (the cell being left). True = pinned at the outer edge, growing
+        // inward (the cell being entered), so the seam with the previous cell lights up first.
+        private bool[] directionBarFromFarEdge = new bool[4];
+
         /// <summary>
         /// Sets the properties of the block, including its position, pair color type,
         /// </summary>
@@ -74,21 +91,22 @@ namespace FreeFlow.GamePlay
         {
             this.row_ID = rowIndex;
             this.coloum_ID = coloumIndex;
+
+            ApplyGridLineInsets(rowIndex, coloumIndex);
             pairColorType = type;
             this.pairId = pairId;
             this.blockType = blockType;
             this.wallMask = wallMask;
             this.requiredEntryDirection = requiredEntryDirection;
 
-            // Direction bars are Image.Type.Filled: kept active permanently and shown/hidden
-            // purely via fillAmount (0 = invisible), rather than toggling the GameObject
-            // active/inactive on every drag update, which was popping the bars on and off.
+            // Bars are kept active permanently and shown/hidden purely by their width
+            // (0 = invisible), rather than toggling the GameObject active/inactive on every
+            // drag update, which was popping the bars on and off.
             for (int i = 0; i < directionImages.Length; i++)
             {
                 directionImages[i].gameObject.SetActive(true);
                 directionImages[i].DOKill();
-                directionImages[i].fillAmount = 0f;
-                directionImages[i].fillOrigin = (int)Image.OriginHorizontal.Left;
+                SetBarFraction(i, 0f, false);
             }
 
             if (pairColorType != PairColorType.None)
@@ -151,6 +169,41 @@ namespace FreeFlow.GamePlay
                     wallImages[idx].color = new Color(0.2f, 0.8f, 0.3f, 1);
                 }
             }
+        }
+
+        // Total width every grid line should end up, inner and outer alike.
+        private const float GridLineWidth = 2f;
+
+        /// <summary>
+        /// Sizes the black inset so this cell contributes exactly its share of each grid line.
+        /// Every cell paints its own full-width line, and cells butt right up against each
+        /// other, so an interior seam gets one from each side and came out twice the weight of
+        /// the board's outer edge, which only ever has the one. Interior edges therefore inset
+        /// by half a line and let the neighbour supply the other half; the four edges on the
+        /// board's rim have no neighbour and inset by the whole width.
+        /// </summary>
+        private void ApplyGridLineInsets(int rowIndex, int coloumIndex)
+        {
+            if (gridLineBackground == null) { return; }
+
+            int lastRow = GamePlayController.Instance.gridRow - 1;
+            int lastColoum = GamePlayController.Instance.gridCol - 1;
+            float half = GridLineWidth * 0.5f;
+
+            // rowIndex 0 is the TOP row -- BoardGenerator lays rows out downward from the top.
+            float left = coloumIndex == 0 ? GridLineWidth : half;
+            float right = coloumIndex == lastColoum ? GridLineWidth : half;
+            float top = rowIndex == 0 ? GridLineWidth : half;
+            float bottom = rowIndex == lastRow ? GridLineWidth : half;
+
+            gridLineBackground.offsetMin = new Vector2(left, bottom);
+            gridLineBackground.offsetMax = new Vector2(-right, -top);
+
+            // The path/obstacle wash sits directly over the same area, so it has to follow the
+            // same insets or it would leave a sliver of bare background along interior edges.
+            RectTransform highlightRect = blockBgHighlightImage.rectTransform;
+            highlightRect.offsetMin = gridLineBackground.offsetMin;
+            highlightRect.offsetMax = gridLineBackground.offsetMax;
         }
 
         private void SetObstacleVisual(Color color)
@@ -247,6 +300,112 @@ namespace FreeFlow.GamePlay
             }
         }
 
+        /// <summary>
+        /// Lays out one direction bar for its current fraction. Each bar is a capsule sprite
+        /// (9-sliced so both caps stay circular however far it's stretched) laid along the
+        /// cell's local +X, rotated per direction, pivot at the cell center end.
+        ///
+        /// Two bits of geometry make the joints work, and both depend on the cap radius being
+        /// exactly half the bar's thickness:
+        ///  - the near end starts half a thickness BEHIND the cell center, so its cap circle is
+        ///    centred on the cell center. Two perpendicular bars then overlap as a full disc
+        ///    there, which is precisely a round join: the outer corner of the elbow comes out as
+        ///    a quarter arc. Start the bar at the center instead and the caps taper to a point,
+        ///    pinching every straight-through cell at its waist.
+        ///  - the far end runs half a thickness PAST the cell edge, so it overlaps the
+        ///    neighbouring cell's own cap and the seam between two cells stays full thickness.
+        ///    The authored 2px overhang isn't enough once the ends are round -- both caps would
+        ///    be mid-taper at the seam, leaving a visible pinch on every straight run.
+        /// </summary>
+        private void ApplyBarGeometry(int idx)
+        {
+            RectTransform barRect = directionImages[idx].rectTransform;
+            RectTransform cellRect = barRect.parent as RectTransform;
+            if (cellRect == null) { return; }
+
+            float thickness = (barRect.anchorMax.y - barRect.anchorMin.y) * cellRect.rect.height + barRect.sizeDelta.y;
+            float capRadius = thickness * 0.5f;
+            float centerToEdge = (barRect.anchorMax.x - barRect.anchorMin.x) * cellRect.rect.width;
+            float fullLength = centerToEdge + capRadius * 2f;
+
+            ApplyCapScale(idx, capRadius);
+
+            float fraction = directionBarFraction[idx];
+            if (fraction <= 0f)
+            {
+                barRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 0f);
+                return;
+            }
+
+            float length = fullLength * fraction;
+
+            // Where the bar's near end sits along its own local +X. Growing outward keeps it
+            // capRadius behind the cell center (scaled by fraction so a bar at 0 has no length
+            // and nothing pops in at the center); the entering case instead parks the far end
+            // on the cell edge and walks the near end inward.
+            float nearEnd = directionBarFromFarEdge[idx]
+                ? (centerToEdge + capRadius) - length
+                : -capRadius * fraction;
+
+            // That offset has to be carried by the PIVOT, not anchoredPosition. Rotation
+            // happens about the pivot and anchoredPosition is measured in the cell's frame, so
+            // shifting there moves every bar the same way in cell space -- which is backwards
+            // for the three rotated ones, pulling Left/Up/Down off the center they exist to
+            // overlap. Putting it in the pivot keeps the offset along each bar's own axis, and
+            // anchoredPosition is then whatever holds that pivot on the cell center:
+            // pivotPos = anchoredPosition.x + pivot.x * anchorSpan, which must come to zero.
+            float pivotX = -nearEnd / length;
+            barRect.pivot = new Vector2(pivotX, 0.5f);
+            barRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, length);
+            barRect.anchoredPosition = new Vector2(-pivotX * centerToEdge, 0f);
+        }
+
+        /// <summary>
+        /// Keeps the 9-sliced caps drawn at exactly <paramref name="capRadius"/> wide. Sliced
+        /// borders are otherwise drawn at their authored pixel size, so the caps would be a
+        /// fixed width regardless of how thick the bar is and only look circular at one
+        /// specific grid size.
+        /// </summary>
+        private void ApplyCapScale(int idx, float capRadius)
+        {
+            Image image = directionImages[idx];
+            Sprite sprite = image.sprite;
+            if (sprite == null || capRadius <= 0f) { return; }
+
+            float borderPixels = sprite.border.x;
+            if (borderPixels <= 0f) { return; }
+
+            Canvas canvas = image.canvas;
+            float referencePixelsPerUnit = canvas != null ? canvas.referencePixelsPerUnit : 100f;
+            float spriteUnits = sprite.pixelsPerUnit / referencePixelsPerUnit;
+
+            image.pixelsPerUnitMultiplier = borderPixels / spriteUnits / capRadius;
+        }
+
+        /// <summary>
+        /// Re-lays the bars whenever this cell's own rect changes size. Bar length used to be
+        /// pure anchoring, which Unity re-solved for free; now that it's computed from the cell
+        /// size, an already-drawn path would keep the previous cell's measurements after a
+        /// resize -- a device rotation mid-level, or a pooled cell handed a different grid size.
+        /// </summary>
+        private void OnRectTransformDimensionsChange()
+        {
+            if (directionImages == null || directionBarFraction == null) { return; }
+
+            for (int i = 0; i < directionImages.Length; i++)
+            {
+                if (directionImages[i] == null) { continue; }
+                ApplyBarGeometry(i);
+            }
+        }
+
+        private void SetBarFraction(int idx, float fraction, bool fromFarEdge)
+        {
+            directionBarFraction[idx] = Mathf.Clamp01(fraction);
+            directionBarFromFarEdge[idx] = fromFarEdge;
+            ApplyBarGeometry(idx);
+        }
+
         // How long a bar takes to finish filling once a step commits. The cell being left
         // already sits at fillAmount ~1 from the live drag preview, so this is a no-op there;
         // it only matters for the entered cell's incoming bar. 0.08s verified geometrically
@@ -256,13 +415,13 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// Highlights the block in a specified direction with a given pair color type.
-        /// Every direction bar is the same rect (pivot at the cell-center end, tip at the
-        /// edge), just rotated per direction, so fillOrigin=Left always means "grow from
-        /// this cell's center outward to the edge". That's correct for the bar on the cell
-        /// being LEFT (it's already been growing that way all through the live preview), but
-        /// wrong for the bar on the cell being ENTERED: growing center-to-edge means the part
-        /// that actually touches the previous cell is the last sliver to appear, so the seam
-        /// still looks like it pops in no matter how long the tween runs. Pass
+        /// Every direction bar is the same capsule (pivot at the cell-center end, tip at the
+        /// edge), just rotated per direction, so growing it normally means "grow from this
+        /// cell's center outward to the edge". That's correct for the bar on the cell being
+        /// LEFT (it's already been growing that way all through the live preview), but wrong
+        /// for the bar on the cell being ENTERED: growing center-to-edge means the part that
+        /// actually touches the previous cell is the last sliver to appear, so the seam still
+        /// looks like it pops in no matter how long the tween runs. Pass
         /// <paramref name="growFromFarEdge"/> true for that entering-cell call so it fills
         /// edge-to-center instead -- the seam lights up immediately and the fill finishes
         /// toward the dot, reading as the stroke continuing rather than a new bar switching on.
@@ -282,7 +441,6 @@ namespace FreeFlow.GamePlay
 
             Color color = GamePlayController.Instance.GetColor(type);
             directionImages[idx].color = color;
-            directionImages[idx].fillOrigin = growFromFarEdge ? (int)Image.OriginHorizontal.Right : (int)Image.OriginHorizontal.Left;
             directionImages[idx].DOKill();
 
             if (growFromFarEdge)
@@ -293,16 +451,21 @@ namespace FreeFlow.GamePlay
                 // pointer actually is, which is exactly what looked wrong: the bar would
                 // finish filling on its own schedule regardless of how far the pointer had
                 // actually moved into the cell.
-                directionImages[idx].fillAmount = 0f;
+                SetBarFraction(idx, 0f, true);
             }
             else
             {
-                directionImages[idx].DOFillAmount(1f, CommitFillDuration);
+                int tweened = idx;
+                DOTween.To(() => directionBarFraction[tweened],
+                           value => SetBarFraction(tweened, value, false),
+                           1f,
+                           CommitFillDuration)
+                       .SetTarget(directionImages[tweened]);
             }
         }
 
         /// <summary>
-        /// Directly sets a direction bar's fillAmount, no animation. Used by
+        /// Directly sets how much of a direction bar is drawn, no animation. Used by
         /// GamePlayController's live drag preview to keep the entry bar (the edge this cell
         /// was entered through) tracking the pointer's actual position every frame, and to
         /// snap it to fully connected once the path advances past this cell.
@@ -310,18 +473,18 @@ namespace FreeFlow.GamePlay
         public void SetDirectionFillAmount(Direction dir, float fillAmount)
         {
             int idx = (int)dir - 1;
-            directionImages[idx].fillAmount = Mathf.Clamp01(fillAmount);
+            SetBarFraction(idx, fillAmount, directionBarFromFarEdge[idx]);
         }
 
         /// <summary>
-        /// Reads a direction bar's current fillAmount -- used by GamePlayController on pointer
+        /// Reads how much of a direction bar is drawn -- used by GamePlayController on pointer
         /// release to check how far the entry edge had actually filled before deciding whether
         /// this cell counts as a real step or should be undone.
         /// </summary>
         public float GetDirectionFillAmount(Direction dir)
         {
             int idx = (int)dir - 1;
-            return directionImages[idx].fillAmount;
+            return directionBarFraction[idx];
         }
 
         /// <summary>
@@ -331,7 +494,7 @@ namespace FreeFlow.GamePlay
         /// Never touches a slot ProcessBlockStep/HighlightBlockDirection has already
         /// committed for this drag (directionOwnerPairId != 0), so a live preview can't
         /// clobber an already-drawn segment. The image stays active at all times (see
-        /// SetBlock) -- visibility is purely fillAmount, since toggling the GameObject
+        /// SetBlock) -- visibility is purely its width, since toggling the GameObject
         /// active/inactive every frame during a drag is what caused the old flicker.
         /// </summary>
         public void SetDirectionPreview(Direction dir, float fraction, PairColorType type)
@@ -340,7 +503,7 @@ namespace FreeFlow.GamePlay
             if (directionOwnerPairId[idx] != 0) { return; }
 
             fraction = Mathf.Clamp01(fraction);
-            directionImages[idx].fillAmount = fraction;
+            SetBarFraction(idx, fraction, false);
             if (fraction > 0f)
             {
                 directionImages[idx].color = GamePlayController.Instance.GetColor(type);
@@ -358,8 +521,7 @@ namespace FreeFlow.GamePlay
             for (int i = 0; i < directionImages.Length; i++)
             {
                 directionImages[i].DOKill();
-                directionImages[i].fillAmount = 0f;
-                directionImages[i].fillOrigin = (int)Image.OriginHorizontal.Left;
+                SetBarFraction(i, 0f, false);
                 directionOwnerPairId[i] = 0;
             }
 
@@ -380,8 +542,7 @@ namespace FreeFlow.GamePlay
                 if (directionOwnerPairId[i] == pairId)
                 {
                     directionImages[i].DOKill();
-                    directionImages[i].fillAmount = 0f;
-                    directionImages[i].fillOrigin = (int)Image.OriginHorizontal.Left;
+                    SetBarFraction(i, 0f, false);
                     directionOwnerPairId[i] = 0;
                 }
             }
@@ -402,14 +563,13 @@ namespace FreeFlow.GamePlay
         {
             int idx = (int)dir - 1;
             directionImages[idx].DOKill();
-            directionImages[idx].fillAmount = 0f;
-            directionImages[idx].fillOrigin = (int)Image.OriginHorizontal.Left;
+            SetBarFraction(idx, 0f, false);
             directionOwnerPairId[idx] = 0;
 
             int count = 0;
             for (int i = 0; i < directionImages.Length; i++)
             {
-                if(directionImages[i].fillAmount > 0f) { break; }
+                if(directionBarFraction[i] > 0f) { break; }
                 count++;
             }
 
