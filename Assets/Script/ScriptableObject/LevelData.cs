@@ -1,4 +1,4 @@
-﻿using FreeFlow.Enums;
+using FreeFlow.Enums;
 
 [System.Serializable]
 public struct LevelData
@@ -37,6 +37,27 @@ public struct GridRow
     // path may be moving in when it enters this cell. Optional: defaults to Direction.None
     // (no restriction) when left empty.
     public Direction[] requiredEntryDirection;
+
+    // Only meaningful on a cell with blockType == BlockType.Arrow: the direction a path is
+    // forced to leave in, however it entered. Deliberately its own column rather than reusing
+    // requiredEntryDirection -- a cell constrained on entry AND exit is a legitimate thing to
+    // author later, and one column meaning two things is exactly how requiredEntryDirection
+    // became enforceable on cells that never draw it. Optional: defaults to Direction.None.
+    public Direction[] forcedExitDirection;
+
+    // Only meaningful on a cell with blockType == BlockType.Rotator: which of the four elbow
+    // orientations it starts in (0 = Up+Right, then clockwise). This is the STARTING rotation
+    // only -- the current one is runtime state and is never written back here. Optional:
+    // defaults to 0.
+    public int[] initialRotation;
+
+    // A SECOND pair this cell is a dot for, making it the shared destination of two colours: each
+    // pair runs its own source to this one cell. Optional: 0 means the cell has at most the one
+    // identity in `coloum`/`pairId`.
+    //
+    // One extra identity, not a list, because two colours sharing a goal is the shape that reads
+    // on a board -- three would need a real set here and a dot that can show three colours.
+    public int[] secondPairId;
 }
 
 [System.Serializable]

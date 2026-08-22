@@ -1,5 +1,6 @@
 using UnityEngine;
 using TMPro;
+using FreeFlow.Enums;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
 using FreeFlow.Util;
@@ -25,6 +26,12 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI gameplaylevelText;
         [SerializeField] private TextMeshProUGUI gameplayPairText;
         [SerializeField] private TextMeshProUGUI gameplayMoveText;
+
+        // Names the mechanic(s) the current level actually contains. Derived from the level
+        // data every load rather than authored per level, so it cannot drift out of step with
+        // the board -- see DescribeMechanics.
+        [SerializeField] private TextMeshProUGUI gameplayMechanicText;
+
         [SerializeField] private GameObject gameplayScreen;
 
         [Header("Level Data")]
@@ -84,9 +91,106 @@ namespace FreeFlow.UI
                 boardGenerator.GenerateBoard(currentLevelData);
 
                 gameplaylevelText.text = "Level : " + levelNumber;
+                UpdateMechanicLabel(currentLevelData);
                 UpdatePairCount(0);
                 UpdateMovesCount(0);
             }
+        }
+
+        private void UpdateMechanicLabel(LevelData data)
+        {
+            if (gameplayMechanicText == null) { return; }
+            gameplayMechanicText.text = "Mechanic : " + DescribeMechanics(data);
+        }
+
+        /// <summary>
+        /// Names the mechanics present in <paramref name="data"/>, read straight off the level's
+        /// own cells and constraints. Derived rather than authored on purpose: a hand-written
+        /// label would be one more field to forget when a board changes, and this cannot
+        /// disagree with what the player is looking at. Levels with no mechanic read "Basic",
+        /// and a board carrying more than one lists them all.
+        /// </summary>
+        private static string DescribeMechanics(LevelData data)
+        {
+            bool blocked = false, walls = false, checkpoint = false, forbidden = false;
+            bool oneWay = false, gate = false, mixed = false, exactLength = false;
+            bool arrow = false, bridge = false, splitter = false, rotator = false;
+            bool sharedGoal = false;
+
+            if (data.gridRows != null)
+            {
+                for (int i = 0; i < data.gridRows.Length; i++)
+                {
+                    GridRow row = data.gridRows[i];
+
+                    if (row.blockType != null)
+                    {
+                        for (int j = 0; j < row.blockType.Length; j++)
+                        {
+                            switch (row.blockType[j])
+                            {
+                                case BlockType.Blocked: blocked = true; break;
+                                case BlockType.Checkpoint: checkpoint = true; break;
+                                case BlockType.ForbiddenForPair: forbidden = true; break;
+                                case BlockType.OneWay: oneWay = true; break;
+                                case BlockType.Gate: gate = true; break;
+                                case BlockType.Mixed: mixed = true; break;
+                                case BlockType.Arrow: arrow = true; break;
+                                case BlockType.Bridge: bridge = true; break;
+                                case BlockType.Splitter: splitter = true; break;
+                                case BlockType.Rotator: rotator = true; break;
+                            }
+                        }
+                    }
+
+                    if (row.secondPairId != null)
+                    {
+                        for (int j = 0; j < row.secondPairId.Length; j++)
+                        {
+                            if (row.secondPairId[j] != 0) { sharedGoal = true; }
+                        }
+                    }
+
+                    if (row.wallMask != null)
+                    {
+                        for (int j = 0; j < row.wallMask.Length; j++)
+                        {
+                            if (row.wallMask[j] != 0) { walls = true; }
+                        }
+                    }
+                }
+            }
+
+            if (data.pairConstraints != null)
+            {
+                for (int i = 0; i < data.pairConstraints.Length; i++)
+                {
+                    if (data.pairConstraints[i].requiredPathLength > 0) { exactLength = true; }
+                }
+            }
+
+            string description = string.Empty;
+            AppendMechanic(ref description, blocked, "Blocked cell");
+            AppendMechanic(ref description, walls, "Wall");
+            AppendMechanic(ref description, oneWay, "One-way");
+            AppendMechanic(ref description, arrow, "Arrow");
+            AppendMechanic(ref description, forbidden, "Forbidden cell");
+            AppendMechanic(ref description, mixed, "Shared cell");
+            AppendMechanic(ref description, bridge, "Bridge");
+            AppendMechanic(ref description, splitter, "Splitter");
+            AppendMechanic(ref description, rotator, "Rotator");
+            AppendMechanic(ref description, sharedGoal, "Shared destination");
+            AppendMechanic(ref description, checkpoint, "Checkpoint");
+            AppendMechanic(ref description, exactLength, "Exact length");
+            AppendMechanic(ref description, gate, "Gate");
+
+            return description.Length > 0 ? description : "Basic";
+        }
+
+        private static void AppendMechanic(ref string description, bool present, string name)
+        {
+            if (!present) { return; }
+            description = description.Length > 0 ? description + " + " + name : name;
         }
 
         /// <summary>

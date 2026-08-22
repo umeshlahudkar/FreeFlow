@@ -1,4 +1,4 @@
-﻿using FreeFlow.Enums;
+using FreeFlow.Enums;
 using FreeFlow.Util;
 using System.Collections;
 using System.Collections.Generic;
@@ -71,6 +71,9 @@ namespace FreeFlow.GamePlay
                     BlockType[] blockTypes = data.gridRows[i].blockType;
                     int[] wallMasks = data.gridRows[i].wallMask;
                     Direction[] requiredEntryDirections = data.gridRows[i].requiredEntryDirection;
+                    Direction[] forcedExitDirections = data.gridRows[i].forcedExitDirection;
+                    int[] initialRotations = data.gridRows[i].initialRotation;
+                    int[] secondPairIds = data.gridRows[i].secondPairId;
 
                     // explicit pairId wins (needed for >9 simultaneous pairs); otherwise fall
                     // back to the color's own value so existing hand-authored levels (which
@@ -89,19 +92,87 @@ namespace FreeFlow.GamePlay
                         ? requiredEntryDirections[j]
                         : Direction.None;
 
-                    block.SetBlock(colorType, pairId, blockType, wallMask, requiredEntryDirection, i, j);
+                    Direction forcedExitDirection = (forcedExitDirections != null && j < forcedExitDirections.Length)
+                        ? forcedExitDirections[j]
+                        : Direction.None;
+
+                    int initialRotation = (initialRotations != null && j < initialRotations.Length)
+                        ? initialRotations[j]
+                        : 0;
+
+                    int secondPairId = (secondPairIds != null && j < secondPairIds.Length)
+                        ? secondPairIds[j]
+                        : 0;
+
+                    block.SetBlock(colorType, pairId, secondPairId, blockType, wallMask, requiredEntryDirection, forcedExitDirection, initialRotation, i, j);
 
                     GamePlayController.Instance.grid[i, j] = block;
                 }
             }
+
+            NormalizeWalls(rowSize, coloumSize);
 
             // Placement is a second pass: every block has to exist before the board can be
             // measured and laid out, and LayoutBoard is the same code path a screen resize
             // goes through, so there is only one copy of the arithmetic.
             LayoutBoard();
 
-            GamePlayController.Instance.ValidateLevelPairs();
+            GamePlayController.Instance.ValidateLevelData();
             GamePlayController.Instance.GameState = Enums.GameState.Playing;
+        }
+
+        /// <summary>
+        /// A wall belongs to the edge between two cells, but wallMask is stored per cell, so
+        /// level data can declare one side and not the other. Movement already handles that --
+        /// GetDirection refuses the crossing if *either* side declares it -- but the art does
+        /// not: only the declaring cell draws a bar, so the same wall looks solid from one side
+        /// and open from the other. Mirroring at load lets a level be authored either way and
+        /// still look right from both.
+        /// </summary>
+        private void NormalizeWalls(int rowSize, int coloumSize)
+        {
+            Block[,] grid = GamePlayController.Instance.grid;
+            if (grid == null) { return; }
+
+            Direction[] edges = { Direction.Left, Direction.Right, Direction.Up, Direction.Down };
+
+            for (int i = 0; i < rowSize; i++)
+            {
+                for (int j = 0; j < coloumSize; j++)
+                {
+                    Block block = grid[i, j];
+                    if (block == null) { continue; }
+
+                    for (int e = 0; e < edges.Length; e++)
+                    {
+                        if (!block.HasWall(edges[e])) { continue; }
+
+                        int r = i, c = j;
+                        switch (edges[e])
+                        {
+                            case Direction.Left: c--; break;
+                            case Direction.Right: c++; break;
+                            case Direction.Up: r--; break;
+                            case Direction.Down: r++; break;
+                        }
+
+                        if (r < 0 || r >= rowSize || c < 0 || c >= coloumSize) { continue; }
+                        if (grid[r, c] != null) { grid[r, c].AddWall(OppositeEdge(edges[e])); }
+                    }
+                }
+            }
+        }
+
+        private static Direction OppositeEdge(Direction dir)
+        {
+            switch (dir)
+            {
+                case Direction.Left: return Direction.Right;
+                case Direction.Right: return Direction.Left;
+                case Direction.Up: return Direction.Down;
+                case Direction.Down: return Direction.Up;
+                default: return Direction.None;
+            }
         }
 
         /// <summary>

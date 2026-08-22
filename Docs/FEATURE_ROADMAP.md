@@ -4,7 +4,9 @@ Candidate mechanics for making levels more challenging, grouped by category, plu
 feasibility read against the current codebase. See also
 [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) (drag/select algorithm bugs) and
 [`SCALING_NOTES.md`](SCALING_NOTES.md) (why several of these need a prerequisite
-refactor before they can be added safely).
+refactor before they can be added safely), and
+[`PUZZLE_MECHANICS.md`](PUZZLE_MECHANICS.md) for the per-mechanic reference (rule, level
+data, runtime hook and cost) of what has actually shipped from this list.
 
 ---
 

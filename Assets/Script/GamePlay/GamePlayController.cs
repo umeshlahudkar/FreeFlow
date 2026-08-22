@@ -1,4 +1,4 @@
-﻿using FreeFlow.Enums;
+using FreeFlow.Enums;
 using FreeFlow.UI;
 using FreeFlow.Util;
 using System.Collections.Generic;
@@ -21,7 +21,17 @@ namespace FreeFlow.GamePlay
         private bool hasSelectExistingFromMiddle;
 
         private List<Block> selectedBlocks;
-        private Dictionary<int, List<Block>> completedPairs;
+
+        // Every pair's drawn path, as a SET of segments rather than one list. A two-dot pair has
+        // exactly one segment and behaves as it always did; a splitter pair has one per dot, all
+        // meeting at its junction. The old shape was Dictionary<int, List<Block>> assigned
+        // wholesale on commit, so a second branch of the same pair did not add -- it silently
+        // replaced the first.
+        //
+        // A segment always starts at one of its pair's dots (OnPointerDown only ever begins a
+        // selection at a dot, and trimming only ever shortens from the far end), which is what
+        // gives each branch a stable identity to be replaced or cleared by.
+        private Dictionary<int, List<List<Block>>> pairSegments;
 
         private EventSystem eventSystem;
         private List<RaycastResult> raycastResults;
@@ -30,7 +40,9 @@ namespace FreeFlow.GamePlay
         public Block[,] grid;
         public int gridRow;
         public int gridCol;
-        private Block[] highlightedBlock = new Block[2];
+        // Dots scaled up when the player grabs a pair. Three, not two: a splitter pair has a
+        // dot per branch and all of them should answer.
+        private List<Block> highlightedBlock = new List<Block>();
 
         [SerializeField] private PairColorDataSO PairColorDataSO;
         [SerializeField] private Image touchPointer;
@@ -48,6 +60,7 @@ namespace FreeFlow.GamePlay
         private Direction activePreviewDirection = Direction.None;
         private Block activePreviewBlock;
 
+
         private void Start()
         {
             isClicked = false;
@@ -55,7 +68,7 @@ namespace FreeFlow.GamePlay
             hasSelectExistingFromMiddle = false;
 
             selectedBlocks = new List<Block>();
-            completedPairs = new Dictionary<int, List<Block>>();
+            pairSegments = new Dictionary<int, List<List<Block>>>();
 
             eventSystem = EventSystem.current;
             raycastResults = new List<RaycastResult>();
@@ -86,34 +99,13 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Verifies every pair-block's PairId appears exactly twice on the current grid.
-        /// Call once the grid is fully populated. Logs an error per malformed id rather than
-        /// throwing, since bad level content shouldn't crash the game outright.
+        /// Runs every level-data sanity check against the populated grid. Call once the board is
+        /// fully generated. The checks themselves live in <see cref="LevelValidator"/>; this only
+        /// hands it the board and the constraints it was built with.
         /// </summary>
-        public void ValidateLevelPairs()
+        public void ValidateLevelData()
         {
-            Dictionary<int, int> pairIdCounts = new Dictionary<int, int>();
-
-            for (int i = 0; i < gridRow; i++)
-            {
-                for (int j = 0; j < gridCol; j++)
-                {
-                    Block block = grid[i, j];
-                    if (block.IsPairBlock)
-                    {
-                        int id = block.PairId;
-                        pairIdCounts[id] = pairIdCounts.TryGetValue(id, out int existing) ? existing + 1 : 1;
-                    }
-                }
-            }
-
-            foreach (var kvp in pairIdCounts)
-            {
-                if (kvp.Value != 2)
-                {
-                    Debug.LogError("FreeFlow level data error: pair id " + kvp.Key + " appears " + kvp.Value + " time(s) on this board, expected exactly 2.");
-                }
-            }
+            LevelValidator.Validate(grid, gridRow, gridCol, pairConstraints);
         }
 
         void Update()
@@ -147,24 +139,30 @@ namespace FreeFlow.GamePlay
 
                 if (block != null)
                 {
+                    // A press on a rotator turns the board, not the path. Taken before anything
+                    // else and it consumes the press: isClicked stays false, so OnPointerMoved
+                    // ignores the rest of this gesture and no path is started. (touchPointer must
+                    // stay raycastTarget=false for this to reach the Block at all -- see Start.)
+                    if (block.BlockType == BlockType.Rotator)
+                    {
+                        RotateBlock(block);
+                        return;
+                    }
+
+                    int grabbedPairId = ResolveGrabbedPairId(block);
+
                     // if click on pair dot and the block is already clicked before, clears all highlighted blocks
                     // for the pair and removed it from the completed pairs list
-                    if (block.IsPairBlock && completedPairs.ContainsKey(block.PairId))
+                    // A shared destination is never a starting point: it belongs to two pairs, so
+                    // a press on it could not say which one was meant. Drags start at the sources.
+                    if (block.IsPairBlock && !block.IsSharedGoal && ClearSegmentsTouching(block))
                     {
-                        List<Block> blocks = completedPairs[block.PairId];
-                        foreach (Block b in blocks)
-                        {
-                            b.ResetAllHighlightDirection(block.PairId);
-                        }
-                        completedPairs.Remove(block.PairId);
-
                         isClicked = true;
                         selectedBlocks.Add(block);
-
                     }
 
                     //if click on pair dot and block is not clicked before
-                    else if (block.IsPairBlock && !selectedBlocks.Contains(block))
+                    else if (block.IsPairBlock && !block.IsSharedGoal && !selectedBlocks.Contains(block))
                     {
                         isClicked = true;
                         selectedBlocks.Add(block);
@@ -173,9 +171,10 @@ namespace FreeFlow.GamePlay
                     }
 
                     // if the some blocks of pair highlighted, and clicked on the highlighted block
-                    else if (completedPairs.ContainsKey(block.HighlightedPairId))
+                    // a press on a drawn cell resumes THAT segment -- the pair may have others
+                    else if (SegmentContaining(grabbedPairId, block) != null)
                     {
-                        List<Block> blocks = completedPairs[block.HighlightedPairId];
+                        List<Block> blocks = SegmentContaining(grabbedPairId, block);
 
                         //check if the selected block is the last block of highlighted blocks list
                         if (IsEqual(blocks[blocks.Count - 1], block))
@@ -200,7 +199,7 @@ namespace FreeFlow.GamePlay
                         selectedBlocks.Clear();
                         selectedBlocks.AddRange(blocks);
 
-                        completedPairs.Remove(block.HighlightedPairId);
+                        DetachSegment(grabbedPairId, blocks);
                         //selectedBlocks.Add(block);
                         //HighlightSelectedColorTypeBlock(block);
                     }
@@ -209,13 +208,93 @@ namespace FreeFlow.GamePlay
                     {
                         AudioManager.Instance.PlayBlockSelectSound();
 
-                        HighlightSelectedColorTypeBlock(block);
-                        Color clr = (block.IsPairBlock ? GetColor(block.PairColorType) : GetColor(block.HighlightedColorType));
+                        HighlightSelectedColorTypeBlock(block, grabbedPairId);
+                        Color clr = (block.IsPairBlock && !block.IsSharedGoal)
+                            ? GetColor(block.PairColorType)
+                            : GetColor(block.GetOccupantColorType(grabbedPairId));
                         MoveTouchPointer(UnityEngine.Input.mousePosition);
                         SetTouchPointerImage(clr);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Turns a rotator a quarter turn and cleans up after it. Any path already drawn through
+        /// the cell is cut back to just before it: the elbow it was using may not exist any more,
+        /// and dropping the rest is both cheaper and more predictable than trying to repair a
+        /// path the player did not redraw.
+        ///
+        /// A rotation counts as a move. That is a design call, not a technical one -- it is what
+        /// makes a move budget or a star rating mean anything on a board with rotators, and it is
+        /// one line to reverse if play says otherwise.
+        /// </summary>
+        private void RotateBlock(Block rotator)
+        {
+            ClearSegmentsThrough(rotator);
+            rotator.Rotate();
+
+            AudioManager.Instance.PlayBlockSelectSound();
+
+            moves++;
+            UIController.Instance.UpdateMovesCount(moves);
+
+            int count = GetPairCompleteCount();
+            UIController.Instance.UpdatePairCount(count);
+            RefreshGateVisuals();
+        }
+
+        /// <summary>
+        /// Cuts every segment that runs through <paramref name="cell"/> back to just before it, so
+        /// nothing is left claiming a route the cell may no longer offer.
+        /// </summary>
+        private void ClearSegmentsThrough(Block cell)
+        {
+            foreach (KeyValuePair<int, List<List<Block>>> pair in pairSegments)
+            {
+                List<List<Block>> segments = pair.Value;
+
+                for (int i = segments.Count - 1; i >= 0; i--)
+                {
+                    List<Block> segment = segments[i];
+                    int at = GetBlockIndex(segment, cell);
+                    if (at == -1) { continue; }
+
+                    if (at == 0)
+                    {
+                        // the segment starts here, so there is nothing to keep
+                        ClearSegmentVisuals(segment);
+                        segments.RemoveAt(i);
+                    }
+                    else
+                    {
+                        ResetBlockToRemove(segment, at - 1);
+                    }
+                }
+            }
+
+            PruneEmptyPairs();
+        }
+
+        /// <summary>
+        /// Drops pairs left with no segments, so "has this pair drawn anything" stays a simple
+        /// key lookup.
+        /// </summary>
+        private void PruneEmptyPairs()
+        {
+            List<int> empty = null;
+
+            foreach (KeyValuePair<int, List<List<Block>>> pair in pairSegments)
+            {
+                if (pair.Value.Count == 0)
+                {
+                    if (empty == null) { empty = new List<int>(); }
+                    empty.Add(pair.Key);
+                }
+            }
+
+            if (empty == null) { return; }
+            for (int i = 0; i < empty.Count; i++) { pairSegments.Remove(empty[i]); }
         }
 
         private void OnPointerMoved()
@@ -237,11 +316,11 @@ namespace FreeFlow.GamePlay
                     {
                         Direction dir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], block);
 
-                        if (dir != Direction.None)
+                        if (dir != Direction.None && CanTakeStep(selectedBlocks[selectedBlocks.Count - 1], block, dir))
                         {
                             ProcessBlockStep(block, dir);
                         }
-                        else
+                        else if (dir == Direction.None)
                         {
                             // fast swipes can raycast a cell that isn't exactly adjacent to the last
                             // selected block; walk the straight-line path between them instead of
@@ -253,8 +332,10 @@ namespace FreeFlow.GamePlay
                                 {
                                     if (!CanSelectToAdd(cell)) { break; }
 
-                                    Direction stepDir = GetDirection(selectedBlocks[selectedBlocks.Count - 1], cell);
+                                    Block stepFrom = selectedBlocks[selectedBlocks.Count - 1];
+                                    Direction stepDir = GetDirection(stepFrom, cell);
                                     if (stepDir == Direction.None) { break; }
+                                    if (!CanTakeStep(stepFrom, cell, stepDir)) { break; }
 
                                     ProcessBlockStep(cell, stepDir);
                                 }
@@ -335,24 +416,24 @@ namespace FreeFlow.GamePlay
             {
                 Block releasedLast = selectedBlocks[selectedBlocks.Count - 1];
                 Block releasedPrev = selectedBlocks[selectedBlocks.Count - 2];
-                Direction entryDir = GetDirection(releasedLast, releasedPrev);
+
+                // AdjacentDirection, not GetDirection: this describes a step already taken, read
+                // BACKWARDS (from the cell entered toward the cell left). Re-running the movement
+                // rules on that reversed reading answers None whenever the previous cell refuses
+                // to be entered that way -- a one-way, an arrow, or a rotator -- and then this
+                // whole block was skipped: the final bar never got snapped to fully connected and
+                // the step was never undone either, so the path counted as complete while the last
+                // segment looked half-drawn or missing.
+                Direction entryDir = AdjacentDirection(releasedLast, releasedPrev);
 
                 if (entryDir != Direction.None)
                 {
                     if (releasedLast.GetDirectionFillAmount(entryDir) < 0.5f)
                     {
-                        // releasedPrev.PairId is that BLOCK's own static level-data id -- 0 for
-                        // any non-dot cell. The bar was actually marked owned under the pair
-                        // that's dragging (selectedBlocks[0].PairId), so resetting by
-                        // releasedPrev.PairId silently matches nothing on a mid-path cell and
-                        // leaves the bar stuck.
-                        Direction forwardDir = GetDirection(releasedPrev, releasedLast);
-                        releasedLast.ResetAllHighlightDirection(selectedBlocks[0].PairId);
-                        if (forwardDir != Direction.None)
-                        {
-                            releasedPrev.ResetHighlightDirection(forwardDir);
-                        }
-                        selectedBlocks.RemoveAt(selectedBlocks.Count - 1);
+                        // Nothing special for arrows any more: a path may rest on one, because
+                        // entering it and leaving it are two moves the player makes, not one the
+                        // game makes for them.
+                        UndoLastStep();
                     }
                     else
                     {
@@ -379,7 +460,7 @@ namespace FreeFlow.GamePlay
                     }
                 }
 
-                if (IsPathFullyComplete(selectedBlocks))
+                if (IsPairSatisfied(selectedBlocks[0].PairId))
                 {
                     AudioManager.Instance.PlayPairCompleteSound();
                 }
@@ -403,6 +484,32 @@ namespace FreeFlow.GamePlay
                 UIController.Instance.ActivateLevelCompleteScreen(moves);
                 SaveLevelData();
             }
+        }
+
+        /// <summary>
+        /// Drops the last committed step: clears the entered cell's bars, clears the bar the
+        /// previous cell had pointing at it, and shortens the selection.
+        /// </summary>
+        private void UndoLastStep()
+        {
+            if (selectedBlocks.Count < 2) { return; }
+
+            Block last = selectedBlocks[selectedBlocks.Count - 1];
+            Block prev = selectedBlocks[selectedBlocks.Count - 2];
+
+            // Reset by the DRAGGING pair's id, not prev.PairId -- that is the block's own static
+            // level-data id, which is 0 on any non-dot cell, so it would match nothing on a
+            // mid-path cell and leave the bar stuck on screen.
+            // Pure geometry: the step exists, so its direction is not a question about the rules
+            // -- and on a rotator the rules may have changed since it was drawn.
+            Direction forwardDir = AdjacentDirection(prev, last);
+            last.ResetAllHighlightDirection(selectedBlocks[0].PairId);
+            if (forwardDir != Direction.None)
+            {
+                prev.ResetHighlightDirection(forwardDir);
+            }
+
+            selectedBlocks.RemoveAt(selectedBlocks.Count - 1);
         }
 
         private void SaveLevelData()
@@ -433,59 +540,67 @@ namespace FreeFlow.GamePlay
             SavingSystem.Instance.Save(data);
         }
 
-        private void HighlightSelectedColorTypeBlock(Block selectedBlock)
+        /// <summary>
+        /// Scales up both dots of the pair the player just grabbed. <paramref name="grabbedPairId"/>
+        /// is which pair that is when the press landed on a mid-path cell rather than a dot --
+        /// resolved by <see cref="ResolveGrabbedPairId"/>, because a shared cell has two
+        /// occupants and the cell alone cannot say which one was meant.
+        /// </summary>
+        private void HighlightSelectedColorTypeBlock(Block selectedBlock, int grabbedPairId)
         {
-            highlightedBlock[0] = null;
-            highlightedBlock[1] = null;
+            highlightedBlock.Clear();
 
-            if(selectedBlock.IsPairBlock)
+            // Every dot of the grabbed pair, however many there are -- two normally, three when
+            // the pair runs through a splitter junction. This used to collect exactly two and stop.
+            int pairId = (selectedBlock.IsPairBlock && !selectedBlock.IsSharedGoal)
+                ? selectedBlock.PairId
+                : grabbedPairId;
+            if (pairId != 0)
             {
-                highlightedBlock[0] = selectedBlock;
-                bool blockFound = false;
-                for (int i = 0; i < gridRow; i++)
-                {
-                    for (int j = 0; j < gridCol; j++)
-                    {
-                        if (grid[i, j].IsPairBlock && grid[i, j] != selectedBlock && grid[i, j].PairId == selectedBlock.PairId)
-                        {
-                            highlightedBlock[1] = grid[i, j];
-                            blockFound = true;
-                            break;
-                        }
-                    }
-                    if (blockFound) { break; }
-                }
-            }
-            else
-            {
-                int blockCount = 0;
-                for (int i = 0; i < gridRow; i++)
-                {
-                    for (int j = 0; j < gridCol; j++)
-                    {
-                        if (grid[i, j].IsPairBlock && grid[i, j].PairId == selectedBlock.HighlightedPairId)
-                        {
-                            blockCount++;
-                            highlightedBlock[blockCount-1] = grid[i, j];
-                            if (blockCount >= 2) { break; }
-                        }
-                    }
-                    if (blockCount >= 2) { break; }
-                }
+                highlightedBlock.AddRange(DotsOfPair(pairId));
             }
 
-            // guarded: level-data validation (ValidateLevelPairs) should catch a color/id
-            // appearing without its partner before play starts, but don't NRE on it here
-            if (highlightedBlock[0] != null) { highlightedBlock[0].HighlightBlock(); }
-            if (highlightedBlock[1] != null) { highlightedBlock[1].HighlightBlock(); }
+            for (int i = 0; i < highlightedBlock.Count; i++)
+            {
+                highlightedBlock[i].HighlightBlock();
+            }
+        }
+
+        /// <summary>
+        /// Which pair the player just grabbed by pressing <paramref name="block"/>. A cell only
+        /// one path can be in has a single answer, but a shared (Mixed) cell has two occupants
+        /// and recency does not decide it: prefer whichever pair's path actually ENDS here, since
+        /// that is the one a drag can extend, and fall back to the most recent occupant when
+        /// neither does. Returns 0 for an unoccupied cell.
+        /// </summary>
+        private int ResolveGrabbedPairId(Block block)
+        {
+            if (block == null) { return 0; }
+
+            for (int i = 0; i < block.OccupantCount; i++)
+            {
+                int candidate = block.GetOccupantPairId(i);
+                List<List<Block>> segments = SegmentsOf(candidate);
+                if (segments == null) { continue; }
+
+                for (int j = 0; j < segments.Count; j++)
+                {
+                    List<Block> path = segments[j];
+                    if (path.Count > 0 && IsEqual(path[path.Count - 1], block)) { return candidate; }
+                }
+            }
+
+            return block.HighlightedPairId;
         }
 
         private void ResetHighlightSelectedColorTypeBlock()
         {
             if(isClicked)
             {
-                if (highlightedBlock[0] != null) { highlightedBlock[0].ResetHighlightBlock(); }
-                if (highlightedBlock[1] != null) { highlightedBlock[1].ResetHighlightBlock(); }
+                for (int i = 0; i < highlightedBlock.Count; i++)
+                {
+                    highlightedBlock[i].ResetHighlightBlock();
+                }
             }
         }
 
@@ -513,10 +628,10 @@ namespace FreeFlow.GamePlay
                 if
                 (
                     (!block.IsPairBlock) ||
-                    (block.IsPairBlock && block.PairId == selectedBlocks[0].PairId) ||
-                    (block.IsPairBlock && block.PairId == selectedBlocks[0].HighlightedPairId) ||
+                    (block.IsDotFor(selectedBlocks[0].PairId)) ||
+                    (block.IsDotFor(selectedBlocks[0].HighlightedPairId)) ||
                     (!block.IsPairBlock && hasSelectExistingFromLast) ||
-                    (block.IsPairBlock && hasSelectExistingFromLast && block.PairId == selectedBlocks[0].HighlightedPairId)
+                    (hasSelectExistingFromLast && block.IsDotFor(selectedBlocks[0].HighlightedPairId))
                 )
                 {
                     if ((hasSelectExistingFromLast || hasSelectExistingFromMiddle) && IsHighlightedPairComplete(selectedBlocks[0], selectedBlocks[selectedBlocks.Count - 1]))
@@ -524,7 +639,16 @@ namespace FreeFlow.GamePlay
                         return false;
                     }
 
-                    if(completedPairs.ContainsKey(block.HighlightedPairId) && completedPairs[block.HighlightedPairId].Contains(block) && block.HighlightedPairId == selectedBlocks[0].HighlightedPairId)
+                    // A pair may not cross its own path -- except on its splitter junction, which
+                    // exists for exactly that. Without this exemption the second branch is refused
+                    // the moment it reaches the junction the first one is already on, so the
+                    // branches can never meet and a splitter pair can never be completed at all.
+                    bool ownJunction = block.BlockType == BlockType.Splitter
+                                    && block.PairId == selectedBlocks[0].PairId;
+
+                    if (!ownJunction
+                        && block.HighlightedPairId == selectedBlocks[0].HighlightedPairId
+                        && SegmentContaining(block.HighlightedPairId, block) != null)
                     {
                         return false;
                     }
@@ -550,24 +674,7 @@ namespace FreeFlow.GamePlay
         /// <returns>The direction of block2(Right, Left, Up, Down) from block1, or None if they are not adjacent or the move is disallowed.</returns>
         private Direction GetDirection(Block block1, Block block2)
         {
-            Direction dir = Direction.None;
-
-            if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID < block2.Coloum_ID && block2.Coloum_ID - block1.Coloum_ID == 1)
-            {
-                dir = Direction.Right;
-            }
-            else if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID > block2.Coloum_ID && block1.Coloum_ID - block2.Coloum_ID == 1)
-            {
-                dir = Direction.Left;
-            }
-            else if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID > block2.Row_ID && block1.Row_ID - block2.Row_ID == 1)
-            {
-                dir = Direction.Up;
-            }
-            else if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID < block2.Row_ID && block2.Row_ID - block1.Row_ID == 1)
-            {
-                dir = Direction.Down;
-            }
+            Direction dir = AdjacentDirection(block1, block2);
 
             if (dir == Direction.None)
             {
@@ -585,6 +692,109 @@ namespace FreeFlow.GamePlay
             }
 
             return dir;
+        }
+
+        /// <summary>
+        /// Whether the path may actually take the step from <paramref name="from"/> to
+        /// <paramref name="to"/>, on top of what <see cref="GetDirection"/> already checked.
+        /// The rules that need something a two-block function cannot see -- where the path came
+        /// from, where it will be forced to go next, and who else is already in the cell:
+        ///  - the cell being LEFT may be an arrow, and then the only legal exit is its own
+        ///    (normally impossible, since an arrow's exit commits on entry, but a mid-path
+        ///    reconnect can leave the path parked on one);
+        ///  - the cell being ENTERED may be an arrow whose forced exit is illegal, and a path
+        ///    must never be committed onto a cell it cannot leave;
+        ///  - the cell being ENTERED may be a bridge whose lane on this axis is already taken.
+        ///
+        /// A bridge also refuses turns, which is the same CanExit call as the arrow's: the exit
+        /// rule is one predicate with two rules inside it, not two predicates.
+        /// </summary>
+        private bool CanTakeStep(Block from, Block to, Direction dir)
+        {
+            int pairId = selectedBlocks[0].PairId;
+            return from.CanExit(dir, pairId) && to.CanAcceptEntry(dir, pairId) && ArrowChainIsLegal(to);
+        }
+
+        /// <summary>
+        /// Walks the forced exits from <paramref name="entered"/> and reports whether the whole
+        /// chain can be committed. Arrows can point into arrows, so this is a walk and not a
+        /// single lookahead; it is deterministic (one exit per arrow) and bounded by the board,
+        /// since every step must reach a cell the path is not already using.
+        /// </summary>
+        private bool ArrowChainIsLegal(Block entered)
+        {
+            Block current = entered;
+            int steps = gridRow * gridCol;
+
+            while (current.BlockType == BlockType.Arrow && steps-- > 0)
+            {
+                Block next = ArrowExitTarget(current, entered);
+                if (next == null) { return false; }
+                current = next;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// The cell an arrow forces the path into, or null when that step cannot be taken --
+        /// off the board, across a wall, into a cell this pair may not enter, into another
+        /// pair's dot, or back onto the path itself. <paramref name="alsoTaken"/> is the cell
+        /// that is about to be added but is not in <see cref="selectedBlocks"/> yet, so a
+        /// two-cell loop is caught while the chain is still hypothetical.
+        /// </summary>
+        private Block ArrowExitTarget(Block arrow, Block alsoTaken)
+        {
+            Direction forced = arrow.ForcedExitDirection;
+            if (forced == Direction.None) { return null; }
+
+            Block next = GetNeighbor(arrow, forced);
+            if (next == null) { return null; }
+
+            // GetDirection folds in walls and one-way entry, so a mismatch means the step is
+            // refused for one of those reasons.
+            if (GetDirection(arrow, next) != forced) { return null; }
+
+            int pairId = selectedBlocks[0].PairId;
+            if (!next.CanEnter(pairId)) { return null; }
+            if (next.IsPairBlock && !next.IsDotFor(pairId)) { return null; }
+            if (next == alsoTaken || selectedBlocks.Contains(next)) { return null; }
+
+            return next;
+        }
+
+        /// <summary>
+        /// Pure geometry: which way <paramref name="block2"/> lies from <paramref name="block1"/>
+        /// when they are exactly adjacent, ignoring every rule about whether a path may actually
+        /// go that way. <see cref="GetDirection"/> is this plus the rules.
+        ///
+        /// Separate because describing an existing step is a different question from asking whether
+        /// a new one is allowed. Re-running the rules on a step already taken answers None
+        /// whenever the reading is reversed and the other cell refuses that direction -- a
+        /// one-way, an arrow, a rotator -- or when the board has changed since (a rotated elbow).
+        ///
+        /// Rule of thumb: <see cref="GetDirection"/> for a step the player is about to take,
+        /// AdjacentDirection for one already in <see cref="selectedBlocks"/> or a stored segment.
+        /// </summary>
+        private Direction AdjacentDirection(Block block1, Block block2)
+        {
+            if (block1.Row_ID == block2.Row_ID && block2.Coloum_ID - block1.Coloum_ID == 1)
+            {
+                return Direction.Right;
+            }
+            if (block1.Row_ID == block2.Row_ID && block1.Coloum_ID - block2.Coloum_ID == 1)
+            {
+                return Direction.Left;
+            }
+            if (block1.Coloum_ID == block2.Coloum_ID && block1.Row_ID - block2.Row_ID == 1)
+            {
+                return Direction.Up;
+            }
+            if (block1.Coloum_ID == block2.Coloum_ID && block2.Row_ID - block1.Row_ID == 1)
+            {
+                return Direction.Down;
+            }
+            return Direction.None;
         }
 
         private Direction OppositeDirection(Direction dir)
@@ -608,18 +818,22 @@ namespace FreeFlow.GamePlay
         private void ProcessBlockStep(Block block, Direction dir)
         {
             // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-            // -- Mixed cells are exempt: they're meant to be shared, not stolen from another pair
-            if (block.BlockType != BlockType.Mixed && completedPairs.ContainsKey(block.HighlightedPairId) && block.HighlightedPairId != selectedBlocks[0].HighlightedPairId)
+            // -- shareable cells (Mixed, Bridge) are exempt: they're meant to be shared, not
+            // stolen from another pair. Entry terms are enforced before the step gets here.
+            if (!block.IsShareable && block.HighlightedPairId != selectedBlocks[0].HighlightedPairId)
             {
-                List<Block> blocks = completedPairs[block.HighlightedPairId];
+                List<Block> blocks = SegmentContaining(block.HighlightedPairId, block);
 
-                int indexToRemove = GetBlockIndex(blocks, block);
-                indexToRemove--;
-                if (indexToRemove <= -1) { indexToRemove = -1; }
-
-                if (indexToRemove != -1)
+                if (blocks != null)
                 {
-                    ResetBlockToRemove(blocks, indexToRemove);
+                    int indexToRemove = GetBlockIndex(blocks, block);
+                    indexToRemove--;
+                    if (indexToRemove <= -1) { indexToRemove = -1; }
+
+                    if (indexToRemove != -1)
+                    {
+                        ResetBlockToRemove(blocks, indexToRemove);
+                    }
                 }
             }
 
@@ -635,7 +849,7 @@ namespace FreeFlow.GamePlay
             // a sharp turn can trigger this step before the pointer passed dead center.
             if (selectedBlocks.Count >= 2)
             {
-                Direction oldEntryDir = GetDirection(oldLast, selectedBlocks[selectedBlocks.Count - 2]);
+                Direction oldEntryDir = AdjacentDirection(oldLast, selectedBlocks[selectedBlocks.Count - 2]);
                 if (oldEntryDir != Direction.None)
                 {
                     oldLast.SetDirectionFillAmount(oldEntryDir, 1f);
@@ -667,6 +881,17 @@ namespace FreeFlow.GamePlay
             }
 
             selectedBlocks.Add(block);
+
+            // An arrow does NOT take its own exit. It used to: entering one committed the forced
+            // step immediately, so the stroke "continued through in one motion". In play that
+            // detaches the line from the finger, and every rule the drag loop has is written
+            // around the head being the cell under the pointer -- position read as intent, fills
+            // driven by pointer distance, retreat inferred from raycasting an earlier cell. Three
+            // separate bugs came out of that one flourish.
+            //
+            // The rule loses nothing: Block.CanExitFrom already refuses every direction except
+            // the printed one, so the path can only leave an arrow the way the arrow says. The
+            // player makes the move; the arrow only decides which move is available.
         }
 
         /// <summary>
@@ -676,13 +901,14 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void GetCurrentDragColorAndPairId(out PairColorType type, out int pairId)
         {
-            type = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType : selectedBlocks[0].PairColorType;
-            pairId = hasSelectExistingFromLast ? selectedBlocks[selectedBlocks.Count - 1].HighlightedPairId : selectedBlocks[0].PairId;
-            if (hasSelectExistingFromMiddle)
-            {
-                type = selectedBlocks[selectedBlocks.Count - 1].HighlightedColorType;
-                pairId = selectedBlocks[selectedBlocks.Count - 1].HighlightedPairId;
-            }
+            // selectedBlocks[0] is always a dot: OnPointerDown only ever begins a selection at
+            // one, and a resumed path is stored from its dot outward (ResetBlockToRemove trims
+            // from the far end only). So the pair's own identity is right there, whether this is
+            // a fresh drag or a resumed one. This used to read the LAST selected block's occupant
+            // identity when resuming -- the same answer on any cell one path can be in, and
+            // whichever pair happened to arrive last on a shared one.
+            type = selectedBlocks[0].PairColorType;
+            pairId = selectedBlocks[0].PairId;
         }
 
         /// <summary>
@@ -690,7 +916,7 @@ namespace FreeFlow.GamePlay
         /// currently heading for, proportional to how far across that cell it's travelled --
         /// a live preview of the step that ProcessBlockStep will commit once the pointer
         /// actually lands on the neighbor. Purely visual: never touches selectedBlocks or
-        /// completedPairs.
+        /// pairSegments.
         /// </summary>
         private void UpdateDragPreview()
         {
@@ -724,9 +950,10 @@ namespace FreeFlow.GamePlay
             // edge, already complete" for the very first block of a drag (the starting dot).
             Direction entryDir = Direction.None;
             float entryFraction = 1f;
+
             if (selectedBlocks.Count >= 2 && cellHalfSizeScreen > 0.01f)
             {
-                entryDir = GetDirection(lastBlock, selectedBlocks[selectedBlocks.Count - 2]);
+                entryDir = AdjacentDirection(lastBlock, selectedBlocks[selectedBlocks.Count - 2]);
                 if (entryDir != Direction.None)
                 {
                     entryFraction = ComputeEdgeToCenterFraction(entryDir, offset, cellHalfSizeScreen);
@@ -952,24 +1179,19 @@ namespace FreeFlow.GamePlay
         /// <param name="indexToRemove">The index of the block to start resetting and removing from.</param>
         private void ResetBlockToRemove(List<Block> blocks, int indexToRemove)
         {
-            // index 0 of any stored path is always a dot, so this is the pair's own identity
-            int pairId = blocks[0].PairId;
-
-            for (int i = indexToRemove; i < blocks.Count; i++)
+            // Un-draw bar by bar rather than resetting whole cells by pair id. Two reasons: a
+            // splitter pair can own bars in one cell from two different branches, and only this
+            // branch's should go; and AdjacentDirection is used instead of GetDirection because
+            // re-asking the movement rules can answer None for a step that was legal when it was
+            // made -- a one-way, an arrow or a just-rotated elbow refuses the reverse reading of
+            // the same two cells, which would leave the bar stuck on screen.
+            for (int i = indexToRemove; i < blocks.Count - 1; i++)
             {
-                Block b = blocks[i];
-                if (i == indexToRemove)
-                {
-                    Direction dir = GetDirection(b, blocks[indexToRemove + 1]);
-                    if (dir != Direction.None)
-                    {
-                        blocks[indexToRemove].ResetHighlightDirection(dir);
-                    }
-                }
-                else
-                {
-                    b.ResetAllHighlightDirection(pairId);
-                }
+                Direction forward = AdjacentDirection(blocks[i], blocks[i + 1]);
+                if (forward == Direction.None) { continue; }
+
+                blocks[i].ResetHighlightDirection(forward);
+                blocks[i + 1].ResetHighlightDirection(OppositeDirection(forward));
             }
 
             // Remove blocks from the list starting from indexToRemove + 1.
@@ -988,11 +1210,134 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Adds the selected blocks to the completed pairs
+        /// Stores the drag just finished as one of its pair's segments. A segment is identified by
+        /// the dot it starts from, so re-drawing the same branch replaces it instead of piling up.
         /// </summary>
         private void AddSelectedBlocksToCompletedPairs()
         {
-            completedPairs[selectedBlocks[0].PairId] = new List<Block>(selectedBlocks);
+            int pairId = selectedBlocks[0].PairId;
+
+            if (!pairSegments.TryGetValue(pairId, out List<List<Block>> segments))
+            {
+                segments = new List<List<Block>>();
+                pairSegments[pairId] = segments;
+            }
+
+            List<Block> stored = new List<Block>(selectedBlocks);
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (IsEqual(segments[i][0], stored[0]))
+                {
+                    segments[i] = stored;
+                    return;
+                }
+            }
+
+            segments.Add(stored);
+        }
+
+        /// <summary>
+        /// Every segment of <paramref name="pairId"/>, or null when it has none drawn.
+        /// </summary>
+        private List<List<Block>> SegmentsOf(int pairId)
+        {
+            return pairSegments.TryGetValue(pairId, out List<List<Block>> segments) ? segments : null;
+        }
+
+        /// <summary>
+        /// The segment of <paramref name="pairId"/> that <paramref name="cell"/> is part of, or
+        /// null. On a shared cell two segments of the SAME pair can both contain it (a splitter
+        /// junction); the first is returned, which is the one drawn earliest.
+        /// </summary>
+        private List<Block> SegmentContaining(int pairId, Block cell)
+        {
+            List<List<Block>> segments = SegmentsOf(pairId);
+            if (segments == null) { return null; }
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (GetBlockIndex(segments[i], cell) != -1) { return segments[i]; }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Drops every segment of <paramref name="dot"/>'s pair that starts or ends at it, clearing
+        /// what those segments drew. Tapping a dot has always meant "undo this", and for a
+        /// splitter pair that has to mean this branch only: the pair's other branches, and the
+        /// junction cell they share, are left exactly as they were.
+        /// </summary>
+        private bool ClearSegmentsTouching(Block dot)
+        {
+            List<List<Block>> segments = SegmentsOf(dot.PairId);
+            if (segments == null) { return false; }
+
+            // An ordinary pair holds exactly ONE path, so pressing either of its dots clears
+            // whatever it had -- which is what redrawing a pair has always meant. Only a
+            // branching pair clears per branch: there, the other branches and the junction they
+            // share must survive.
+            //
+            // Without the distinction, drawing from the second dot of a two-dot pair left two
+            // dangling halves that could never be joined (CanSelectToAdd refuses entry into your
+            // own pair's cells), so the pair could not be completed at all until one was cleared.
+            bool branching = PairBranches(dot.PairId);
+            bool cleared = false;
+
+            for (int i = segments.Count - 1; i >= 0; i--)
+            {
+                List<Block> segment = segments[i];
+
+                if (branching)
+                {
+                    bool touches = IsEqual(segment[0], dot) || IsEqual(segment[segment.Count - 1], dot);
+                    if (!touches) { continue; }
+                }
+
+                ClearSegmentVisuals(segment);
+                segments.RemoveAt(i);
+                cleared = true;
+            }
+
+            if (segments.Count == 0) { pairSegments.Remove(dot.PairId); }
+            return cleared;
+        }
+
+        /// <summary>
+        /// Un-draws one segment, bar by bar rather than cell by cell. Resetting whole cells by pair
+        /// id would be wrong here: at a splitter junction two branches of the SAME pair own bars in
+        /// the same cell, and clearing one branch must leave the other's bar alone.
+        /// </summary>
+        private void ClearSegmentVisuals(List<Block> segment)
+        {
+            for (int i = 0; i < segment.Count - 1; i++)
+            {
+                Direction forward = AdjacentDirection(segment[i], segment[i + 1]);
+                if (forward == Direction.None) { continue; }
+
+                segment[i].ResetHighlightDirection(forward);
+                segment[i + 1].ResetHighlightDirection(OppositeDirection(forward));
+            }
+
+            // A one-cell segment (a dot tapped and released) drew nothing, and a longer one may
+            // still hold a wash it no longer earns.
+            for (int i = 0; i < segment.Count; i++)
+            {
+                segment[i].RefreshPathWash();
+            }
+        }
+
+        /// <summary>
+        /// Removes <paramref name="segment"/> from its pair's set without clearing what it drew --
+        /// used when a drag is about to take it over.
+        /// </summary>
+        private void DetachSegment(int pairId, List<Block> segment)
+        {
+            List<List<Block>> segments = SegmentsOf(pairId);
+            if (segments == null) { return; }
+
+            segments.Remove(segment);
+            if (segments.Count == 0) { pairSegments.Remove(pairId); }
         }
 
 
@@ -1003,9 +1348,9 @@ namespace FreeFlow.GamePlay
         private int GetPairCompleteCount()
         {
             int count = 0;
-            foreach (var kvp in completedPairs)
+            foreach (var kvp in pairSegments)
             {
-                if (IsPathFullyComplete(kvp.Value))
+                if (IsPairSatisfied(kvp.Key))
                 {
                     count++;
                 }
@@ -1021,7 +1366,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public bool IsPairSolved(int pairId)
         {
-            return completedPairs.TryGetValue(pairId, out List<Block> path) && IsPathFullyComplete(path);
+            return IsPairSatisfied(pairId);
         }
 
         /// <summary>
@@ -1048,7 +1393,12 @@ namespace FreeFlow.GamePlay
         /// <returns>True if the pair is complete, false otherwise.</returns>
         private bool IsPairComplete(Block b1, Block b2)
         {
-            return (!IsEqual(b1, b2) && b1.IsPairBlock && b2.IsPairBlock && b1.PairId == b2.PairId);
+            // Asked as "is b2 a dot of b1's pair", not "are their PairIds equal": a shared
+            // destination is a dot for two pairs and PairId names only the first of them.
+            return !IsEqual(b1, b2)
+                && b1.IsPairBlock
+                && b2.IsPairBlock
+                && (b2.IsDotFor(b1.PairId) || b1.IsDotFor(b2.PairId));
         }
 
         private bool IsHighlightedPairComplete(Block b1, Block b2)
@@ -1057,43 +1407,111 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Whether a drawn path counts as a fully valid completion: its endpoints connect
-        /// AND every checkpoint/length constraint for that pair is satisfied.
+        /// Whether <paramref name="pairId"/> is solved: all of its dots lie in one connected
+        /// component of the cells it occupies, and its checkpoint and length constraints hold.
+        ///
+        /// This replaced "the first and last cell of the one stored path are both dots of this
+        /// pair". That test was positional, which is why it could not describe a pair with three
+        /// dots at all. A two-dot pair drawn as a single segment is the trivial case of the
+        /// general check, so nothing about the existing levels changes.
         /// </summary>
-        private bool IsPathFullyComplete(List<Block> path)
+        private bool IsPairSatisfied(int pairId)
         {
-            if (path.Count == 0 || !IsPairComplete(path[0], path[path.Count - 1]))
+            List<List<Block>> segments = SegmentsOf(pairId);
+            if (segments == null || segments.Count == 0) { return false; }
+
+            List<Block> dots = DotsOfPair(pairId);
+            if (dots.Count < 2) { return false; }
+
+            // Walk the drawn path as a graph: cells are nodes, and two cells are joined only when
+            // a segment actually runs between them. Segments of one pair meet by sharing a cell,
+            // which is exactly what a splitter junction is.
+            HashSet<Block> reached = new HashSet<Block>();
+            Queue<Block> queue = new Queue<Block>();
+
+            reached.Add(dots[0]);
+            queue.Enqueue(dots[0]);
+
+            while (queue.Count > 0)
             {
-                return false;
+                Block current = queue.Dequeue();
+
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    List<Block> segment = segments[i];
+                    int at = GetBlockIndex(segment, current);
+                    if (at == -1) { continue; }
+
+                    if (at > 0 && reached.Add(segment[at - 1])) { queue.Enqueue(segment[at - 1]); }
+                    if (at < segment.Count - 1 && reached.Add(segment[at + 1])) { queue.Enqueue(segment[at + 1]); }
+                }
             }
 
-            int pairId = path[0].PairId;
-            return PathSatisfiesCheckpoints(path, pairId) && PathSatisfiesLength(path, pairId);
+            for (int i = 1; i < dots.Count; i++)
+            {
+                if (!reached.Contains(dots[i])) { return false; }
+            }
+
+            return PairSatisfiesCheckpoints(pairId) && PairSatisfiesLength(pairId, reached.Count);
         }
 
         /// <summary>
-        /// Every grid cell marked BlockType.Checkpoint for this pairId must be part of the path.
+        /// Whether this pair branches -- i.e. has more than the usual two dots, which only a pair
+        /// running through a splitter junction does. A non-branching pair is allowed exactly one
+        /// segment; a branching one gets a segment per dot.
         /// </summary>
-        private bool PathSatisfiesCheckpoints(List<Block> path, int pairId)
+        private bool PairBranches(int pairId)
+        {
+            return DotsOfPair(pairId).Count > 2;
+        }
+
+        /// <summary>
+        /// Every dot on the board belonging to <paramref name="pairId"/> -- two normally, three for
+        /// a splitter pair.
+        /// </summary>
+        private List<Block> DotsOfPair(int pairId)
+        {
+            List<Block> dots = new List<Block>();
+
+            for (int i = 0; i < gridRow; i++)
+            {
+                for (int j = 0; j < gridCol; j++)
+                {
+                    if (grid[i, j].IsDotFor(pairId)) { dots.Add(grid[i, j]); }
+                }
+            }
+
+            return dots;
+        }
+
+        /// <summary>
+        /// Every grid cell marked BlockType.Checkpoint for this pairId must be part of the pair's
+        /// drawn path -- any segment of it.
+        /// </summary>
+        private bool PairSatisfiesCheckpoints(int pairId)
         {
             for (int i = 0; i < gridRow; i++)
             {
                 for (int j = 0; j < gridCol; j++)
                 {
                     Block cell = grid[i, j];
-                    if (cell.BlockType == BlockType.Checkpoint && cell.PairId == pairId && !path.Contains(cell))
-                    {
-                        return false;
-                    }
+                    if (cell.BlockType != BlockType.Checkpoint || cell.PairId != pairId) { continue; }
+                    if (SegmentContaining(pairId, cell) == null) { return false; }
                 }
             }
             return true;
         }
 
-        private bool PathSatisfiesLength(List<Block> path, int pairId)
+        /// <summary>
+        /// An exact-length constraint counts the distinct cells the pair occupies. For a two-dot
+        /// pair that is its path length, unchanged; for a splitter pair it is the whole figure,
+        /// counting the shared junction once. Per-branch lengths would be the sharper puzzle but
+        /// need a PairConstraint that can name a branch -- still an open call.
+        /// </summary>
+        private bool PairSatisfiesLength(int pairId, int occupiedCells)
         {
             int requiredLength = GetRequiredPathLength(pairId);
-            return requiredLength <= 0 || path.Count == requiredLength;
+            return requiredLength <= 0 || occupiedCells == requiredLength;
         }
 
         /// <summary>
@@ -1157,7 +1575,8 @@ namespace FreeFlow.GamePlay
             gameState = GameState.Waiting;
 
             selectedBlocks.Clear();
-            completedPairs.Clear();
+            pairSegments.Clear();
+            highlightedBlock.Clear();
             pairConstraints = null;
 
             isClicked = false;
