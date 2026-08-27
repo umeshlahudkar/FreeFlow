@@ -18,24 +18,6 @@ namespace FreeFlow.Enums
         // out the way it came. For "in one side, out the other" see Arrow.
         OneWay = 4,
 
-        // Repurposes PairId as "which pair must be solved to open this gate" (again, never
-        // a pair dot itself). Blocks entry for ANY pair until that dependency pair is fully
-        // complete, then opens for everyone -- re-evaluated live every selection check, so
-        // it opens/re-locks immediately as the dependency pair's solved state changes.
-        // Key/breakable/timer/pressure-plate/dynamic obstacles are deliberately NOT modeled
-        // yet: they're variations on this same dependency-tracking idea, but each needs its
-        // own trigger condition designed against real levels rather than guessed now.
-        Gate = 5,
-
-        // A plain junction that more than one pair may occupy at once -- breaks the
-        // otherwise-universal "one Block = one path" invariant. Entry/completion logic
-        // needs no special-casing (each pair already tracks its own List<Block> path, and
-        // list membership doesn't conflict); only cell-stealing (must not steal a Mixed
-        // cell from another pair) and per-cell highlight state (must not let one pair's
-        // reset wipe the other pair's direction images) need to know about it. See
-        // GamePlayController.ProcessBlockStep and Block.ResetAllHighlightDirection(int).
-        Mixed = 6,
-
         // However a path enters, it must leave in the cell's forcedExitDirection. Unlike every
         // type above, this constrains the relationship between the incoming AND outgoing
         // direction, which needs a predicate the other two cannot express: Block.CanExit, given
@@ -48,34 +30,28 @@ namespace FreeFlow.Enums
         // and awkward to teach; the arrow covers the same design need legibly.
         Arrow = 7,
 
-        // A crossing: two pairs may occupy the cell at once, like Mixed, but on strict terms --
-        // one horizontally, one vertically, and neither may turn on it. The axis is not authored;
-        // it is whichever way each occupant happens to cross. Mixed is the permissive sibling
-        // (share freely), this is the strict one (share on terms), and level design picks.
-        //
-        // Needs nothing new: Mixed already broke the one-cell-one-path invariant and brought
-        // per-pair occupancy, and Arrow already brought the exit predicate. A bridge is those two
-        // plus "one lane per axis". See Block.CanAcceptEntry and Block.CanExitFrom.
+        // A crossing: two pairs may occupy the cell at once, but on strict terms -- one
+        // horizontally, one vertically, and neither may turn on it. The axis is not authored; it
+        // is whichever way each occupant happens to cross. This is the only cell that breaks the
+        // otherwise-universal "one Block = one path" invariant, which is what per-pair occupancy
+        // exists for; Arrow already brought the exit predicate. A bridge is those two plus "one
+        // lane per axis". See Block.CanAcceptEntry and Block.CanExitFrom.
         Bridge = 8,
 
-        // The junction of a splitter pair: a pair with THREE dots instead of two, complete only
-        // when all three reach this cell. Nothing on the cell enforces that -- the rule lives in
-        // how completion is measured, which is why this was the deepest of the mechanics to add:
-        // a pair holds a set of drawn segments and is solved when all its dots sit in one
-        // connected component of them. See GamePlayController.IsPairSatisfied.
+        // The inverse of ForbiddenForPair: instead of naming the one pair that may NOT enter, the
+        // cell names the one or two that may, and refuses everyone else. PairId is the first
+        // permitted pair and SecondPairId the optional second, reusing the column the shared
+        // destination already added rather than inventing a list.
         //
-        // The cell itself is permissive, like Mixed: it has to hold three segments of one pair,
-        // and refusing anything here would only get in the way.
-        Splitter = 9,
-
-        // An elbow joining exactly two of the cell's four edges, which the player rotates by
-        // tapping. The only mechanic where the player changes the BOARD rather than the path, and
-        // the only one with state that is neither level data nor path data: the initial rotation
-        // is authored, the current rotation is runtime and resets with the level.
+        // Worth knowing when authoring: on a two-colour board this is indistinguishable from
+        // ForbiddenForPair -- "only pair 2 may pass" IS "forbidden for pair 1". The two diverge
+        // only from three colours up, where a denylist stops one pair and an allowlist stops
+        // every other. Levels with two pairs should keep using the forbidden cell; it is the
+        // simpler rule to read.
         //
-        // Always an elbow, never a straight -- the four rotations are Up+Right, Right+Down,
-        // Down+Left, Left+Up -- so a rotator always turns a path 90 degrees. A level built around
-        // one has to want the turn.
-        Rotator = 10
+        // A third permitted colour is deliberately not modeled. Two fits the existing columns and
+        // the marker can show two tints; beyond that the cell stops being readable at a glance and
+        // the honest form would be a bitmask, which no other mechanic needs yet.
+        AllowedForPairs = 11
     }
 }

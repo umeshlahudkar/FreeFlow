@@ -6,8 +6,9 @@ Every board mechanic in FreeFlow: the eight shipped in
 four proposed additions. Written against the code, not the roadmap docs — every file and
 symbol name here is the real one.
 
-See also [`MECHANICS_IMPLEMENTATION_PLAN.md`](MECHANICS_IMPLEMENTATION_PLAN.md) (this doc
-audited against the code, plus the build plan for the proposed mechanics),
+See also [`SPRITE_REQUIREMENTS.md`](SPRITE_REQUIREMENTS.md) (what art each mechanic draws today
+and what it wants), [`MECHANICS_IMPLEMENTATION_PLAN.md`](MECHANICS_IMPLEMENTATION_PLAN.md) (this
+doc audited against the code, plus the build plan for the proposed mechanics),
 [`FEATURE_ROADMAP.md`](FEATURE_ROADMAP.md) (the wider candidate list this narrows down),
 [`EXPANSION_PLAN.md`](EXPANSION_PLAN.md) (build order across all four docs),
 [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) and [`SCALING_NOTES.md`](SCALING_NOTES.md).
@@ -22,7 +23,7 @@ mechanic below.
 | 2.1 | Blocked cell | `Blocked` | `Block.CanEnter` | shipped |
 | 2.2 | Wall between cells | `GridRow.wallMask` | `Block.HasWall` | shipped |
 | 2.3 | Required checkpoint | `Checkpoint` + cell `pairId` | completion check | shipped |
-| 2.4 | Forbidden for one pair | `ForbiddenForPair` + cell `pairId` | `Block.CanEnter` | shipped |
+| 2.4 | Forbidden colours | `ForbiddenForPair` + cell `pairId`/`secondPairId` | `Block.CanEnter` | shipped |
 | 2.5 | One-way passage | `OneWay` + `requiredEntryDirection` | `Block.CanEnterFrom` | shipped |
 | 2.6 | Gate | `Gate` + cell `pairId` | `Block.CanEnter` → `IsPairSolved` | shipped |
 | 2.7 | Mixed cell | `Mixed` | `ProcessBlockStep` + `Block` occupancy | shipped |
@@ -31,7 +32,8 @@ mechanic below.
 | 2.10 | Bridge & crossing | `Bridge` | `CanAcceptEntry` + `CanExitFrom` | shipped |
 | 2.11 | Splitter | `Splitter` + 3-dot pair | connectivity-based completion | shipped |
 | 2.12 | Rotating intersection | `Rotator` + `initialRotation` | runtime rotation + tap input | shipped |
-| 2.13 | Shared destination | `GridRow.secondPairId` | `Block.IsDotFor` | shipped |
+| 2.13 | Shared destination | `GridRow.secondPairId`/`thirdPairId`/`fourthPairId` | `Block.IsDotFor` | shipped |
+| 2.14 | Permitted colours | `AllowedForPairs` + cell `pairId`/`secondPairId` | `Block.CanEnter` | shipped |
 
 **Out of scope on purpose:** *turn-only* and *straight-only* cells. They constrain the
 relationship between entry *and* exit like the arrow does, but unlike the arrow they do not
@@ -87,10 +89,12 @@ except `coloum`:
 `PairConstraint { int pairId; int requiredPathLength; }` — `0` means unconstrained.
 
 `BlockType` values in file order: `Normal = 0`, `Blocked = 1`, `Checkpoint = 2`,
-`ForbiddenForPair = 3`, `OneWay = 4`, `Gate = 5`, `Mixed = 6`, `Arrow = 7`.
+`ForbiddenForPair = 3`, `OneWay = 4`, `Gate = 5`, `Mixed = 6`, `Arrow = 7`, `Bridge = 8`,
+`Splitter = 9`, `Rotator = 10`, `AllowedForPairs = 11`.
 
-Three of those repurpose `PairId` on a cell that is *not* a dot, to mean "which pair this rule
-is about": `Checkpoint`, `ForbiddenForPair`, `Gate`. Worth knowing when reading
+Five of those repurpose `PairId` on a cell that is *not* a dot, to mean "which pair this rule
+is about": `Checkpoint`, `ForbiddenForPair`, `Gate`, `Splitter`, `AllowedForPairs` — and the last
+also uses `SecondPairId`, for the second colour it permits. Worth knowing when reading
 `Block.SetBlock` — the same field means two different things depending on `blockType`.
 
 ---
@@ -106,9 +110,26 @@ is about": `Checkpoint`, `ForbiddenForPair`, `Gate`. Worth knowing when reading
 **Runtime.** First check in `Block.CanEnter`, before any pair-specific logic. It cannot be
 stolen, gated open, or shared — there is no state that makes a blocked cell passable.
 
-**Visual.** Full-cell wash at `rgb(0.2, 0.2, 0.2)` via `SetObstacleVisual`, set once in
-`SetBlock`. Distinguishable from the path wash because that one is a pair colour at 0.2 alpha,
-not grey at full alpha.
+**Visual.** `cell_blocked_hatch` across the whole tile in grey, via `SetObstacleVisual`: 45° hazard
+stripes and nothing else — no outline, no plate behind them, no inset — so a blocked cell is
+distinguishable
+from a merely dark one at a glance rather than by shade alone. Only the stripes carry alpha, because
+`SetObstacleVisual` tints the sprite one flat colour: alpha is the sole source of contrast *inside*
+the cell, and the tint (`BlockedColor`, 0.42 grey) is its ceiling.
+
+Two properties are baked in rather than chosen. The stripes run diagonally, which survives any cell
+size — sprite and cell are both square, so nothing shears. And the stripe period divides the
+one-cell step exactly, so stripes stay in phase across neighbouring blocked cells: with the sprite
+also reaching the cell edge, a group of blocked cells reads as one continuous hazard field instead
+of a mosaic with a seam at every boundary.
+
+The stripes stop 2 units short of the cell boundary, but that is the prefab's doing, not the
+sprite's: `BgHighlight` carries `sizeDelta -4`, which is roughly the half of the board grid line
+that falls inside this cell. Take it to 0 and blocked cells start painting over their own grid
+lines.
+
+That image slot is shared with the path wash, so `HighlightBlockBg` clears the sprite back to a
+plain fill — an obstacle's art would otherwise linger on a cell that later carries a path.
 
 **Gotchas.** Blocked cells shrink the reachable area, so a board can go unsolvable.
 `LevelValidator` now flood-fills each pair over the cells it may legally occupy and errors when
@@ -145,6 +166,26 @@ of each other, which is what makes a wall read as a single rectangle in the gap 
 `ApplyWallGeometry` sets the thickness from the cell size (10% of it), so a wall carries the same
 weight on a 4×4 board and an 8×8 one.
 
+The bar is drawn as bevelled masonry: a dark lip, a highlight, the body, shading, a darker lip
+across its thickness, with a few grooves cut perpendicular to its length. That is what separates it
+from the grid: a wall straddles a grid line, so a flat bar of a single grey reads as a *thicker
+line* — or, when it is darker than the line as it was at `rgb(0.45)`, as a gap between two cells.
+Edges and a highlight read as an object sitting on top of the board instead. `WallColor` is now a
+warm bone, brighter than the grid.
+
+There are **two** sprites, `edge_wall` for the Up/Down bars and `edge_wall_vertical` for Left/Right,
+the second the exact transpose of the first. The shading has to run across the bar's thickness, and
+thickness is the y axis on one pair of edges and the x axis on the other — one sprite is necessarily
+smeared along one of them. Transposing is also what keeps the light coming from the same corner for
+both. `Tools/make_wall_sprite.py` generates the pair and records why 9-slicing was rejected: the
+bar's thickness is a *fraction of the cell*, so a rim pinned to a fixed unit size is wrong at every
+board size but one.
+
+The shading lives in the sprite's RGB, at full alpha, not in its alpha channel. `NormalizeWalls`
+mirrors a wall onto both neighbouring cells, so two coincident copies of the bar are drawn; shading
+held in alpha would composite twice and flatten out, and a wall on the board's boundary — drawn once
+— would then not match an interior one. Opaque is idempotent.
+
 Two things had to be fixed before that was true. The colour was `rgb(0.05)` against a pure-black
 cell — invisible in play (Step 1). And the four `wallImages` in the prefab were not edge bars at
 all: all four were identical 100×100 squares centred in the cell, so a wall drew a grey box in the
@@ -178,8 +219,7 @@ about (the cell is not a dot — its `coloum` stays `None`).
 committed block list. A pair that connects both dots but skips its checkpoint stays incomplete
 and the pair counter does not tick.
 
-**Visual.** `ShowSpecialMarker(pairId, 0f)` — a plain centred square tinted to that pair's
-colour, at full alpha.
+**Visual.** `mark_checkpoint` on the shared centre marker, tinted to that pair's colour.
 
 **Gotchas.** `ShowSpecialMarker` looks the colour up as `GetColor((PairColorType)pairId)`,
 i.e. it assumes `pairId` doubles as a valid colour enum value. True for every level authored
@@ -194,27 +234,115 @@ pair at opposite corners turns a 5×5 into a real routing problem with no new co
 
 ---
 
-### 2.4 Forbidden for one pair — `BlockType.ForbiddenForPair`
+### 2.4 Forbidden colours — `BlockType.ForbiddenForPair`
 
-**Rule.** The cell names a pair. That pair may never enter it; every other pair uses the cell
-normally.
+**Rule.** The cell names one or two pairs. Those pairs may never enter it; every other pair uses
+the cell normally.
 
-**Data.** `blockType[c] = ForbiddenForPair`, cell `pairId` = the excluded pair.
+**Data.** `blockType[c] = ForbiddenForPair`, cell `pairId` = the first excluded pair,
+`secondPairId` = the optional second. Same two columns, and the same caveat about them, as 2.14 —
+see the Data note there.
 
-**Runtime.** Second check in `Block.CanEnter(enteringPairId)` — the one place per-pair
-permission already exists. Refused during the drag, so the player feels it immediately rather
-than at completion.
+**Runtime.** Second check in `Block.CanEnter(enteringPairId)`, via `NamesPair`. That predicate is
+shared with 2.14 because the two rules read the same two ids and differ only in the conclusion:
+this one refuses the pairs it names, that one refuses the pairs it does not. Refused during the
+drag, so the player feels it immediately rather than at completion.
 
-**Visual.** `ShowSpecialMarker(pairId, 45f)` — the same square rotated 45° into a diamond,
-tinted to the excluded pair's colour. Square = must pass, diamond = may not. Two rules, one
-marker sprite, distinguished only by rotation; if playtesting shows that reads badly, this is
-the first thing to split into two visuals.
+A cell with no `pairId` names nobody, which makes this rule a no-op — the safe direction for a
+denylist, where 2.14's equivalent is a wall. `LevelValidator` errors on either.
 
-**Gotchas.** Same `(PairColorType)pairId` assumption as the checkpoint.
+**Visual.** `mark_forbidden` on the shared centre marker, tinted to the first excluded colour: a
+ring with an **X** inside. It was a ring with a single diagonal slash, which was legible on its own
+but reads as merely a *different angle* next to 2.14's ring-and-check rather than its opposite. Two
+crossed strokes against a check is a pair the eye resolves without being taught.
 
-**Combos.** The cheapest way to stop one pair taking the obvious lane, with no extra geometry.
-Forbidden cells around a `Mixed` or `Gate` cell decide *which* pair gets the shared route
+When the cell names two colours it draws `mark_ring_half` — the right-hand arc of the same ring —
+over the first marker in the second colour, so the ring reads two-tone and the X stays in the first
+colour. That arc is one asset shared with 2.14, and `Tools/make_ring_markers.py` generates all three
+glyphs from one ring, so the overlay cannot drift out of alignment with either rule's marker.
+
+**Gotchas.** The `(PairColorType)pairId` assumption, now doubled: the marker tints from both ids, so
+a cell naming a pair id outside 1–9 draws that half of the ring black. See §5.
+
+Note also that on a board with **two** colours this rule and 2.14 are the same rule wearing
+different art — "forbidden for pair 1" *is* "only pair 2 may pass". Prefer this one there: one id to
+read instead of two. See 2.14's Gotchas for where they genuinely diverge.
+
+**Combos.** The cheapest way to stop one pair — or two — taking the obvious lane, with no extra
+geometry. Forbidden cells around a `Mixed` or `Gate` cell decide *which* pair gets the shared route
 without blocking anyone outright.
+
+**Cost.** Zero — shipped.
+
+---
+
+### 2.14 Permitted colours — `BlockType.AllowedForPairs`
+
+**Rule.** The cell names one or two pairs. Only those may enter; every other pair is refused.
+The inverse of 2.4: a denylist of one becomes an allowlist of one or two.
+
+**Data.** `blockType[c] = AllowedForPairs`, cell `pairId` = the first permitted pair,
+`secondPairId` = the optional second. No new column — it reuses the pair of ids the shared
+destination (2.13) already added.
+
+That reuse is the one thing to be careful of, and it has already caused two bugs. `secondPairId`
+means **two different things** depending on `blockType`: a second pair the cell is a *dot* for
+(2.13), or a second pair the cell *names* (2.4 and here). Only that one column is dual-purpose —
+2.13's `thirdPairId` and `fourthPairId` are dot identities and no rule reads them. Every reader has to decide which, and the
+decision is now a single predicate — `Block.SecondIdNamesAPair(BlockType)` — rather than a list of
+type comparisons scattered across the readers, so a third rule adopting the column cannot be
+half-adopted. The readers that were already correct guard on `isPairBlock` — `CollectDots`,
+`IsDotFor`, `IsSharedGoal`, `ShowSecondDot` — which a permission cell fails, since it carries no
+colour. The two that were not:
+
+* `UIController.DescribeMechanics` treated any non-zero `secondPairId` as proof the level teaches a
+  shared destination, so level 14 announced both mechanics.
+* `LevelValidator.ValidateSharedGoals` did the same and errored with *"has a secondPairId but is not
+  a dot at all"* on a perfectly valid permit cell — and the Python mirror in `Tools/` had no
+  shared-goal pass at all, so it reported the level clean and hid the bug. The pass has been added
+  there too.
+
+Both now ask `SecondIdNamesAPair`. A third meaning for this column should not be added without
+revisiting every reader.
+
+**Runtime.** One more clause in `Block.CanEnter(enteringPairId)`, beside the forbidden check, via
+`IsPermittedPair`. Refused during the drag like the forbidden cell, so the player feels it on the
+finger rather than at completion.
+
+A cell with **no** `pairId` permits nobody, which makes it a `Blocked` cell by another name. That is
+deliberate: a half-authored permit cell fails closed and visibly rather than silently admitting
+everyone. `LevelValidator` errors on it.
+
+**Visual.** `mark_permit` — a ring with a check inside — on the shared centre marker, tinted to the
+first permitted colour. Chosen to be legible *against* 2.4: the board's markers are a family of
+rings told apart by their contents (empty for `Mixed`, a crosshair for a checkpoint), so the two
+inverse rules take inverse glyphs, check against X.
+
+The second permitted colour needs a second tint, and an `Image` has one, so a cell naming two draws
+`mark_ring_half` — the right-hand arc of the same ring — on a second marker Image over the first.
+The ring then reads two-tone and the check stays in the first colour. Same idiom as `dot_half` over
+a pair dot on a shared destination. The arc is one asset shared with 2.4, and
+`Tools/make_ring_markers.py` generates all three glyphs from one ring, so the overlay cannot drift
+out of alignment with either marker.
+
+**Gotchas.** Two, and the first is a design trap rather than a bug:
+
+*On a two-colour board this mechanic is indistinguishable from 2.4* — "only pair 2 may pass" **is**
+"forbidden for pair 1". Three colours make it distinct but still expressible as one forbidden cell
+if it permits two of the three. It genuinely earns its place from **four** colours up, where
+permitting two means excluding two and no single forbidden cell can say that. Two-pair levels should
+keep using the forbidden cell: fewer ids to read.
+
+Second, the usual `(PairColorType)pairId` assumption, now doubled — the marker tints from both
+`pairId` and `secondPairId`, so a permit cell naming a pair id outside 1–9 draws that half of the
+ring black. See §5.
+
+A third permitted colour is deliberately not modelled: two fit the existing columns and the marker
+can carry two tints, while the honest form beyond that is a bitmask no other mechanic needs.
+
+**Combos.** It is the tool for a chokepoint on a busy board — a corridor two colours share and the
+rest cannot use. Against `Mixed`, note the difference: `Mixed` says *how many* paths may occupy a
+cell, this says *which*, and a cell that wanted both would need to be both types.
 
 **Cost.** Zero — shipped.
 
@@ -232,10 +360,13 @@ be *moving* to get in (not the edge it comes through).
 `requiredEntryDirection` is `None` or matches. This is the direction-dependent half of the
 entry test and the only mechanic currently using it.
 
-**Visual.** A single green bar, `rgb(0.2, 0.8, 0.3)`, on the edge *opposite* the required
-direction — "must be moving Down" marks the cell's Up-facing edge, because that is the edge the
-path physically comes through. Drawn from the shared `wallImages` array, so it inherited the same
-prefab fix: before that, this "edge bar" was a green square in the middle of the cell.
+**Visual.** `edge_oneway` — a bar with chevrons pointing the way a path must be travelling — on
+the edge *opposite* the required direction, because that is the edge the path physically comes
+through. It has **its own** Image (`oneWayImage`), positioned at the centre of the target edge and
+rotated in 90° steps: a RectTransform's position and rotation are independent, so rotating one bar
+serves all four edges. It no longer shares `wallImages`, which could not work once the art became
+directional — a wall bar is symmetric and can live in a slot pinned to a fixed edge, chevrons
+cannot.
 
 **Gotchas.** One-way constrains entry only, so a path may still leave in any direction,
 including straight back out the way it came. If a level needs "in one side, out the other",
@@ -267,8 +398,9 @@ re-locks, taking any path through it with it.
 and re-locks live rather than at level load. `RefreshGateVisuals` runs on every pointer release
 to keep the art in sync.
 
-**Visual.** Full-cell wash at `rgb(0.8, 0.5, 0.1)` while locked; `RefreshGateVisual` hides the
-wash when the dependency pair is solved.
+**Visual.** `gate_locked` across the whole tile in amber while locked, swapped for `gate_open` in
+a muted green once the dependency pair is solved. It used to draw *nothing* when open, so the one
+moment the mechanic pays off looked like an empty cell.
 
 **Gotchas.** Level design must guarantee the dependency pair is solvable *without* the gate, or
 the board deadlocks. A gate whose dependency pair itself needs to cross that gate is unsolvable
@@ -618,17 +750,25 @@ Rotation-as-a-move makes `requiredPathLength` and move budgets bite.
 
 ---
 
-### 2.13 Shared destination — `GridRow.secondPairId`
+### 2.13 Shared destination — `GridRow.secondPairId` / `thirdPairId` / `fourthPairId`
 
-**Rule.** One cell is the endpoint for **two** pairs. Each colour has its own source and both run
-to the same goal; neither has a partner dot of its own.
+**Rule.** One cell is the endpoint for **two, three or four** pairs. Each colour has its own source
+and all of them run to the same goal; none has a partner dot of its own.
 
-**Player experience.** A hub. Reads instantly as a dot wearing two colours, and it inverts the
-splitter: that one is a single pair branching to three ends, this is two pairs converging on one.
+**Player experience.** A hub. Reads as one dot wearing several colours, and it inverts the splitter:
+that one is a single pair branching to three ends, this is several pairs converging on one.
 
-**Data.** `secondPairId[c]` names the second pair a dot belongs to. Not a `BlockType` — this is not
-a kind of *cell*, it is a second *identity* on an ordinary dot, and `blockType` already holds one
-value per cell that several mechanics need for something else.
+**Data.** `secondPairId[c]`, `thirdPairId[c]` and `fourthPairId[c]` name the further pairs a dot
+belongs to, filled in that order. Not a `BlockType` — this is not a kind of *cell*, it is extra
+*identity* on an ordinary dot, and `blockType` already holds one value per cell that several
+mechanics need for something else.
+
+**Four is a ceiling with a reason, not a taste call.** A path that *ends* in a cell claims the one
+edge it arrived through, and a cell has four edges. A fifth colour could not reach the hub without
+reusing an edge another path already owns. `Block.MaxOccupants` is the same four, and was raised
+from three for exactly this; raising it loosened nothing else, because `Mixed` is capped by
+`FreeDirectionSlots() >= 2` and a bridge by axis ownership, neither of which consults it. Level 13
+is built to show the limit being reached: four sources, one hub, one colour per side.
 
 **Runtime.** Almost none, because the connectivity model already generalises. `Block.IsDotFor(int)`
 replaces "compare `PairId`" everywhere the question is really *is this cell a dot of my pair* —
@@ -637,27 +777,51 @@ validator's other-pair's-dot rule. Completion then needs no changes at all: red'
 {source, hub} and blue's are {source, hub}, and each pair's own connectivity check answers
 independently.
 
-Two smaller consequences: the cell is `IsShareable`, so the second pair to arrive does not steal it
-from the first; and each arriving path terminates there, using one direction slot, so two fit
-comfortably.
+Two smaller consequences: the cell is `IsShareable`, so a later pair does not steal it from an
+earlier one; and each arriving path terminates there using a single direction slot, which is what
+makes four fit exactly.
 
 **A shared destination is not a starting point.** A press on it could not say which colour was
 meant, so drags begin at the sources. That removes the ambiguity rather than resolving it, which is
 the better trade: any rule for guessing ("start whichever has no path") would be a rule the player
 has to learn.
 
-**Visual.** A smaller filled circle in the second colour, drawn inside the pair dot via the shared
-marker image — one dot, two colours. No new prefab object: a cell with two dot identities is never
-also a checkpoint, forbidden, mixed, bridge or splitter cell, so the marker is free.
+**Visual.** The single dot gives way to a cluster of **equal, mutually tangent circles, one per
+colour**, arranged around the cell centre: two read as a sideways figure 8, three as a triangle,
+four as a tangent 2×2 — which is the same figure both ways up. It was one full circle plus a half
+circle in the second colour, which said "two" clearly and could not say "three".
 
-**Gotchas.** The second colour comes from `(PairColorType)secondPairId`, the same cast the other
-markers make, so it inherits the same limitation for pair ids of 10 or more. Validation rejects a
-`secondPairId` on a non-dot, a cell naming one pair twice, and a second pair with no other dot on
-the board.
+The two sizes are derived rather than tuned, from one requirement. N centres sit on a ring of radius
+`ring`, and neighbours touch without overlapping; the chord between adjacent centres is
+`2·ring·sin(π/N)` and tangency makes that exactly two radii, so `radius = ring·sin(π/N)`. Asking the
+cluster to fill its space exactly (`ring + radius = 1`) closes it. Circles therefore shrink as
+colours are added while the cluster always occupies the same disc — no per-count constants, and
+nothing to re-tune if the ceiling ever moved.
 
-**Combos.** `requiredPathLength` on one of the two colours makes the race to the hub asymmetric.
-A gate on one approach forces an order. Two hubs with four sources is a genuinely hard board and
-needs no new code.
+It is written as **anchors**, not sizes, so the cluster is laid out once in `SetBlock` and then
+follows the cell through every board size and resize with no geometry pass. The circle sprite is
+taken from `pairDotImage` at runtime, so the cluster is drawn with the same circle as every other
+dot on the board and cannot drift from it. Four `sharedDotImages` on the prefab, because an `Image`
+tints once and four colours need four of them; `dot_half` is no longer referenced.
+
+The grab pulse follows whichever the cell is drawing — `HighlightBlock` scales the cluster on a
+shared destination, since the single dot it used to scale is now hidden.
+
+**Gotchas.** Every extra colour comes from `(PairColorType)<id>`, the same cast the markers make, so
+they inherit the same limitation for pair ids of 10 or more — now on up to three ids per cell.
+
+Validation rejects extra ids on a non-dot, a cell naming any pair more than once, a named pair with
+no other dot on the board, and a **skipped slot** — a cell filling `thirdPairId` while leaving
+`secondPairId` empty is a level that meant to name a colour and did not.
+
+Note also that `secondPairId` is dual-purpose: the two permission rules (2.4, 2.14) read it as *a
+pair the rule is about*, not a dot identity. `thirdPairId` and `fourthPairId` are dot identities
+only. See `Block.SecondIdNamesAPair` and the Data note in 2.14.
+
+**Combos.** `requiredPathLength` on one of the colours makes the race to the hub asymmetric. A gate
+on one approach forces an order. Two hubs is a genuinely hard board and needs no new code. A
+four-colour hub is already tight on its own: with every edge claimed, the four approaches cannot be
+rerouted, so the rest of the board has to bend around them.
 
 **Cost.** Small, and only because Step 7 landed first: before connectivity-based completion this
 would have needed its own completion rule.

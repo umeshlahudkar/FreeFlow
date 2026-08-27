@@ -3,6 +3,7 @@ using FreeFlow.Util;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace FreeFlow.GamePlay
 {
@@ -27,19 +28,19 @@ namespace FreeFlow.GamePlay
         // Breathing room kept clear inside the square, per side, so the grid never runs flush
         // into the screen edge on a narrow phone.
         [SerializeField] private float boardPadding = 40f;
+
+        // One image behind the whole board, carrying the grid for the current size: dark cells and
+        // light lines baked into a single sprite. This is the ONLY thing that draws the grid --
+        // cells used to draw their own lines as well, four thin rects each, and no longer do.
+        [SerializeField] private Image boardGridImage;
+
+        // Indexed by grid size, starting at GridSize_4X4, and every size in GridSize must have an
+        // entry: a cell no longer has a fallback grid of its own to fall back to, so a missing
+        // sprite means a board with no lines at all. A new grid size needs its art before it ships.
+        [SerializeField] private Sprite[] gridSizeSprites;
+
+        private const int SmallestGridSize = 4;
         //private List<Block> gridblocks;
-
-        [SerializeField] private ObjectPool<Block> objectPool;
-
-        /// <summary>
-        /// Initializes the object pool for blocks with the specified prefab, capacity, and parent transform.
-        /// </summary>
-        private void InitializePool()
-        {
-            // pre-sized to the max grid (8x8 = 64) so the first 8x8 level doesn't pay an
-            // auto-grow allocation/instantiate spike mid-play
-            objectPool = new ObjectPool<Block>(blockPrefab, 64, BoardArea);
-        }
 
 
         /// <summary>
@@ -48,22 +49,17 @@ namespace FreeFlow.GamePlay
         /// <param name="data">The LevelData containing grid size and grid rows</param>
         public void GenerateBoard(LevelData data)
         {
-            if (objectPool == null) { InitializePool(); }
-
-            //gridblocks = new List<Block>();
-
             int rowSize = (int)data.gridSize;
             int coloumSize = (int)data.gridSize;
+            bool boardDrawsGrid = GridSpriteFor(rowSize) != null;
 
             GamePlayController.Instance.InitGrid(rowSize, coloumSize);
-            GamePlayController.Instance.SetLevelConstraints(data.pairConstraints);
 
             for (int i = 0; i < rowSize; i++)
             {
                 for (int j = 0; j < coloumSize; j++)
                 {
-                    //Block block = Instantiate(blockPrefab, transform);
-                    Block block = objectPool.GetObject();
+                    Block block = Instantiate(blockPrefab, BoardArea);
                     block.gameObject.name = "Block_" + i + " " + j;
 
                     PairColorType colorType = data.gridRows[i].coloum[j];
@@ -72,8 +68,9 @@ namespace FreeFlow.GamePlay
                     int[] wallMasks = data.gridRows[i].wallMask;
                     Direction[] requiredEntryDirections = data.gridRows[i].requiredEntryDirection;
                     Direction[] forcedExitDirections = data.gridRows[i].forcedExitDirection;
-                    int[] initialRotations = data.gridRows[i].initialRotation;
                     int[] secondPairIds = data.gridRows[i].secondPairId;
+                    int[] thirdPairIds = data.gridRows[i].thirdPairId;
+                    int[] fourthPairIds = data.gridRows[i].fourthPairId;
 
                     // explicit pairId wins (needed for >9 simultaneous pairs); otherwise fall
                     // back to the color's own value so existing hand-authored levels (which
@@ -96,15 +93,23 @@ namespace FreeFlow.GamePlay
                         ? forcedExitDirections[j]
                         : Direction.None;
 
-                    int initialRotation = (initialRotations != null && j < initialRotations.Length)
-                        ? initialRotations[j]
-                        : 0;
-
                     int secondPairId = (secondPairIds != null && j < secondPairIds.Length)
                         ? secondPairIds[j]
                         : 0;
 
-                    block.SetBlock(colorType, pairId, secondPairId, blockType, wallMask, requiredEntryDirection, forcedExitDirection, initialRotation, i, j);
+                    // levels authored before these columns existed simply have no array here
+                    int thirdPairId = (thirdPairIds != null && j < thirdPairIds.Length)
+                        ? thirdPairIds[j]
+                        : 0;
+
+                    int fourthPairId = (fourthPairIds != null && j < fourthPairIds.Length)
+                        ? fourthPairIds[j]
+                        : 0;
+
+                    block.SetBlock(colorType, pairId, secondPairId, thirdPairId, fourthPairId, blockType, wallMask, requiredEntryDirection, forcedExitDirection, i, j);
+
+                    // the board image already draws this cell's outline and fill
+                    if (boardDrawsGrid) { block.UseBoardBackground(); }
 
                     GamePlayController.Instance.grid[i, j] = block;
                 }
@@ -119,6 +124,44 @@ namespace FreeFlow.GamePlay
 
             GamePlayController.Instance.ValidateLevelData();
             GamePlayController.Instance.GameState = Enums.GameState.Playing;
+        }
+
+        /// <summary>
+        /// The grid sprite for an n x n board, or null when there is not one -- which is the signal
+        /// to let the cells draw their own lines instead.
+        /// </summary>
+        private Sprite GridSpriteFor(int gridSize)
+        {
+            if (gridSizeSprites == null) { return null; }
+
+            int index = gridSize - SmallestGridSize;
+            if (index < 0 || index >= gridSizeSprites.Length) { return null; }
+
+            return gridSizeSprites[index];
+        }
+
+        /// <summary>
+        /// Sizes the board image to the grid the cells actually occupy -- NOT to the board area.
+        /// The two are different: the area is padded, and cell size is snapped down to whole units,
+        /// so the drawn grid is a little smaller than the space available and sits centred in it.
+        /// Stretching the sprite over the area instead would put its baked lines slightly off from
+        /// every cell boundary, and the error grows with the board.
+        /// </summary>
+        private void LayoutBoardGrid(float blockSize, int rowSize, int coloumSize)
+        {
+            if (boardGridImage == null) { return; }
+
+            Sprite sprite = GridSpriteFor(rowSize);
+            if (sprite == null)
+            {
+                boardGridImage.gameObject.SetActive(false);
+                return;
+            }
+
+            boardGridImage.gameObject.SetActive(true);
+            boardGridImage.sprite = sprite;
+            boardGridImage.rectTransform.sizeDelta =
+                new Vector2(blockSize * coloumSize, blockSize * rowSize);
         }
 
         /// <summary>
@@ -208,11 +251,21 @@ namespace FreeFlow.GamePlay
             if (usable <= 0f) { return; }
 
             int maxBlockInRowCol = rowSize > coloumSize ? rowSize : coloumSize;
-            float blockSize = usable / maxBlockInRowCol;
+
+            // Snapped to the largest EVEN whole number of units that fits. Cells butt against each
+            // other, so a fractional cell size puts every boundary on a fractional coordinate, and
+            // anything centred on that boundary -- a wall bar, and the board sprite's own baked
+            // lines once it is stretched to this size -- straddles half pixels, rasterising 4 px on
+            // one seam and 5 px on the next. Even, so that half a cell is a whole number too and
+            // the centred start position below stays on the integer lattice.
+            float blockSize = Mathf.Floor(usable / maxBlockInRowCol * 0.5f) * 2f;
+            if (blockSize < 2f) { blockSize = 2f; }
 
             // centre the grid in the board area; row 0 is the top row
             float startPointX = -((blockSize * coloumSize) / 2f) + (blockSize / 2f);
             float startPointY = ((blockSize * rowSize) / 2f) - (blockSize / 2f);
+
+            LayoutBoardGrid(blockSize, rowSize, coloumSize);
 
             for (int i = 0; i < rowSize; i++)
             {
@@ -250,22 +303,15 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Resets the grid by deactivating and returning blocks to the object pool.
+        /// Clears the board by destroying every cell. A board is built fresh each time rather than
+        /// recycled: the cells were pooled, which meant every visual a mechanic touches had to be
+        /// put back by hand before the object could be handed to the next level, and a single
+        /// missed field showed up as a mechanic bleeding across levels. A new board is 25-64 UI
+        /// objects on a level change, which is not a cost worth that class of bug.
         /// </summary>
         public void ResetBoard()
         {
-            //if (gridblocks != null && gridblocks.Count > 0)
-            //{
-            //    foreach (Block b in gridblocks)
-            //    {
-            //        //Destroy(b.gameObject);
-            //        b.ResetBlock();
-            //        objectPool.ReturnObject(b);
-            //    }
-            //    gridblocks.Clear();
-            //}
-
-            GamePlayController.Instance.ResetBlocks(objectPool);
+            GamePlayController.Instance.ResetBlocks();
         }
     }
 }

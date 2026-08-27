@@ -7,10 +7,6 @@ public struct LevelData
     public int pairCount;
 
     public GridRow[] gridRows;
-
-    // Per-pair path-length requirements. Optional: absent/empty means no pair on this
-    // level has a length constraint.
-    public PairConstraint[] pairConstraints;
 }
 
 [System.Serializable]
@@ -45,28 +41,24 @@ public struct GridRow
     // became enforceable on cells that never draw it. Optional: defaults to Direction.None.
     public Direction[] forcedExitDirection;
 
-    // Only meaningful on a cell with blockType == BlockType.Rotator: which of the four elbow
-    // orientations it starts in (0 = Up+Right, then clockwise). This is the STARTING rotation
-    // only -- the current one is runtime state and is never written back here. Optional:
-    // defaults to 0.
-    public int[] initialRotation;
-
-    // A SECOND pair this cell is a dot for, making it the shared destination of two colours: each
-    // pair runs its own source to this one cell. Optional: 0 means the cell has at most the one
-    // identity in `coloum`/`pairId`.
+    // Further pairs this cell is a dot for, making it the shared destination of up to FOUR
+    // colours: each pair runs its own source to this one cell. Optional, and filled in order --
+    // 0 means the cell has no identity beyond the one in `coloum`/`pairId`, and a level should
+    // never skip a slot.
     //
-    // One extra identity, not a list, because two colours sharing a goal is the shape that reads
-    // on a board -- three would need a real set here and a dot that can show three colours.
+    // Four is the ceiling for a real reason rather than a chosen one: a path that ENDS in a cell
+    // claims the single edge it arrived through, and a cell has four edges. A fifth colour could
+    // not reach the cell without reusing an edge another path already owns. Block.MaxOccupants is
+    // the same four.
+    //
+    // Named columns rather than one jagged array per cell, to match how every other per-cell
+    // datum in this file is stored -- Unity serialises parallel arrays cleanly and a jagged one
+    // awkwardly. secondPairId is also read by the two permission rules (ForbiddenForPair,
+    // AllowedForPairs) for a completely different purpose; see Block.SecondIdNamesAPair. Those
+    // rules do NOT read the third or fourth, which are dot identities only.
     public int[] secondPairId;
-}
-
-[System.Serializable]
-public struct PairConstraint
-{
-    public int pairId;
-
-    // Path must use exactly this many cells to count as complete. 0 = no constraint.
-    public int requiredPathLength;
+    public int[] thirdPairId;
+    public int[] fourthPairId;
 }
 
 

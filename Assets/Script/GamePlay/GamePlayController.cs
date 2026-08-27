@@ -22,11 +22,10 @@ namespace FreeFlow.GamePlay
 
         private List<Block> selectedBlocks;
 
-        // Every pair's drawn path, as a SET of segments rather than one list. A two-dot pair has
-        // exactly one segment and behaves as it always did; a splitter pair has one per dot, all
-        // meeting at its junction. The old shape was Dictionary<int, List<Block>> assigned
-        // wholesale on commit, so a second branch of the same pair did not add -- it silently
-        // replaced the first.
+        // Every pair's drawn path, as a SET of segments rather than one list: the player can
+        // start from either dot, so a pair can hold two half-drawn segments before they meet. The
+        // old shape was Dictionary<int, List<Block>> assigned wholesale on commit, so the second
+        // one did not add -- it silently replaced the first.
         //
         // A segment always starts at one of its pair's dots (OnPointerDown only ever begins a
         // selection at a dot, and trimming only ever shortens from the far end), which is what
@@ -40,16 +39,13 @@ namespace FreeFlow.GamePlay
         public Block[,] grid;
         public int gridRow;
         public int gridCol;
-        // Dots scaled up when the player grabs a pair. Three, not two: a splitter pair has a
-        // dot per branch and all of them should answer.
+        // Dots scaled up when the player grabs a pair.
         private List<Block> highlightedBlock = new List<Block>();
 
         [SerializeField] private PairColorDataSO PairColorDataSO;
         [SerializeField] private Image touchPointer;
 
         private int moves;
-
-        private PairConstraint[] pairConstraints;
 
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
         // preview, and the block it's drawn on. The block has to be tracked too: the preview
@@ -90,22 +86,13 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Per-pair path-length requirements for the level currently being generated.
-        /// Pass null/empty when the level has none.
-        /// </summary>
-        public void SetLevelConstraints(PairConstraint[] constraints)
-        {
-            pairConstraints = constraints;
-        }
-
-        /// <summary>
         /// Runs every level-data sanity check against the populated grid. Call once the board is
         /// fully generated. The checks themselves live in <see cref="LevelValidator"/>; this only
-        /// hands it the board and the constraints it was built with.
+        /// hands it the board.
         /// </summary>
         public void ValidateLevelData()
         {
-            LevelValidator.Validate(grid, gridRow, gridCol, pairConstraints);
+            LevelValidator.Validate(grid, gridRow, gridCol);
         }
 
         void Update()
@@ -135,20 +122,10 @@ namespace FreeFlow.GamePlay
 
             if (raycastResults.Count > 0)
             {
-                Block block = raycastResults[0].gameObject.GetComponent<Block>();
+                Block block = BlockFromHit(raycastResults[0]);
 
                 if (block != null)
                 {
-                    // A press on a rotator turns the board, not the path. Taken before anything
-                    // else and it consumes the press: isClicked stays false, so OnPointerMoved
-                    // ignores the rest of this gesture and no path is started. (touchPointer must
-                    // stay raycastTarget=false for this to reach the Block at all -- see Start.)
-                    if (block.BlockType == BlockType.Rotator)
-                    {
-                        RotateBlock(block);
-                        return;
-                    }
-
                     int grabbedPairId = ResolveGrabbedPairId(block);
 
                     // if click on pair dot and the block is already clicked before, clears all highlighted blocks
@@ -220,63 +197,6 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Turns a rotator a quarter turn and cleans up after it. Any path already drawn through
-        /// the cell is cut back to just before it: the elbow it was using may not exist any more,
-        /// and dropping the rest is both cheaper and more predictable than trying to repair a
-        /// path the player did not redraw.
-        ///
-        /// A rotation counts as a move. That is a design call, not a technical one -- it is what
-        /// makes a move budget or a star rating mean anything on a board with rotators, and it is
-        /// one line to reverse if play says otherwise.
-        /// </summary>
-        private void RotateBlock(Block rotator)
-        {
-            ClearSegmentsThrough(rotator);
-            rotator.Rotate();
-
-            AudioManager.Instance.PlayBlockSelectSound();
-
-            moves++;
-            UIController.Instance.UpdateMovesCount(moves);
-
-            int count = GetPairCompleteCount();
-            UIController.Instance.UpdatePairCount(count);
-            RefreshGateVisuals();
-        }
-
-        /// <summary>
-        /// Cuts every segment that runs through <paramref name="cell"/> back to just before it, so
-        /// nothing is left claiming a route the cell may no longer offer.
-        /// </summary>
-        private void ClearSegmentsThrough(Block cell)
-        {
-            foreach (KeyValuePair<int, List<List<Block>>> pair in pairSegments)
-            {
-                List<List<Block>> segments = pair.Value;
-
-                for (int i = segments.Count - 1; i >= 0; i--)
-                {
-                    List<Block> segment = segments[i];
-                    int at = GetBlockIndex(segment, cell);
-                    if (at == -1) { continue; }
-
-                    if (at == 0)
-                    {
-                        // the segment starts here, so there is nothing to keep
-                        ClearSegmentVisuals(segment);
-                        segments.RemoveAt(i);
-                    }
-                    else
-                    {
-                        ResetBlockToRemove(segment, at - 1);
-                    }
-                }
-            }
-
-            PruneEmptyPairs();
-        }
-
-        /// <summary>
         /// Drops pairs left with no segments, so "has this pair drawn anything" stays a simple
         /// key lookup.
         /// </summary>
@@ -309,7 +229,7 @@ namespace FreeFlow.GamePlay
 
                 if (raycastResults.Count > 0)
                 {
-                    Block block = raycastResults[0].gameObject.GetComponent<Block>();
+                    Block block = BlockFromHit(raycastResults[0]);
 
                     // selected block is not select again, check for the new block
                     if(CanSelectToAdd(block))
@@ -420,7 +340,7 @@ namespace FreeFlow.GamePlay
                 // AdjacentDirection, not GetDirection: this describes a step already taken, read
                 // BACKWARDS (from the cell entered toward the cell left). Re-running the movement
                 // rules on that reversed reading answers None whenever the previous cell refuses
-                // to be entered that way -- a one-way, an arrow, or a rotator -- and then this
+                // to be entered that way -- a one-way or an arrow -- and then this
                 // whole block was skipped: the final bar never got snapped to fully connected and
                 // the step was never undone either, so the path counted as complete while the last
                 // segment looked half-drawn or missing.
@@ -476,7 +396,6 @@ namespace FreeFlow.GamePlay
 
             int count = GetPairCompleteCount();
             UIController.Instance.UpdatePairCount(count);
-            RefreshGateVisuals();
 
             if (count >= UIController.Instance.CurrentLevelGoal)
             {
@@ -500,8 +419,7 @@ namespace FreeFlow.GamePlay
             // Reset by the DRAGGING pair's id, not prev.PairId -- that is the block's own static
             // level-data id, which is 0 on any non-dot cell, so it would match nothing on a
             // mid-path cell and leave the bar stuck on screen.
-            // Pure geometry: the step exists, so its direction is not a question about the rules
-            // -- and on a rotator the rules may have changed since it was drawn.
+            // Pure geometry: the step exists, so its direction is not a question about the rules.
             Direction forwardDir = AdjacentDirection(prev, last);
             last.ResetAllHighlightDirection(selectedBlocks[0].PairId);
             if (forwardDir != Direction.None)
@@ -550,8 +468,7 @@ namespace FreeFlow.GamePlay
         {
             highlightedBlock.Clear();
 
-            // Every dot of the grabbed pair, however many there are -- two normally, three when
-            // the pair runs through a splitter junction. This used to collect exactly two and stop.
+            // Every dot of the grabbed pair.
             int pairId = (selectedBlock.IsPairBlock && !selectedBlock.IsSharedGoal)
                 ? selectedBlock.PairId
                 : grabbedPairId;
@@ -568,7 +485,7 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// Which pair the player just grabbed by pressing <paramref name="block"/>. A cell only
-        /// one path can be in has a single answer, but a shared (Mixed) cell has two occupants
+        /// one path can be in has a single answer, but a shared cell has two occupants
         /// and recency does not decide it: prefer whichever pair's path actually ENDS here, since
         /// that is the one a drag can extend, and fall back to the most recent occupant when
         /// neither does. Returns 0 for an unoccupied cell.
@@ -639,15 +556,8 @@ namespace FreeFlow.GamePlay
                         return false;
                     }
 
-                    // A pair may not cross its own path -- except on its splitter junction, which
-                    // exists for exactly that. Without this exemption the second branch is refused
-                    // the moment it reaches the junction the first one is already on, so the
-                    // branches can never meet and a splitter pair can never be completed at all.
-                    bool ownJunction = block.BlockType == BlockType.Splitter
-                                    && block.PairId == selectedBlocks[0].PairId;
-
-                    if (!ownJunction
-                        && block.HighlightedPairId == selectedBlocks[0].HighlightedPairId
+                    // A pair may not cross its own path.
+                    if (block.HighlightedPairId == selectedBlocks[0].HighlightedPairId
                         && SegmentContaining(block.HighlightedPairId, block) != null)
                     {
                         return false;
@@ -771,7 +681,7 @@ namespace FreeFlow.GamePlay
         /// Separate because describing an existing step is a different question from asking whether
         /// a new one is allowed. Re-running the rules on a step already taken answers None
         /// whenever the reading is reversed and the other cell refuses that direction -- a
-        /// one-way, an arrow, a rotator -- or when the board has changed since (a rotated elbow).
+        /// one-way or an arrow.
         ///
         /// Rule of thumb: <see cref="GetDirection"/> for a step the player is about to take,
         /// AdjacentDirection for one already in <see cref="selectedBlocks"/> or a stored segment.
@@ -818,7 +728,8 @@ namespace FreeFlow.GamePlay
         private void ProcessBlockStep(Block block, Direction dir)
         {
             // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-            // -- shareable cells (Mixed, Bridge) are exempt: they're meant to be shared, not
+            // -- shareable cells (Bridge, shared destination) are exempt: they're meant to be
+            // shared, not
             // stolen from another pair. Entry terms are enforced before the step gets here.
             if (!block.IsShareable && block.HighlightedPairId != selectedBlocks[0].HighlightedPairId)
             {
@@ -1179,12 +1090,11 @@ namespace FreeFlow.GamePlay
         /// <param name="indexToRemove">The index of the block to start resetting and removing from.</param>
         private void ResetBlockToRemove(List<Block> blocks, int indexToRemove)
         {
-            // Un-draw bar by bar rather than resetting whole cells by pair id. Two reasons: a
-            // splitter pair can own bars in one cell from two different branches, and only this
-            // branch's should go; and AdjacentDirection is used instead of GetDirection because
+            // Un-draw bar by bar rather than resetting whole cells by pair id, so a shared cell
+            // keeps the other pair's bar. AdjacentDirection is used instead of GetDirection because
             // re-asking the movement rules can answer None for a step that was legal when it was
-            // made -- a one-way, an arrow or a just-rotated elbow refuses the reverse reading of
-            // the same two cells, which would leave the bar stuck on screen.
+            // made -- a one-way or an arrow refuses the reverse reading of the same two cells,
+            // which would leave the bar stuck on screen.
             for (int i = indexToRemove; i < blocks.Count - 1; i++)
             {
                 Direction forward = AdjacentDirection(blocks[i], blocks[i + 1]);
@@ -1204,6 +1114,26 @@ namespace FreeFlow.GamePlay
         /// </summary>
         /// <param name="eventData">The pointer event data for the raycast.</param>
         /// <param name="results">The list to store the raycast results.</param>
+        /// <summary>
+        /// The cell a raycast hit, resolved by walking UP from whatever graphic was actually hit.
+        ///
+        /// This used to read the component off the hit object directly, which quietly tied input to
+        /// one particular graphic being the raycast target: a cell is a root object with the Block
+        /// script on it and a dozen child images, so hitting a child answered null and the drag did
+        /// nothing. Walking up means any raycastable graphic in the cell -- the hit area, or a child
+        /// that gets raycastTarget turned on later -- finds the same cell.
+        ///
+        /// A cell still needs at least one raycast target to be hit at all. That is the invisible
+        /// full-cell Image on the root: alpha 0, so it draws nothing, with the CanvasRenderer's
+        /// transparent-mesh culling turned OFF, because GraphicRaycaster skips a graphic whose mesh
+        /// has been culled and a fully transparent one would be. Delete that Image and the board
+        /// stops responding to touch entirely.
+        /// </summary>
+        private Block BlockFromHit(RaycastResult hit)
+        {
+            return hit.gameObject != null ? hit.gameObject.GetComponentInParent<Block>() : null;
+        }
+
         private void PerformRaycast(PointerEventData eventData, List<RaycastResult> results)
         {
             eventSystem.RaycastAll(eventData, results);
@@ -1247,8 +1177,7 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// The segment of <paramref name="pairId"/> that <paramref name="cell"/> is part of, or
-        /// null. On a shared cell two segments of the SAME pair can both contain it (a splitter
-        /// junction); the first is returned, which is the one drawn earliest.
+        /// null. The first match is returned, which is the one drawn earliest.
         /// </summary>
         private List<Block> SegmentContaining(int pairId, Block cell)
         {
@@ -1263,36 +1192,23 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Drops every segment of <paramref name="dot"/>'s pair that starts or ends at it, clearing
-        /// what those segments drew. Tapping a dot has always meant "undo this", and for a
-        /// splitter pair that has to mean this branch only: the pair's other branches, and the
-        /// junction cell they share, are left exactly as they were.
+        /// Drops every segment of <paramref name="dot"/>'s pair, clearing what they drew. Tapping
+        /// a dot means "undo this pair".
         /// </summary>
         private bool ClearSegmentsTouching(Block dot)
         {
             List<List<Block>> segments = SegmentsOf(dot.PairId);
             if (segments == null) { return false; }
 
-            // An ordinary pair holds exactly ONE path, so pressing either of its dots clears
-            // whatever it had -- which is what redrawing a pair has always meant. Only a
-            // branching pair clears per branch: there, the other branches and the junction they
-            // share must survive.
-            //
-            // Without the distinction, drawing from the second dot of a two-dot pair left two
-            // dangling halves that could never be joined (CanSelectToAdd refuses entry into your
-            // own pair's cells), so the pair could not be completed at all until one was cleared.
-            bool branching = PairBranches(dot.PairId);
+            // A pair holds one path, so pressing either of its dots clears whatever it had --
+            // which is what redrawing a pair has always meant. Clearing only the segment touching
+            // the pressed dot would leave the other half dangling and unjoinable, since
+            // CanSelectToAdd refuses entry into your own pair's cells.
             bool cleared = false;
 
             for (int i = segments.Count - 1; i >= 0; i--)
             {
                 List<Block> segment = segments[i];
-
-                if (branching)
-                {
-                    bool touches = IsEqual(segment[0], dot) || IsEqual(segment[segment.Count - 1], dot);
-                    if (!touches) { continue; }
-                }
 
                 ClearSegmentVisuals(segment);
                 segments.RemoveAt(i);
@@ -1305,8 +1221,8 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// Un-draws one segment, bar by bar rather than cell by cell. Resetting whole cells by pair
-        /// id would be wrong here: at a splitter junction two branches of the SAME pair own bars in
-        /// the same cell, and clearing one branch must leave the other's bar alone.
+        /// id would be wrong here: on a shared cell another pair owns bars in the same cell, and
+        /// clearing this segment must leave those alone.
         /// </summary>
         private void ClearSegmentVisuals(List<Block> segment)
         {
@@ -1359,33 +1275,6 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Whether the given pair's currently drawn path is a fully valid completion.
-        /// The dependency-tracking hook a Gate cell checks before opening. Re-evaluates
-        /// live from current path state, so a gate opens/re-locks immediately as its
-        /// dependency pair's solved state changes.
-        /// </summary>
-        public bool IsPairSolved(int pairId)
-        {
-            return IsPairSatisfied(pairId);
-        }
-
-        /// <summary>
-        /// Updates every Gate cell's visual to reflect whether its dependency pair is
-        /// currently solved. Called after any change to pair-completion state.
-        /// </summary>
-        private void RefreshGateVisuals()
-        {
-            for (int i = 0; i < gridRow; i++)
-            {
-                for (int j = 0; j < gridCol; j++)
-                {
-                    grid[i, j].RefreshGateVisual();
-                }
-            }
-        }
-
-
-        /// <summary>
         /// Checks whether a pair of blocks represents a complete pair
         /// </summary>
         /// <param name="b1">The first block of the pair.</param>
@@ -1424,8 +1313,8 @@ namespace FreeFlow.GamePlay
             if (dots.Count < 2) { return false; }
 
             // Walk the drawn path as a graph: cells are nodes, and two cells are joined only when
-            // a segment actually runs between them. Segments of one pair meet by sharing a cell,
-            // which is exactly what a splitter junction is.
+            // a segment actually runs between them. Two segments of one pair meet by sharing a
+            // cell, which is how a path drawn inward from both dots joins up.
             HashSet<Block> reached = new HashSet<Block>();
             Queue<Block> queue = new Queue<Block>();
 
@@ -1452,22 +1341,11 @@ namespace FreeFlow.GamePlay
                 if (!reached.Contains(dots[i])) { return false; }
             }
 
-            return PairSatisfiesCheckpoints(pairId) && PairSatisfiesLength(pairId, reached.Count);
+            return PairSatisfiesCheckpoints(pairId);
         }
 
         /// <summary>
-        /// Whether this pair branches -- i.e. has more than the usual two dots, which only a pair
-        /// running through a splitter junction does. A non-branching pair is allowed exactly one
-        /// segment; a branching one gets a segment per dot.
-        /// </summary>
-        private bool PairBranches(int pairId)
-        {
-            return DotsOfPair(pairId).Count > 2;
-        }
-
-        /// <summary>
-        /// Every dot on the board belonging to <paramref name="pairId"/> -- two normally, three for
-        /// a splitter pair.
+        /// Every dot on the board belonging to <paramref name="pairId"/>.
         /// </summary>
         private List<Block> DotsOfPair(int pairId)
         {
@@ -1500,33 +1378,6 @@ namespace FreeFlow.GamePlay
                 }
             }
             return true;
-        }
-
-        /// <summary>
-        /// An exact-length constraint counts the distinct cells the pair occupies. For a two-dot
-        /// pair that is its path length, unchanged; for a splitter pair it is the whole figure,
-        /// counting the shared junction once. Per-branch lengths would be the sharper puzzle but
-        /// need a PairConstraint that can name a branch -- still an open call.
-        /// </summary>
-        private bool PairSatisfiesLength(int pairId, int occupiedCells)
-        {
-            int requiredLength = GetRequiredPathLength(pairId);
-            return requiredLength <= 0 || occupiedCells == requiredLength;
-        }
-
-        /// <summary>
-        /// The exact path length required for this pairId to count as complete, or 0 if
-        /// that pair has no length constraint. Public so Block can show it on the dot.
-        /// </summary>
-        public int GetRequiredPathLength(int pairId)
-        {
-            if (pairConstraints == null) { return 0; }
-
-            for (int i = 0; i < pairConstraints.Length; i++)
-            {
-                if (pairConstraints[i].pairId == pairId) { return pairConstraints[i].requiredPathLength; }
-            }
-            return 0;
         }
 
 
@@ -1577,27 +1428,29 @@ namespace FreeFlow.GamePlay
             selectedBlocks.Clear();
             pairSegments.Clear();
             highlightedBlock.Clear();
-            pairConstraints = null;
 
             isClicked = false;
             hasSelectExistingFromLast = false;
             hasSelectExistingFromMiddle = false;
         }
 
-        public void ResetBlocks(ObjectPool<Block> blockPool)
+        /// <summary>
+        /// Destroys every cell of the current board and forgets the grid. Called before the next
+        /// board is built.
+        /// </summary>
+        public void ResetBlocks()
         {
-            if(grid != null)
+            if (grid == null) { return; }
+
+            for (int i = 0; i < gridRow; i++)
             {
-                for (int i = 0; i < gridRow; i++)
+                for (int j = 0; j < gridCol; j++)
                 {
-                    for (int j = 0; j < gridCol; j++)
-                    {
-                        grid[i, j].ResetBlock();
-                        blockPool.ReturnObject(grid[i, j]);
-                    }
+                    if (grid[i, j] != null) { Destroy(grid[i, j].gameObject); }
                 }
-                grid = null;
             }
+
+            grid = null;
         }
     }
 }

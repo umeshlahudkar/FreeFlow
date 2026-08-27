@@ -5,7 +5,8 @@ Each level teaches exactly one mechanic. Cell tokens:
   1..9     pair dot of that pairId (colour = same value)
   B        Blocked
   C:n      Checkpoint for pair n
-  F:n      ForbiddenForPair n
+  F:n      ForbiddenForPair -- pair n may not enter
+  F:n+m    ForbiddenForPair -- neither pair n nor pair m may enter
   O:d      OneWay, requiredEntryDirection d (L/R/U/D)
   G:n      Gate depending on pair n
   M        Mixed (shared) cell
@@ -13,7 +14,10 @@ Each level teaches exactly one mechanic. Cell tokens:
   X        Bridge (crossing: one lane per axis, no turning)
   S:n      Splitter junction for pair n (that pair has THREE dots)
   R:r      Rotator, initial elbow r (0=Up+Right, then clockwise)
-  a+b      one dot that is the destination for BOTH pair a and pair b
+  P:n      AllowedForPairs -- only pair n may enter
+  P:n+m    AllowedForPairs -- only pairs n and m may enter
+  a+b      one dot that is the destination for pairs a and b
+  a+b+c    ... and c; up to four colours may share one destination
 Walls are listed separately as (row, col, edge) and authored on BOTH sides of the edge.
 """
 import io
@@ -29,7 +33,7 @@ DIRS = {'L': 1, 'R': 2, 'U': 3, 'D': 4}
 WALL_BIT = {'L': 1, 'R': 2, 'U': 4, 'D': 8}
 OPPOSITE = {'L': 'R', 'R': 'L', 'U': 'D', 'D': 'U'}
 BLOCKTYPE = {'B': 1, 'C': 2, 'F': 3, 'O': 4, 'G': 5, 'M': 6, 'A': 7, 'X': 8, 'S': 9,
-             'R': 10}
+             'R': 10, 'P': 11}
 
 
 def pack(values):
@@ -42,18 +46,27 @@ def build(spec):
     n = len(rows)
     assert all(len(r) == n for r in rows), 'grid must be square'
 
-    coloum, pairid, blocktype, wallmask, reqdir, exitdir, rot, second = ([], [], [], [], [], [], [], [])
+    coloum, pairid, blocktype, wallmask, reqdir, exitdir, rot = ([], [], [], [], [], [], [])
+    second, third, fourth = ([], [], [])
     for r, row in enumerate(rows):
-        c_row, p_row, b_row, w_row, d_row, x_row, r_row, s_row = ([], [], [], [], [], [], [], [])
+        c_row, p_row, b_row, w_row, d_row, x_row, r_row = ([], [], [], [], [], [], [])
+        s_row, t_row, f_row = ([], [], [])
         for cell in row:
-            colour = pair = btype = direction = exit_dir = rotation = second_pair = 0
+            colour = pair = btype = direction = exit_dir = rotation = 0
+            second_pair = third_pair = fourth_pair = 0
             if cell == '.':
                 pass
-            elif '+' in cell:
-                # one cell, two dot identities: the shared destination of two pairs
-                first, other = cell.split('+')
-                colour = pair = int(first)
-                second_pair = int(other)
+            elif '+' in cell and cell[0].isdigit():
+                # one cell, several dot identities: the shared destination of up to four pairs
+                shared = [int(v) for v in cell.split('+')]
+                assert len(shared) <= 4, 'at most four colours can share a destination: %s' % cell
+                colour = pair = shared[0]
+                if len(shared) > 1:
+                    second_pair = shared[1]
+                if len(shared) > 2:
+                    third_pair = shared[2]
+                if len(shared) > 3:
+                    fourth_pair = shared[3]
             elif cell.isdigit():
                 colour = pair = int(cell)
             else:
@@ -66,6 +79,13 @@ def build(spec):
                     exit_dir = DIRS[arg]
                 elif key == 'R':
                     rotation = int(arg)
+                elif key in ('P', 'F'):
+                    # one or two NAMED pairs -- permitted for P, refused for F -- in the same two
+                    # columns a shared destination uses
+                    named = arg.split('+')
+                    pair = int(named[0])
+                    if len(named) > 1:
+                        second_pair = int(named[1])
                 elif arg:
                     pair = int(arg)
             c_row.append(colour)
@@ -76,6 +96,8 @@ def build(spec):
             x_row.append(exit_dir)
             r_row.append(rotation)
             s_row.append(second_pair)
+            t_row.append(third_pair)
+            f_row.append(fourth_pair)
         coloum.append(c_row)
         pairid.append(p_row)
         blocktype.append(b_row)
@@ -84,6 +106,8 @@ def build(spec):
         exitdir.append(x_row)
         rot.append(r_row)
         second.append(s_row)
+        third.append(t_row)
+        fourth.append(f_row)
 
     # a wall belongs to the edge, so author it from both cells that share it
     for (r, c, edge) in spec.get('walls', []):
@@ -98,8 +122,12 @@ def build(spec):
         for c in range(n):
             if coloum[r][c]:
                 dots[coloum[r][c]] = dots.get(coloum[r][c], 0) + 1
-            if second[r][c]:
+            if second[r][c] and blocktype[r][c] not in (BLOCKTYPE['P'], BLOCKTYPE['F']):
                 dots[second[r][c]] = dots.get(second[r][c], 0) + 1
+            # the third and fourth are dot identities only -- no rule reads them
+            for extra in (third[r][c], fourth[r][c]):
+                if extra:
+                    dots[extra] = dots.get(extra, 0) + 1
 
     # a splitter pair has three dots meeting at its junction; everything else has two
     splitter_pairs = set()
@@ -139,6 +167,8 @@ def build(spec):
         lines.append('      forcedExitDirection: %s' % pack(exitdir[r]))
         lines.append('      initialRotation: %s' % pack(rot[r]))
         lines.append('      secondPairId: %s' % pack(second[r]))
+        lines.append('      thirdPairId: %s' % pack(third[r]))
+        lines.append('      fourthPairId: %s' % pack(fourth[r]))
     constraints = spec.get('constraints', [])
     if constraints:
         lines.append('    pairConstraints:')
@@ -193,12 +223,15 @@ LEVELS = [
 . . . . .
 """),
 
-    # 4 - Forbidden cell. The same cell blocks pair 1 outright and lets pair 2 straight
-    #     through -- the clearest way to show the rule is per-pair, not per-cell.
+    # 4 - Forbidden cell. The cell refuses pair 1 AND pair 3 while letting pair 2 run straight
+    #     down through it, so the rule reads as a set of colours rather than one exception.
+    #     Pair 1 is the refusal the player feels: its own row is cut, and the only way round is
+    #     the empty bottom row. Pair 3 never needs the cell -- trying it is the discovery that
+    #     the marker's second colour means something.
     dict(name='Level_4', mechanic='Forbidden cell', grid="""
-. . . . .
+3 . . . 3
 . . 2 . .
-1 . F:1 . 1
+1 . F:1+3 . 1
 . . 2 . .
 . . . . .
 """),
@@ -287,23 +320,48 @@ R:1 . . . .
 2 . . . 2
 """),
 
-    # 13 - Shared destination. Two sources, ONE goal: red and blue each run their own path to the
-    #      same cell, drawn as a dot wearing both colours. Neither pair has a partner dot of its
-    #      own, so the hub is the only place either can finish.
+    # 13 - Shared destination. FOUR sources, ONE goal: each colour runs its own path to the same
+    #      cell, drawn as four tangent circles, one per colour. No pair has a partner dot of its
+    #      own, so the hub is the only place any of them can finish.
+    #
+    #      Four is the ceiling, and the board shows why: a path that ends in a cell claims the one
+    #      edge it arrived through, and the hub has four. Each colour comes in from a different
+    #      side, which is the only way all four fit.
     dict(name='Level_13', mechanic='Shared destination', grid="""
 1 . . . 2
 . . . . .
-. . 1+2 . .
+. . 1+2+3+4 . .
 . . . . .
-. . . . .
+3 . . . 4
+"""),
+
+    # 14 - Permitted colours. The mirror of level 4: instead of naming the one colour that may
+    #      NOT pass, the cell names the ones that may. Pair 1 is refused mid-drag along its own
+    #      row and has to go the long way round the top; pair 2 runs straight down through it.
+    #      Pair 3 is the reason the cell needs two slots rather than one -- it is permitted too,
+    #      so the marker carries two colours, and the rule is visibly about a set and not a
+    #      single exception.
+    dict(name='Level_14', mechanic='Permitted colours', grid="""
+. . . . . .
+. . . 2 . .
+1 . . P:2+3 . 1
+. . . 2 . .
+3 . . . . 3
+. . . . . .
 """),
 ]
+
 
 if __name__ == '__main__':
     for spec in LEVELS:
         body = build(spec)
         io.open(os.path.join(OUT, spec['name'] + '.asset'), 'w',
                 encoding='utf-8', newline='\n').write(body)
-        io.open(os.path.join(OUT, spec['name'] + '.asset.meta'), 'w',
-                encoding='utf-8', newline='\n').write(META % uuid.uuid4().hex)
+        # Levels are reached by path (Resources.Load "Levels/Level_n"), so a fresh guid
+        # would break nothing here -- but churning guids for no reason is how references
+        # die elsewhere, so a .meta is written once and then left alone.
+        meta_path = os.path.join(OUT, spec['name'] + '.asset.meta')
+        if not os.path.exists(meta_path):
+            io.open(meta_path, 'w',
+                    encoding='utf-8', newline='\n').write(META % uuid.uuid4().hex)
         print('%-9s %s' % (spec['name'], spec['mechanic']))

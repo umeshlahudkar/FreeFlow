@@ -113,9 +113,9 @@ namespace FreeFlow.UI
         private static string DescribeMechanics(LevelData data)
         {
             bool blocked = false, walls = false, checkpoint = false, forbidden = false;
-            bool oneWay = false, gate = false, mixed = false, exactLength = false;
-            bool arrow = false, bridge = false, splitter = false, rotator = false;
-            bool sharedGoal = false;
+            bool oneWay = false;
+            bool arrow = false, bridge = false;
+            bool sharedGoal = false, permitted = false;
 
             if (data.gridRows != null)
             {
@@ -132,23 +132,32 @@ namespace FreeFlow.UI
                                 case BlockType.Blocked: blocked = true; break;
                                 case BlockType.Checkpoint: checkpoint = true; break;
                                 case BlockType.ForbiddenForPair: forbidden = true; break;
+                                case BlockType.AllowedForPairs: permitted = true; break;
                                 case BlockType.OneWay: oneWay = true; break;
-                                case BlockType.Gate: gate = true; break;
-                                case BlockType.Mixed: mixed = true; break;
                                 case BlockType.Arrow: arrow = true; break;
                                 case BlockType.Bridge: bridge = true; break;
-                                case BlockType.Splitter: splitter = true; break;
-                                case BlockType.Rotator: rotator = true; break;
                             }
                         }
                     }
 
+                    // secondPairId is the only one of the three a permission rule also reads, so
+                    // it is the only one that needs the guard -- see Block.SecondIdNamesAPair.
                     if (row.secondPairId != null)
                     {
                         for (int j = 0; j < row.secondPairId.Length; j++)
                         {
-                            if (row.secondPairId[j] != 0) { sharedGoal = true; }
+                            if (row.secondPairId[j] == 0) { continue; }
+
+                            bool namesAPair = row.blockType != null
+                                           && j < row.blockType.Length
+                                           && Block.SecondIdNamesAPair(row.blockType[j]);
+                            if (!namesAPair) { sharedGoal = true; }
                         }
+                    }
+
+                    if (HasAnyNonZero(row.thirdPairId) || HasAnyNonZero(row.fourthPairId))
+                    {
+                        sharedGoal = true;
                     }
 
                     if (row.wallMask != null)
@@ -161,30 +170,30 @@ namespace FreeFlow.UI
                 }
             }
 
-            if (data.pairConstraints != null)
-            {
-                for (int i = 0; i < data.pairConstraints.Length; i++)
-                {
-                    if (data.pairConstraints[i].requiredPathLength > 0) { exactLength = true; }
-                }
-            }
-
             string description = string.Empty;
             AppendMechanic(ref description, blocked, "Blocked cell");
             AppendMechanic(ref description, walls, "Wall");
             AppendMechanic(ref description, oneWay, "One-way");
             AppendMechanic(ref description, arrow, "Arrow");
             AppendMechanic(ref description, forbidden, "Forbidden cell");
-            AppendMechanic(ref description, mixed, "Shared cell");
+            AppendMechanic(ref description, permitted, "Permitted colours");
             AppendMechanic(ref description, bridge, "Bridge");
-            AppendMechanic(ref description, splitter, "Splitter");
-            AppendMechanic(ref description, rotator, "Rotator");
             AppendMechanic(ref description, sharedGoal, "Shared destination");
             AppendMechanic(ref description, checkpoint, "Checkpoint");
-            AppendMechanic(ref description, exactLength, "Exact length");
-            AppendMechanic(ref description, gate, "Gate");
 
             return description.Length > 0 ? description : "Basic";
+        }
+
+        private static bool HasAnyNonZero(int[] values)
+        {
+            if (values == null) { return false; }
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (values[i] != 0) { return true; }
+            }
+
+            return false;
         }
 
         private static void AppendMechanic(ref string description, bool present, string name)

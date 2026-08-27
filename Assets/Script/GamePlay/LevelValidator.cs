@@ -9,9 +9,8 @@ namespace FreeFlow.GamePlay
     /// error per problem rather than throwing: bad level content should be loud, not fatal.
     ///
     /// This exists because most ways of mis-authoring a level fail *silently*. A Checkpoint or
-    /// ForbiddenForPair cell with no pairId simply never applies; a Gate with no pairId locks
-    /// forever, because IsPairSolved(0) can never be true and completedPairs is only ever keyed
-    /// by a real dot's id -- an unsolvable board with nothing in the console. A
+    /// ForbiddenForPair cell with no pairId simply never applies -- a rule that does nothing, with
+    /// nothing in the console. A
     /// requiredEntryDirection on a cell that isn't OneWay is enforced by CanEnterFrom but drawn
     /// by nothing, so it's a rule the player cannot see. None of that is visible in the packed
     /// hex the level assets store, which is exactly why it needs checking at load.
@@ -23,7 +22,7 @@ namespace FreeFlow.GamePlay
             Direction.Left, Direction.Right, Direction.Up, Direction.Down
         };
 
-        public static void Validate(Block[,] grid, int rowCount, int colCount, PairConstraint[] constraints)
+        public static void Validate(Block[,] grid, int rowCount, int colCount)
         {
             if (grid == null || rowCount <= 0 || colCount <= 0) { return; }
 
@@ -34,9 +33,7 @@ namespace FreeFlow.GamePlay
             ValidateOneWayCells(grid, rowCount, colCount);
             ValidateArrowCells(grid, rowCount, colCount);
             ValidateBridgeCells(grid, rowCount, colCount);
-            ValidateRotatorCells(grid, rowCount, colCount);
             ValidateSharedGoals(grid, rowCount, colCount, dots);
-            ValidateConstraints(constraints, dots);
             ValidateReachability(grid, rowCount, colCount, dots);
         }
 
@@ -51,9 +48,11 @@ namespace FreeFlow.GamePlay
                     Block block = grid[i, j];
                     if (block == null || !block.IsPairBlock) { continue; }
 
-                    // A shared destination counts as a dot for BOTH of its pairs.
+                    // A shared destination counts as a dot for every pair it names.
                     Register(dots, block.PairId, block);
                     if (block.SecondPairId != 0) { Register(dots, block.SecondPairId, block); }
+                    if (block.ThirdPairId != 0) { Register(dots, block.ThirdPairId, block); }
+                    if (block.FourthPairId != 0) { Register(dots, block.FourthPairId, block); }
                 }
             }
 
@@ -83,69 +82,83 @@ namespace FreeFlow.GamePlay
                 for (int j = 0; j < colCount; j++)
                 {
                     Block block = grid[i, j];
-                    if (block == null || block.SecondPairId == 0) { continue; }
+                    if (block == null) { continue; }
+                    if (block.SecondPairId == 0 && block.ThirdPairId == 0 && block.FourthPairId == 0)
+                    {
+                        continue;
+                    }
+
+                    // The permission rules own the same two id columns for a different purpose --
+                    // their SecondPairId is a named colour, not a second dot -- and ValidateRuleCells
+                    // already checks them. Without this they fail every rule below, starting with
+                    // "is not a dot at all".
+                    if (Block.SecondIdNamesAPair(block.BlockType)) { continue; }
 
                     string where = "shared destination at (" + i + "," + j + ")";
 
                     if (!block.IsPairBlock)
                     {
-                        Error(where + " has a secondPairId but is not a dot at all, so nothing " +
-                              "there belongs to either pair.");
+                        Error(where + " names extra pairs but is not a dot at all, so nothing " +
+                              "there belongs to any of them.");
                     }
-                    if (block.SecondPairId == block.PairId)
+
+                    // Filled in order, so a gap means a level meant to name a pair and did not.
+                    if (block.SecondPairId == 0 && (block.ThirdPairId != 0 || block.FourthPairId != 0))
                     {
-                        Error(where + " names pair " + block.PairId + " twice.");
+                        Error(where + " skips its second pair slot but fills a later one.");
                     }
-                    if (!dots.ContainsKey(block.SecondPairId))
+                    else if (block.ThirdPairId == 0 && block.FourthPairId != 0)
                     {
-                        Error(where + " names pair " + block.SecondPairId +
-                              ", which has no other dot on this board.");
+                        Error(where + " skips its third pair slot but fills the fourth.");
+                    }
+
+                    int[] named = { block.PairId, block.SecondPairId, block.ThirdPairId, block.FourthPairId };
+                    for (int k = 1; k < named.Length; k++)
+                    {
+                        if (named[k] == 0) { continue; }
+
+                        bool duplicate = false;
+                        for (int earlier = 0; earlier < k; earlier++)
+                        {
+                            if (named[earlier] == named[k]) { duplicate = true; break; }
+                        }
+
+                        if (duplicate)
+                        {
+                            Error(where + " names pair " + named[k] + " more than once.");
+                        }
+                        else if (!dots.ContainsKey(named[k]))
+                        {
+                            Error(where + " names pair " + named[k] +
+                                  ", which has no other dot on this board.");
+                        }
                     }
                 }
             }
         }
 
         /// <summary>
-        /// Two dots per pair, or three when the pair runs through a splitter junction. The old
-        /// flat "exactly 2" was correct until splitter pairs existed and is the assertion the
-        /// mechanic was always going to break.
+        /// Exactly two dots per pair.
         /// </summary>
         private static void ValidateDotCounts(Block[,] grid, int rowCount, int colCount,
                                              Dictionary<int, List<Block>> dots)
         {
             foreach (KeyValuePair<int, List<Block>> pair in dots)
             {
-                int expected = HasSplitterFor(grid, rowCount, colCount, pair.Key) ? 3 : 2;
-
-                if (pair.Value.Count != expected)
+                if (pair.Value.Count != 2)
                 {
                     Error("pair id " + pair.Key + " has " + pair.Value.Count + " dot(s) on this " +
-                          "board, expected exactly " + expected +
-                          (expected == 3 ? " (it has a splitter junction)." : "."));
+                          "board, expected exactly 2.");
                 }
             }
-        }
-
-        private static bool HasSplitterFor(Block[,] grid, int rowCount, int colCount, int pairId)
-        {
-            for (int i = 0; i < rowCount; i++)
-            {
-                for (int j = 0; j < colCount; j++)
-                {
-                    Block cell = grid[i, j];
-                    if (cell != null && cell.BlockType == BlockType.Splitter && cell.PairId == pairId)
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
 
         /// <summary>
-        /// Checkpoint, ForbiddenForPair and Gate all repurpose a non-dot cell's PairId as "which
-        /// pair this rule is about", so a missing or unknown id makes the rule a no-op -- or, for
-        /// a gate, an unopenable wall.
+        /// Checkpoint, ForbiddenForPair and AllowedForPairs all repurpose a non-dot cell's
+        /// PairId as "which pair this rule is about", so a missing or unknown id makes the rule a
+        /// no-op -- or, for a permit cell, a wall for everyone.
+        /// The two permission rules also use SecondPairId for an optional second named pair, which
+        /// gets its own checks below; see Block.SecondIdNamesAPair.
         /// </summary>
         private static void ValidateRuleCells(Block[,] grid, int rowCount, int colCount,
                                               Dictionary<int, List<Block>> dots)
@@ -160,16 +173,28 @@ namespace FreeFlow.GamePlay
                     BlockType type = block.BlockType;
                     bool namesAPair = type == BlockType.Checkpoint
                                    || type == BlockType.ForbiddenForPair
-                                   || type == BlockType.Gate
-                                   || type == BlockType.Splitter;
+                                   || type == BlockType.AllowedForPairs;
                     if (!namesAPair) { continue; }
 
                     string where = type + " cell at (" + i + "," + j + ")";
 
+                    if (Block.SecondIdNamesAPair(type) && block.SecondPairId != 0)
+                    {
+                        if (block.SecondPairId == block.PairId)
+                        {
+                            Error(where + " names pair " + block.PairId + " twice; the second " +
+                                  "slot should either name a different pair or be left empty.");
+                        }
+                        else if (!dots.ContainsKey(block.SecondPairId))
+                        {
+                            Error(where + " names pair " + block.SecondPairId +
+                                  " as its second colour, which has no dots on this board.");
+                        }
+                    }
+
                     if (block.PairId == 0)
                     {
-                        Error(where + " has no pairId, so the rule can never apply" +
-                              (type == BlockType.Gate ? " and this gate can never open." : "."));
+                        Error(where + " has no pairId, so the rule can never apply.");
                     }
                     else if (!dots.ContainsKey(block.PairId))
                     {
@@ -324,80 +349,6 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// A rotator on a dot has nothing to turn (a path starts at a dot rather than passing
-        /// through), and one with fewer than two open edges can never join anything, whichever way
-        /// the player turns it.
-        /// </summary>
-        private static void ValidateRotatorCells(Block[,] grid, int rowCount, int colCount)
-        {
-            for (int i = 0; i < rowCount; i++)
-            {
-                for (int j = 0; j < colCount; j++)
-                {
-                    Block block = grid[i, j];
-                    if (block == null || block.BlockType != BlockType.Rotator) { continue; }
-
-                    string where = "Rotator cell at (" + i + "," + j + ")";
-
-                    if (block.IsPairBlock)
-                    {
-                        Error(where + " is also a pair dot; a path starts at a dot instead of " +
-                              "turning through it, so the elbow has nothing to act on.");
-                    }
-
-                    int open = 0;
-                    for (int d = 0; d < Steps.Length; d++)
-                    {
-                        if (SideIsOpen(grid, rowCount, colCount, block, Steps[d])) { open++; }
-                    }
-
-                    if (open < 2)
-                    {
-                        Error(where + " has " + open + " open edge(s), so no rotation of it can " +
-                              "join two cells.");
-                    }
-                }
-            }
-        }
-
-        private static void ValidateConstraints(PairConstraint[] constraints, Dictionary<int, List<Block>> dots)
-        {
-            if (constraints == null) { return; }
-
-            for (int i = 0; i < constraints.Length; i++)
-            {
-                int pairId = constraints[i].pairId;
-                int required = constraints[i].requiredPathLength;
-                if (required <= 0) { continue; }
-
-                if (!dots.TryGetValue(pairId, out List<Block> pairDots) || pairDots.Count != 2)
-                {
-                    Error("pairConstraint targets pair " + pairId + ", which is not a valid pair on this board.");
-                    continue;
-                }
-
-                // Shortest possible path is the Manhattan distance plus the two endpoints minus
-                // the shared step, i.e. distance + 1 cells. Every detour adds a cell going out
-                // and a cell coming back, so anything longer has to differ by an even number --
-                // an even/odd mismatch is unsatisfiable no matter how the player routes it.
-                int distance = Mathf.Abs(pairDots[0].Row_ID - pairDots[1].Row_ID)
-                             + Mathf.Abs(pairDots[0].Coloum_ID - pairDots[1].Coloum_ID);
-                int shortest = distance + 1;
-
-                if (required < shortest)
-                {
-                    Error("pair " + pairId + " requires a path of " + required +
-                          " cells but its dots are " + shortest + " cells apart at best.");
-                }
-                else if (((required - shortest) & 1) != 0)
-                {
-                    Error("pair " + pairId + " requires a path of " + required + " cells; only " +
-                          "lengths of the same parity as " + shortest + " are reachable on a grid.");
-                }
-            }
-        }
-
-        /// <summary>
         /// Each pair must have some legal route between its dots, and each of its checkpoints
         /// must be somewhere it can get to. A lower bound, not a solver: it walks one pair at a
         /// time and knows nothing about pairs competing for the same cells, so it catches
@@ -427,10 +378,6 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                // A splitter pair is complete only when every dot reaches the junction, so every
-                // dot needs a route to it -- pairwise dot-to-dot says nothing about that.
-                ValidateSplitterBranches(grid, rowCount, colCount, pairId, pair.Value);
-
                 for (int i = 0; i < rowCount; i++)
                 {
                     for (int j = 0; j < colCount; j++)
@@ -453,9 +400,7 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// Which cells a path for <paramref name="pairId"/> can reach starting from
-        /// <paramref name="start"/>. Rotators are walked in their most permissive form, because
-        /// their orientation belongs to the player: a level whose whole point is "turn this" would
-        /// otherwise read as unsolvable.
+        /// <paramref name="start"/>.
         ///
         /// The walk carries the direction it arrived by, not just the cell: an arrow and a bridge
         /// both constrain where a path may go *next* based on how it got in, so "can I reach this
@@ -463,35 +408,6 @@ namespace FreeFlow.GamePlay
         /// direction), which is four per cell at worst, and the exit rule is asked of
         /// <see cref="Block.CanExitFrom"/> so this cannot drift from what the game enforces.
         /// </summary>
-        /// <summary>
-        /// For a pair with a splitter junction: every one of its dots must be able to reach that
-        /// junction, since the pair is only solved when all of them meet there.
-        /// </summary>
-        private static void ValidateSplitterBranches(Block[,] grid, int rowCount, int colCount,
-                                                    int pairId, List<Block> dots)
-        {
-            for (int i = 0; i < rowCount; i++)
-            {
-                for (int j = 0; j < colCount; j++)
-                {
-                    Block junction = grid[i, j];
-                    if (junction == null || junction.BlockType != BlockType.Splitter) { continue; }
-                    if (junction.PairId != pairId) { continue; }
-
-                    for (int d = 0; d < dots.Count; d++)
-                    {
-                        bool[,] reach = Flood(grid, rowCount, colCount, dots[d], pairId);
-                        if (!reach[i, j])
-                        {
-                            Error("pair " + pairId + " has a dot at (" + dots[d].Row_ID + "," +
-                                  dots[d].Coloum_ID + ") that cannot reach its splitter junction at (" +
-                                  i + "," + j + ").");
-                        }
-                    }
-                }
-            }
-        }
-
         private static bool[,] Flood(Block[,] grid, int rowCount, int colCount, Block start, int pairId)
         {
             bool[,] seen = new bool[rowCount, colCount];
@@ -519,7 +435,7 @@ namespace FreeFlow.GamePlay
 
                     // An arrow does not offer a choice, and a bridge does not allow a turn, so
                     // expanding any other way would claim reachability the player does not have.
-                    if (!current.CanExitFromUnderAnyRotation(arrivedBy, dir)) { continue; }
+                    if (!current.CanExitFrom(arrivedBy, dir)) { continue; }
 
                     Block next = Neighbor(grid, rowCount, colCount, current, dir);
 
@@ -539,19 +455,19 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// The permanent half of the movement rules: walls, blocked cells, one-way entry, and
-        /// other pairs' dots. Gates are treated as passable on purpose -- a gate's whole job is
-        /// to open once its dependency pair is solved, so counting it as a wall would flag every
-        /// correctly built gate level as broken.
+        /// other pairs' dots.
         /// </summary>
         private static bool CanStep(Block from, Block to, Direction dir, int pairId)
         {
             if (to.BlockType == BlockType.Blocked) { return false; }
-            if (to.BlockType == BlockType.ForbiddenForPair && to.PairId == pairId) { return false; }
+            // both permission rules read the same two ids and differ only in the conclusion
+            bool named = to.PairId == pairId || to.SecondPairId == pairId;
+            if (to.BlockType == BlockType.ForbiddenForPair && named) { return false; }
+            if (to.BlockType == BlockType.AllowedForPairs && !named) { return false; }
             if (to.IsPairBlock && !to.IsDotFor(pairId)) { return false; }
             if (from.HasWall(dir) || to.HasWall(Opposite(dir))) { return false; }
-            // one-way entry, head-on into an arrow -- and any edge of a rotator, since which two
-            // edges it joins is the player's to change
-            if (!to.CanEnterFromUnderAnyRotation(dir)) { return false; }
+            // one-way entry, or head-on into an arrow
+            if (!to.CanEnterFrom(dir)) { return false; }
             return true;
         }
 

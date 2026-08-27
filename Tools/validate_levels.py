@@ -11,9 +11,14 @@ from collections import deque
 LEVELS_DIR = sys.argv[1]
 
 (BLOCKED, CHECKPOINT, FORBIDDEN, ONEWAY, GATE, MIXED, ARROW, BRIDGE, SPLITTER,
- ROTATOR) = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+ ROTATOR, PERMIT) = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 NAMES = {1: 'Blocked', 2: 'Checkpoint', 3: 'ForbiddenForPair', 4: 'OneWay', 5: 'Gate',
-         6: 'Mixed', 7: 'Arrow', 8: 'Bridge', 9: 'Splitter', 10: 'Rotator'}
+         6: 'Mixed', 7: 'Arrow', 8: 'Bridge', 9: 'Splitter', 10: 'Rotator',
+         11: 'AllowedForPairs'}
+# Mirror of Block.SecondIdNamesAPair: the types that read secondPairId as "a second pair this
+# rule is about" rather than "a second pair this cell is a dot for".
+SECOND_ID_NAMES_A_PAIR = (FORBIDDEN, PERMIT)
+
 LEFT, RIGHT, UP, DOWN = 1, 2, 3, 4
 DIRNAME = {1: 'Left', 2: 'Right', 3: 'Up', 4: 'Down'}
 WALL_BIT = {LEFT: 1, RIGHT: 2, UP: 4, DOWN: 8}
@@ -44,6 +49,8 @@ def load(path):
         exit=column(t, 'forcedExitDirection'),
         rot=column(t, 'initialRotation'),
         second=column(t, 'secondPairId'),
+        third=column(t, 'thirdPairId'),
+        fourth=column(t, 'fourthPairId'),
         constraints=[],
     )
     tail = re.search(r'pairConstraints:(.*)$', t, re.S).group(1)
@@ -76,7 +83,11 @@ def normalise_walls(lvl):
 def can_step(lvl, fr, fc, tr, tc, d, pair_id):
     if lvl['btype'][tr][tc] == BLOCKED:
         return False
-    if lvl['btype'][tr][tc] == FORBIDDEN and lvl['pair'][tr][tc] == pair_id:
+    # both permission rules read the same two ids and differ only in the conclusion
+    named = pair_id in (lvl['pair'][tr][tc], lvl['second'][tr][tc])
+    if lvl['btype'][tr][tc] == FORBIDDEN and named:
+        return False
+    if lvl['btype'][tr][tc] == PERMIT and not named:
         return False
     if lvl['colour'][tr][tc] and pair_id not in (lvl['pair'][tr][tc], lvl['second'][tr][tc]):
         return False
@@ -140,9 +151,13 @@ def validate(name, lvl):
         for c in range(n):
             if lvl['colour'][r][c]:
                 dots.setdefault(lvl['pair'][r][c], []).append((r, c))
-            # a shared destination is a dot for its second pair too
-            if lvl['second'][r][c]:
+            # a shared destination is a dot for every pair it names -- but a permission cell
+            # reuses the SECOND column for a named colour, which is not a dot at all
+            if lvl['second'][r][c] and lvl['btype'][r][c] not in SECOND_ID_NAMES_A_PAIR:
                 dots.setdefault(lvl['second'][r][c], []).append((r, c))
+            for extra in (lvl['third'][r][c], lvl['fourth'][r][c]):
+                if extra:
+                    dots.setdefault(extra, []).append((r, c))
 
     splitter_pairs = set()
     for r in range(n):
@@ -161,7 +176,7 @@ def validate(name, lvl):
     for r in range(n):
         for c in range(n):
             t = lvl['btype'][r][c]
-            if t in (CHECKPOINT, FORBIDDEN, GATE, SPLITTER):
+            if t in (CHECKPOINT, FORBIDDEN, GATE, SPLITTER, PERMIT):
                 pid = lvl['pair'][r][c]
                 where = '%s cell at (%d,%d)' % (NAMES[t], r, c)
                 if pid == 0:
@@ -170,6 +185,39 @@ def validate(name, lvl):
                     errors.append(where + ' names pair %d, which has no dots on this board.' % pid)
                 elif lvl['colour'][r][c]:
                     errors.append(where + ' is also a pair dot.')
+
+                if t in SECOND_ID_NAMES_A_PAIR and lvl['second'][r][c]:
+                    sid = lvl['second'][r][c]
+                    if sid == pid:
+                        errors.append(where + ' names pair %d twice.' % pid)
+                    elif sid not in dots:
+                        errors.append(where + ' names pair %d as its second colour, which has '
+                                              'no dots on this board.' % sid)
+
+            # shared destinations: the same two id columns, read the other way. A permit cell is
+            # skipped because its ids name permitted colours, not dots -- the checks above cover it.
+            extras = [lvl['second'][r][c] if t not in SECOND_ID_NAMES_A_PAIR else 0,
+                      lvl['third'][r][c], lvl['fourth'][r][c]]
+            if any(extras):
+                where = 'shared destination at (%d,%d)' % (r, c)
+                if not lvl['colour'][r][c]:
+                    errors.append(where + ' names extra pairs but is not a dot at all.')
+
+                # filled in order, so a gap means a level meant to name a pair and did not
+                if not extras[0] and (extras[1] or extras[2]):
+                    errors.append(where + ' skips its second pair slot but fills a later one.')
+                elif not extras[1] and extras[2]:
+                    errors.append(where + ' skips its third pair slot but fills the fourth.')
+
+                named = [lvl['pair'][r][c]] + extras
+                for k in range(1, len(named)):
+                    if not named[k]:
+                        continue
+                    if named[k] in named[:k]:
+                        errors.append(where + ' names pair %d more than once.' % named[k])
+                    elif named[k] not in dots:
+                        errors.append(where + ' names pair %d, which has no other dot on this '
+                                              'board.' % named[k])
 
             required = lvl['entry'][r][c]
             if t != ONEWAY and required:
