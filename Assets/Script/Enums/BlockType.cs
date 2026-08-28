@@ -50,8 +50,9 @@ namespace FreeFlow.Enums
         // simpler rule to read.
         //
         // A third permitted colour is deliberately not modeled. Two fits the existing columns and
-        // the marker can show two tints; beyond that the cell stops being readable at a glance and
-        // the honest form would be a bitmask, which no other mechanic needs yet.
+        // the border can show two mitred halves (see PermissionBorderView); beyond that the cell
+        // stops being readable at a glance and the honest form would be a bitmask naming every
+        // colour's status, which no other mechanic needs yet.
         AllowedForPairs = 11
     }
 }

@@ -36,16 +36,19 @@ namespace FreeFlow.GamePlay
         // rotated per edge, which a slot pinned to a fixed edge cannot do.
         [SerializeField] private Image oneWayImage;
 
-        // Center marker reused for the mechanics that repurpose PairId as "which pair this
-        // applies to": a plain square for Checkpoint, a 45-degree-rotated diamond for
-        // ForbiddenForPair, tinted to that pair's color. A cell is exactly one BlockType, so those
-        // uses can never want the marker at the same time and one image serves all of them.
+        // Center marker for the mechanics that repurpose PairId as "which pair this applies
+        // to" and want a glyph rather than a border: Checkpoint, Arrow, Bridge. A cell is
+        // exactly one BlockType, so those uses can never want the marker at the same time and
+        // one image serves all of them.
         [SerializeField] private Image specialMarkerImage;
 
-        // A second marker drawn on top of specialMarkerImage, in the same rect. Exists because an
-        // Image carries one tint and a permit cell may name two colours: the first colour goes on
-        // the full glyph and the second recolours half of it. Idle for every other block type.
-        [SerializeField] private Image secondMarkerImage;
+        // Rounded-rect border split into one angular slice per named pair colour, solid where
+        // that colour may pass and dashed where it may not. Backs ForbiddenForPair and
+        // AllowedForPairs in place of a center glyph, so the cell reads as "which colours get
+        // through" rather than needing a legend, and the two named colours (pairId,
+        // secondPairId) show as two mitred halves instead of a ring plus a hand-cut arc. Idle
+        // for every other block type.
+        [SerializeField] private PermissionBorderView permissionBorderView;
 
         // One per colour that can share a destination. A shared goal hides the single pair dot and
         // draws this cluster instead, one circle per colour -- an Image tints once, so four colours
@@ -75,17 +78,9 @@ namespace FreeFlow.GamePlay
         [SerializeField] private Sprite wallSpriteVertical;
         [SerializeField] private Sprite oneWaySprite;
 
-        // Centre marks. Checkpoint and forbidden used to be the same white quad told apart only by
-        // a 45-degree rotation -- two opposite rules sharing a shape. They are separate art now,
-        // and forbidden no longer rotates.
+        // Centre mark for Checkpoint. ForbiddenForPair/AllowedForPairs used to share this marker
+        // with a ring-plus-glyph sprite; they are drawn by permissionBorderView now.
         [SerializeField] private Sprite checkpointSprite;
-        [SerializeField] private Sprite forbiddenSprite;
-
-        // Ring plus check, against forbiddenSprite's ring plus X -- inverse glyphs inside the same
-        // ring, because the two rules are exact inverses. markerHalfSprite is the right-hand arc of
-        // that ring, shared by both: it recolours half the ring in the cell's second colour.
-        [SerializeField] private Sprite permitSprite;
-        [SerializeField] private Sprite markerHalfSprite;
 
         // Arrow glyph swapped onto specialMarkerImage for an Arrow cell, rotated to the forced
         // exit. The base sprite must point UP; MarkerRotationFor turns it from there.
@@ -420,11 +415,11 @@ namespace FreeFlow.GamePlay
             }
             else if (blockType == BlockType.ForbiddenForPair)
             {
-                ShowPermissionMarker(forbiddenSprite);
+                ShowPermissionBorder(namedColoursAreAllowed: false);
             }
             else if (blockType == BlockType.AllowedForPairs)
             {
-                ShowPermissionMarker(permitSprite);
+                ShowPermissionBorder(namedColoursAreAllowed: true);
             }
             else if (blockType == BlockType.Arrow)
             {
@@ -714,22 +709,29 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// A permission marker: <paramref name="ringSprite"/> in the first named colour, with the
-        /// ring's right arc repainted in the second colour when the cell names two.
+        /// Draws the permission border: one slice per named colour (pairId, and secondPairId
+        /// when the cell names two), solid if <paramref name="namedColoursAreAllowed"/> (an
+        /// AllowedForPairs cell) or dashed if not (a ForbiddenForPair cell).
         /// </summary>
-        private void ShowPermissionMarker(Sprite ringSprite)
+        private void ShowPermissionBorder(bool namedColoursAreAllowed)
         {
-            ShowSpecialMarker(ringSprite, pairId);
+            if (permissionBorderView == null) { return; }
 
-            if (secondMarkerImage == null || secondPairId == 0) { return; }
-
-            secondMarkerImage.gameObject.SetActive(true);
-            secondMarkerImage.sprite = markerHalfSprite;
+            int count = secondPairId != 0 ? 2 : 1;
+            Color[] colors = new Color[count];
+            bool[] allowed = new bool[count];
 
             // Same (PairColorType)pairId assumption as every other marker -- see ShowSpecialMarker.
-            Color color = GamePlayController.Instance.GetColor((PairColorType)secondPairId);
-            color.a = 1f;
-            secondMarkerImage.color = color;
+            colors[0] = GamePlayController.Instance.GetColor((PairColorType)pairId);
+            allowed[0] = namedColoursAreAllowed;
+
+            if (count == 2)
+            {
+                colors[1] = GamePlayController.Instance.GetColor((PairColorType)secondPairId);
+                allowed[1] = namedColoursAreAllowed;
+            }
+
+            permissionBorderView.SetSegments(colors, allowed);
         }
 
         /// <summary>

@@ -66,7 +66,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_Sprite: {fileID: 21300000, guid: 8d7bc3ec4e27f1eadeaccce6e3553432, type: 3}
-  m_Type: 1
+  m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
   m_FillMethod: 4
@@ -86,6 +86,7 @@ GameObject:
   - component: {fileID: 700600011}
   - component: {fileID: 700600012}
   - component: {fileID: 700600013}
+  - component: {fileID: 5026821192541273119}
   m_Layer: 5
   m_Name: SecondMarkerImage
   m_TagString: Untagged
@@ -107,8 +108,8 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 647633623367022923}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.25, y: 0.25}
-  m_AnchorMax: {x: 0.75, y: 0.75}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -132,7 +133,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 2100000, guid: b6f413ec838524145a16b5669ab76437, type: 2}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
@@ -150,6 +151,18 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &5026821192541273119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 700600010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2389e8eec16870d4e8561df8b62836df, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.GamePlay.PermissionBorderView
 --- !u!1 &700700010
 GameObject:
   m_ObjectHideFlags: 0
@@ -1280,7 +1293,7 @@ MonoBehaviour:
   - {fileID: 3902025557609584954}
   oneWayImage: {fileID: 700200013}
   specialMarkerImage: {fileID: 1272456204711290559}
-  secondMarkerImage: {fileID: 700600013}
+  permissionBorderView: {fileID: 5026821192541273119}
   sharedDotImages:
   - {fileID: 700700013}
   - {fileID: 700700023}
@@ -1293,9 +1306,6 @@ MonoBehaviour:
   wallSpriteVertical: {fileID: 21300000, guid: cf47328d89af4c92af412049ee93a924, type: 3}
   oneWaySprite: {fileID: 21300000, guid: 8d7bc3ec4e27f1eadeaccce6e3553432, type: 3}
   checkpointSprite: {fileID: 21300000, guid: 680d997434afec25dea90046a9260f61, type: 3}
-  forbiddenSprite: {fileID: 21300000, guid: 9c22b4d03008741adea9c74ecb65c300, type: 3}
-  permitSprite: {fileID: 21300000, guid: 397b7da2d9024576a3f63219ee562394, type: 3}
-  markerHalfSprite: {fileID: 21300000, guid: fd65a70a7989429fac87179488bd1e59, type: 3}
   arrowMarkerSprite: {fileID: 21300000, guid: 34b21be0a062f738dead11806e963690, type: 3}
   bridgeMarkerSprite: {fileID: 21300000, guid: fec17c206ab056dadeaca36065e131e2, type: 3}
 --- !u!222 &700300010
