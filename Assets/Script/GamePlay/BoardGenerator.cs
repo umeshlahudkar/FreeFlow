@@ -51,7 +51,6 @@ namespace FreeFlow.GamePlay
         {
             int rowSize = (int)data.gridSize;
             int coloumSize = (int)data.gridSize;
-            bool boardDrawsGrid = GridSpriteFor(rowSize) != null;
 
             GamePlayController.Instance.InitGrid(rowSize, coloumSize);
 
@@ -107,9 +106,6 @@ namespace FreeFlow.GamePlay
                         : 0;
 
                     block.SetBlock(colorType, pairId, secondPairId, thirdPairId, fourthPairId, blockType, wallMask, requiredEntryDirection, forcedExitDirection, i, j);
-
-                    // the board image already draws this cell's outline and fill
-                    if (boardDrawsGrid) { block.UseBoardBackground(); }
 
                     GamePlayController.Instance.grid[i, j] = block;
                 }

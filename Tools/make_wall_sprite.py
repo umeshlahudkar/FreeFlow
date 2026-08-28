@@ -1,31 +1,19 @@
-"""Generate the wall edge bars: a bevelled masonry bar, one sprite per orientation.
+"""Generate the wall edge bars: a flat white bar, one sprite per orientation.
 
-WHY TWO SPRITES. A wall Image is pinned to a cell edge and stretched along it, so the sprite meets
-the screen crushed on one axis and near 1:1 on the other -- for a 100-unit cell the bar is about
-100 long and 15 thick. Shading that reads as a solid object has to run across the THICKNESS, and
-thickness is the y axis for the Up/Down bars but the x axis for Left/Right. One sprite cannot serve
-both: any single-axis gradient is correct for one pair of edges and smeared along the other.
+Flat rather than bevelled -- no shading bands, no grooves. `Block.WallColor` tints the whole bar
+at runtime, same as before; this file just stopped baking a bevel into it.
 
-The alternatives were considered and rejected:
+WHY STILL TWO FILES even though they're now pixel-identical. A wall Image is pinned to a cell edge
+and stretched along it (crushed on the thickness axis, near 1:1 on the length axis), and
+`Block.cs` picks `wallSprite` or `wallSpriteVertical` by orientation. Flat art has nothing left for
+the two files to disagree on, but collapsing them to one shared sprite is a Block.cs/prefab change,
+not an art change -- left alone here so this script's diff is exactly "the art is flat now" and
+nothing else.
 
-  * A gradient symmetric in x and y (distance to the nearest edge) does serve both orientations,
-    but the same band width lands on both axes -- and the axes differ by ~7x. A rim thick enough
-    to see across a 15-unit thickness becomes a 13-unit dark region at each END of the bar, which
-    is exactly the fading cap the bar is not supposed to have.
-  * 9-slicing pins the rim to a fixed unit size, which sounds right until the board resizes: bar
-    thickness is a fraction of the cell, so on a small board a fixed rim eats the whole bar and on
-    a large one it thins to a line. A proportional bevel is what survives every board size.
-
-So: `edge_wall` carries the horizontal bar and `edge_wall_vertical` is its exact transpose. The
-transpose is what makes the lighting agree -- the horizontal bar's bright band sits near its top
-edge, and transposing puts the vertical bar's bright band near its left edge, both consistent with
-one light source up and to the left.
-
-WHY OPAQUE, WITH THE SHADING IN RGB. `NormalizeWalls` mirrors a wall onto both cells, so two
-coincident copies of the bar are drawn. Shading held in alpha would composite twice and flatten
-(1-(1-a)^2), and a wall on the board's boundary -- drawn once -- would then not match an interior
-one. Opaque greyscale is idempotent: both cases render identically, and `Block.WallColor` still
-tints the whole bar at runtime.
+WHY OPAQUE, WITH THE FLAT VALUE IN RGB (not alpha). `NormalizeWalls` mirrors a wall onto both
+cells, so two coincident copies of the bar are drawn. Shading held in alpha would composite twice
+and flatten (1-(1-a)^2), and a wall on the board's boundary -- drawn once -- would then not match
+an interior one. Opaque greyscale is idempotent: both cases render identically.
 """
 import io
 import os
@@ -37,22 +25,10 @@ import zlib
 LENGTH = 128      # along the bar; ends up near 1:1 with the cell, so detail here survives
 THICK = 32        # across the bar; crushed to ~15 units, so this axis stays to broad bands
 
-# Bands across the thickness, top edge -> bottom edge: (fraction of thickness, grey 0-255).
-# A dark lip, a highlight, the body, shading, a darker lip. The lips are what stop the bar reading
-# as a fatter grid line: a flat bar has no edges, a bevelled one does.
+# Flat white across the whole bar -- no bevel bands.
 BANDS = [
-    (0.06, 130),
-    (0.25, 255),
-    (0.64, 228),
-    (0.84, 168),
-    (1.00, 105),
+    (1.00, 255),
 ]
-
-# Grooves perpendicular to the bar, so it reads as courses of masonry rather than one long slab.
-# Safe to put detail here: this is the axis that is NOT crushed.
-GROOVES = [0.25, 0.5, 0.75]
-GROOVE_HALF_WIDTH = 1.6      # in LENGTH texels
-GROOVE_DARKEN = 0.58
 
 SUPERSAMPLE = 4
 
@@ -77,19 +53,6 @@ def band_value(t):
     return BANDS[-1][1]
 
 
-def groove_factor(along):
-    """1.0 away from a groove, GROOVE_DARKEN on one, antialiased between."""
-    half = GROOVE_HALF_WIDTH / LENGTH
-    for centre in GROOVES:
-        d = abs(along - centre)
-        if d <= half:
-            return GROOVE_DARKEN
-        if d <= half * 2.0:
-            k = (d - half) / half
-            return GROOVE_DARKEN + (1.0 - GROOVE_DARKEN) * k
-    return 1.0
-
-
 def horizontal_grid():
     """[y][x] greys for the horizontal bar: thickness down y, length along x."""
     step = 1.0 / SUPERSAMPLE
@@ -103,7 +66,7 @@ def horizontal_grid():
             total = 0.0
             for dy in offsets:
                 for dx in offsets:
-                    total += band_value((y + dy) / THICK) * groove_factor((x + dx) / LENGTH)
+                    total += band_value((y + dy) / THICK)
             row.append(int(round(total / n)))
         grid.append(row)
     return grid
@@ -258,10 +221,4 @@ if __name__ == '__main__':
         print('%-19s %3dx%-3d  guid %s (%s)' % (name + '.png', len(grid[0]), len(grid), guid, how))
 
     print()
-    print('bands across the thickness, at a 15-unit bar:')
-    prev = 0.0
-    for edge, value in BANDS:
-        print('   grey %3d over %4.1f units' % (value, (edge - prev) * 15.0))
-        prev = edge
-    print('grooves: %d perpendicular, %.1f texels wide (~%.1f units on a 100-unit edge)'
-          % (len(GROOVES), GROOVE_HALF_WIDTH * 2, GROOVE_HALF_WIDTH * 2 * 100.0 / LENGTH))
+    print('flat grey %d, no bevel, no grooves' % BANDS[0][1])

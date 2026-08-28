@@ -1,8 +1,8 @@
-"""Generate edge_oneway: the one-way entry bar, redrawn as a colour-fade motion trail.
+"""Generate edge_oneway: the one-way entry bar, drawn as a colour-fade motion trail.
 
-The old art was two identical chevrons stamped on a solid strip -- same size, same tone, so it
-read as a repeating pattern (wallpaper) rather than a single directional signal, and every pixel
-was flat white, so OneWayColor's tint landed on the whole shape at one uniform brightness.
+Two identical chevrons on a flat tint reads as a repeating pattern (wallpaper) rather than a
+single directional signal, and every pixel being flat white means OneWayColor's tint lands on the
+whole shape at one uniform brightness.
 
 This version bakes THREE brightness tiers into the grey channel: a dim lip at the outer edge, then
 two chevrons growing both bigger and brighter as they approach the inner edge -- the edge the path

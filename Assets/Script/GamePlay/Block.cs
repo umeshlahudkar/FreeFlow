@@ -10,14 +10,30 @@ namespace FreeFlow.GamePlay
     /// </summary>
     public class Block : MonoBehaviour
     {
-        [SerializeField] private Image pairDotImage;
         [SerializeField] private Image blockBgHighlightImage;
 
-        // The cell's own flat fill, behind everything else. Only drawn when the board has no
-        // grid sprite for its size; see UseBoardBackground.
-        [SerializeField] private RectTransform cellFillBackground;
-
         [SerializeField] private Image[] directionImages;
+
+        // Everything below is a MECHANIC-SPECIFIC visual: most cells on a board are Normal and
+        // need none of them, so each is a source prefab instantiated as a child of this cell only
+        // the first time a mechanic that needs it actually shows up (see the EnsureX() methods
+        // below) rather than a pre-built, mostly-inactive child on every one of a board's cells.
+        // The runtime instance fields below the prefab references start null and stay null on a
+        // cell that never needs that visual.
+
+        // The single pair dot. Not needed on any non-pair cell, and not needed on a shared
+        // destination either -- that hides the dot and shows sharedDotVisual's cluster instead.
+        [SerializeField] private GameObject pairDotVisual;
+        private Image pairDotImage;
+
+        // One per colour that can share a destination, laid out as a diamond (0 left, 1 right,
+        // 2 top, 3 below) so enabling the first N gives a pair, then a triangle, then a full
+        // diamond -- an arrangement authored by dragging in the editor, not computed from
+        // trigonometry. Their anchors are fractions of the cell, so they still follow the board
+        // through every size.
+        [SerializeField] private GameObject sharedDotVisual;
+        private RectTransform sharedDotGroup;
+        private Image[] sharedDotImages;
 
         // Edge bars, indexed like directionImages ((int)Direction - 1: Left=0, Right=1,
         // Up=2, Down=3). Reused for two mechanics that both mark a single edge of the cell:
@@ -28,44 +44,40 @@ namespace FreeFlow.GamePlay
         // cells draw it (BoardGenerator.NormalizeWalls), so the two copies land exactly on top of
         // each other and the player sees one rectangle in the gap -- not a box inside each cell,
         // which is what these looked like while all four were centred 100x100 squares.
-        [SerializeField] private Image[] wallImages;
+        [SerializeField] private GameObject wallVisual;
+        private RectTransform wallGroup;
+        private Image[] wallImages;
 
         // The one-way marker has its own Image because its art is directional: a bar with chevrons
         // pointing INTO the cell, i.e. the way a path must be travelling to enter. A wall bar is
         // symmetric and works in any of the four slots above; this one has to be positioned and
         // rotated per edge, which a slot pinned to a fixed edge cannot do.
-        [SerializeField] private Image oneWayImage;
+        [SerializeField] private GameObject oneWayVisual;
+        private Image oneWayImage;
 
-        // Center marker for the mechanics that repurpose PairId as "which pair this applies
+        // Center markers for the mechanics that repurpose PairId as "which pair this applies
         // to" and want a glyph rather than a border: Checkpoint, Arrow, Bridge. A cell is
-        // exactly one BlockType, so those uses can never want the marker at the same time and
-        // one image serves all of them.
-        [SerializeField] private Image specialMarkerImage;
+        // exactly one BlockType, so at most one of these three is ever instantiated. Each is its
+        // own dedicated prefab with its own sprite already authored on it -- unlike the wall or
+        // permission-border visuals, these three have nothing in common a shared prefab would
+        // actually be reusing beyond "an Image", and sharing one meant swapping sprite, tint,
+        // rotation and scale by hand every time the block type changed.
+        [SerializeField] private GameObject checkpointMarkerVisual;
+        private Image checkpointMarkerImage;
+
+        [SerializeField] private GameObject arrowMarkerVisual;
+        private Image arrowMarkerImage;
+
+        [SerializeField] private GameObject bridgeMarkerVisual;
+        private Image bridgeMarkerImage;
 
         // Rounded-rect border split into one angular slice per named pair colour, solid where
         // that colour may pass and dashed where it may not. Backs ForbiddenForPair and
         // AllowedForPairs in place of a center glyph, so the cell reads as "which colours get
         // through" rather than needing a legend, and the two named colours (pairId,
-        // secondPairId) show as two mitred halves instead of a ring plus a hand-cut arc. Idle
-        // for every other block type.
-        [SerializeField] private PermissionBorderView permissionBorderView;
-
-        // One per colour that can share a destination. A shared goal hides the single pair dot and
-        // draws this cluster instead, one circle per colour -- an Image tints once, so four colours
-        // need four Images. Idle on every cell that is not a shared destination.
-        //
-        // Each one's position and size are AUTHORED in the prefab, not computed: 0 and 1 sit left
-        // and right, 2 on top, 3 below, so enabling the first N gives a pair, then a triangle, then
-        // a diamond, and the layout for each count is something you can see and drag in the editor.
-        // Anchor them as fractions of the cell rather than in units, or they stop scaling with the
-        // board -- a 12x12 cell is roughly a third the size of a 4x4 one.
-        [SerializeField] private Image[] sharedDotImages;
-
-        // Plain RectTransforms grouping the four dots and the four wall bars, both stretched to the
-        // whole cell so their children's fractional anchors still resolve against it. Toggling the
-        // group is what turns each mechanic on; the children below it say which ones.
-        [SerializeField] private RectTransform sharedDotGroup;
-        [SerializeField] private RectTransform wallGroup;
+        // secondPairId) show as two mitred halves instead of a ring plus a hand-cut arc.
+        [SerializeField] private GameObject permissionBorderVisual;
+        private PermissionBorderView permissionBorderView;
 
         // Art for the cell types that paint the whole tile, and for the two edge bars.
         [SerializeField] private Sprite blockedSprite;
@@ -77,22 +89,6 @@ namespace FreeFlow.GamePlay
         [SerializeField] private Sprite wallSprite;
         [SerializeField] private Sprite wallSpriteVertical;
         [SerializeField] private Sprite oneWaySprite;
-
-        // Centre mark for Checkpoint. ForbiddenForPair/AllowedForPairs used to share this marker
-        // with a ring-plus-glyph sprite; they are drawn by permissionBorderView now.
-        [SerializeField] private Sprite checkpointSprite;
-
-        // Arrow glyph swapped onto specialMarkerImage for an Arrow cell, rotated to the forced
-        // exit. The base sprite must point UP; MarkerRotationFor turns it from there.
-        [SerializeField] private Sprite arrowMarkerSprite;
-
-        // Crossing glyph swapped onto specialMarkerImage for a Bridge cell: two lanes meeting,
-        // which is the rule stated as a shape.
-        [SerializeField] private Sprite bridgeMarkerSprite;
-
-        // specialMarkerImage's authored sprite, captured before anything swaps it, so a marker can
-        // be put back to it rather than to an assumed null.
-        private Sprite defaultMarkerSprite;
 
         // Wall bars were rgb(0.05) against a pure-black cell background: the rule worked and
         // no player could see it. Light enough to read as a wall, dark enough that it doesn't
@@ -107,9 +103,7 @@ namespace FreeFlow.GamePlay
         // by too little to read as stripes at all; 0.42 opens that gap while keeping the cell
         // clearly deader than any path colour.
         private static readonly Color BlockedColor = new Color(0.42f, 0.42f, 0.42f, 1f);
-        private static readonly Color OneWayColor = new Color(0.2f, 0.8f, 0.3f, 1f);
         private static readonly Color ArrowMarkerColor = new Color(1f, 1f, 1f, 0.85f);
-        private static readonly Color BridgeMarkerColor = new Color(0.6f, 0.72f, 0.85f, 0.85f);
 
         private int row_ID;
         private int coloum_ID;
@@ -184,11 +178,121 @@ namespace FreeFlow.GamePlay
         // inward (the cell being entered), so the seam with the previous cell lights up first.
         private bool[] directionBarFromFarEdge = new bool[4];
 
-        // Runs before any SetBlock, so the authored marker sprite is captured before a mechanic
-        // has a chance to swap its own in over it.
-        private void Awake()
+        // Lazily instantiates the mechanic-specific visuals, one per kind, the first time a cell
+        // that actually needs one asks for it -- see the field block above. Every Ensure*
+        // guards on its source-prefab reference rather than assuming it's wired, same defensive
+        // posture the pre-instantiated fields had before this was on-demand.
+
+        // Draw order is sibling order (later = on top). Mechanic visuals (wall, one-way, the
+        // three center markers, the permission border) all insert right after BgHighlight --
+        // the backdrop layer -- so they never depend on one another's creation order: whichever
+        // of them exists, they end up adjacent, below the direction bars. The dot instead goes
+        // to the very end via SetAsLastSibling, so it stays the frontmost thing on the cell
+        // (the one landmark that should never be covered by a path or a mechanic) regardless of
+        // what else gets added to this cell before or after it, including a wall arriving later
+        // through AddWall.
+        private const int MechanicSiblingIndex = 1;
+
+        private Image EnsurePairDot()
         {
-            defaultMarkerSprite = specialMarkerImage != null ? specialMarkerImage.sprite : null;
+            if (pairDotImage == null && pairDotVisual != null)
+            {
+                pairDotImage = Instantiate(pairDotVisual, transform).GetComponent<Image>();
+                pairDotImage.transform.SetAsLastSibling();
+            }
+            return pairDotImage;
+        }
+
+        private RectTransform EnsureSharedDotGroup()
+        {
+            if (sharedDotGroup == null && sharedDotVisual != null)
+            {
+                sharedDotGroup = Instantiate(sharedDotVisual, transform).GetComponent<RectTransform>();
+                sharedDotGroup.SetAsLastSibling();
+                sharedDotImages = new Image[4];
+                for (int i = 0; i < sharedDotImages.Length; i++)
+                {
+                    Transform child = sharedDotGroup.Find("SharedDot" + i);
+                    sharedDotImages[i] = child != null ? child.GetComponent<Image>() : null;
+                }
+            }
+            return sharedDotGroup;
+        }
+
+        private RectTransform EnsureWallGroup()
+        {
+            if (wallGroup == null && wallVisual != null)
+            {
+                wallGroup = Instantiate(wallVisual, transform).GetComponent<RectTransform>();
+                wallGroup.SetSiblingIndex(MechanicSiblingIndex);
+                wallImages = new Image[4];
+                wallImages[(int)Direction.Left - 1] = FindImage(wallGroup, "LeftWallImage");
+                wallImages[(int)Direction.Right - 1] = FindImage(wallGroup, "RightWallImage");
+                wallImages[(int)Direction.Up - 1] = FindImage(wallGroup, "UpWallImage");
+                wallImages[(int)Direction.Down - 1] = FindImage(wallGroup, "DownWallImage");
+
+                // Sized immediately rather than waiting for the next resize event -- a wall
+                // added mid-game (AddWall, after this cell's own SetBlock already ran) has no
+                // resize coming to size it for the first time.
+                ApplyWallGeometry();
+            }
+            return wallGroup;
+        }
+
+        private static Image FindImage(Transform parent, string childName)
+        {
+            Transform child = parent.Find(childName);
+            return child != null ? child.GetComponent<Image>() : null;
+        }
+
+        private Image EnsureOneWayImage()
+        {
+            if (oneWayImage == null && oneWayVisual != null)
+            {
+                oneWayImage = Instantiate(oneWayVisual, transform).GetComponent<Image>();
+                oneWayImage.transform.SetSiblingIndex(MechanicSiblingIndex);
+            }
+            return oneWayImage;
+        }
+
+        private Image EnsureCheckpointMarker()
+        {
+            if (checkpointMarkerImage == null && checkpointMarkerVisual != null)
+            {
+                checkpointMarkerImage = Instantiate(checkpointMarkerVisual, transform).GetComponent<Image>();
+                checkpointMarkerImage.transform.SetSiblingIndex(MechanicSiblingIndex);
+            }
+            return checkpointMarkerImage;
+        }
+
+        private Image EnsureArrowMarker()
+        {
+            if (arrowMarkerImage == null && arrowMarkerVisual != null)
+            {
+                arrowMarkerImage = Instantiate(arrowMarkerVisual, transform).GetComponent<Image>();
+                arrowMarkerImage.transform.SetSiblingIndex(MechanicSiblingIndex);
+            }
+            return arrowMarkerImage;
+        }
+
+        private Image EnsureBridgeMarker()
+        {
+            if (bridgeMarkerImage == null && bridgeMarkerVisual != null)
+            {
+                bridgeMarkerImage = Instantiate(bridgeMarkerVisual, transform).GetComponent<Image>();
+                bridgeMarkerImage.transform.SetSiblingIndex(MechanicSiblingIndex);
+            }
+            return bridgeMarkerImage;
+        }
+
+        private PermissionBorderView EnsurePermissionBorder()
+        {
+            if (permissionBorderView == null && permissionBorderVisual != null)
+            {
+                permissionBorderView = Instantiate(permissionBorderVisual, transform).GetComponent<PermissionBorderView>();
+                permissionBorderView.transform.SetSiblingIndex(MechanicSiblingIndex);
+            }
+            return permissionBorderView;
         }
 
         /// <summary>
@@ -361,8 +465,7 @@ namespace FreeFlow.GamePlay
             this.row_ID = rowIndex;
             this.coloum_ID = coloumIndex;
 
-            ApplyCellFillGeometry();
-            ApplyWallGeometry();
+            ApplyHighlightGeometry();
             pairColorType = type;
             this.pairId = pairId;
             this.secondPairId = secondPairId;
@@ -389,18 +492,21 @@ namespace FreeFlow.GamePlay
 
                 if (IsSharedGoal)
                 {
-                    // more than one colour finishes here, so the single dot gives way to a cluster
-                    // of circles, one per colour
-                    pairDotImage.gameObject.SetActive(false);
+                    // more than one colour finishes here, so the cluster of circles shows
+                    // instead of the single dot -- which is simply never instantiated here
                     ShowSharedDotCluster();
                 }
                 else
                 {
-                    pairDotImage.gameObject.SetActive(true);
-                    pairDotImage.color = GamePlayController.Instance.GetColor(type);
+                    Image dot = EnsurePairDot();
+                    if (dot != null)
+                    {
+                        dot.gameObject.SetActive(true);
+                        dot.color = GamePlayController.Instance.GetColor(type);
 
-                    pairDotImage.transform.localScale = Vector3.zero;
-                    pairDotImage.transform.DOScale(1, 0.5f);
+                        dot.transform.localScale = Vector3.zero;
+                        dot.transform.DOScale(1, 0.5f);
+                    }
                 }
             }
 
@@ -411,7 +517,7 @@ namespace FreeFlow.GamePlay
             }
             else if (blockType == BlockType.Checkpoint)
             {
-                ShowSpecialMarker(checkpointSprite, pairId);
+                ShowCheckpointMarker();
             }
             else if (blockType == BlockType.ForbiddenForPair)
             {
@@ -430,9 +536,11 @@ namespace FreeFlow.GamePlay
                 ShowBridgeMarker();
             }
 
-            // wall bars: independent of blockType, one per walled edge. The group carries all four,
-            // so it goes on only for a cell that has any -- and each bar is set explicitly either
-            // way, since ShowWallBar alone would leave a previously-shown edge on.
+            // wall bars: independent of blockType, one per walled edge. Instantiated only for a
+            // cell that actually has one -- the overwhelming majority never do. The group carries
+            // all four, so it goes on only for a cell that has any -- and each bar is set
+            // explicitly either way, since ShowWallBar alone would leave a previously-shown edge on.
+            if (wallMask != 0) { EnsureWallGroup(); }
             if (wallGroup != null) { wallGroup.gameObject.SetActive(wallMask != 0); }
 
             Direction[] edges = { Direction.Left, Direction.Right, Direction.Up, Direction.Down };
@@ -459,9 +567,7 @@ namespace FreeFlow.GamePlay
 
         // How thick a wall bar is, as a fraction of the cell. Proportional rather than fixed so a
         // wall reads the same weight on a 4x4 board and an 8x8 one.
-        // Thick enough for the bevel in the sprite to have pixels to land on: at 0.1 of the cell
-        // the five shading bands shared about 10 units and averaged out to a flat grey.
-        private const float WallThicknessFraction = 0.15f;
+        private const float WallThicknessFraction = 0.08f;
 
         // The one-way bar carries chevrons, so it needs more room than a plain wall bar.
         private const float OneWayThicknessFraction = 0.3f;
@@ -483,6 +589,8 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ShowWallBar(Direction edge)
         {
+            EnsureWallGroup();
+
             int idx = (int)edge - 1;
             if (wallImages == null || idx < 0 || idx >= wallImages.Length) { return; }
             if (wallImages[idx] == null) { return; }
@@ -518,37 +626,19 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Stretches the cell's fill and its path wash to the whole cell.
+        /// Stretches the path wash / obstacle fill to the whole cell.
         ///
-        /// The grid itself is not drawn here and is not drawn per cell at all: one sprite behind
-        /// the board carries every line, for every size the game ships (see
-        /// BoardGenerator.gridSizeSprites). Cells used to own it instead -- four thin rects each,
-        /// with an ownership rule so an interior seam was drawn once rather than twice -- which was
-        /// crisper than a stretched sprite but could not carry cell shading, rounded corners or a
-        /// frame, and cost four UI objects on all 144 cells of a 12x12 to draw something the board
-        /// image was already drawing over.
+        /// The cell's own background and the grid lines are not drawn here, and not drawn per
+        /// cell at all: one sprite behind the whole board carries every line and fill, for every
+        /// size the game ships (see BoardGenerator.gridSizeSprites). Cells used to own a
+        /// background of their own as a fallback for a grid size with no board art, but every
+        /// size from 4x4 to 12x12 has art, so that fallback never drew and has been removed.
         /// </summary>
-        private void ApplyCellFillGeometry()
+        private void ApplyHighlightGeometry()
         {
-            if (cellFillBackground != null)
-            {
-                cellFillBackground.offsetMin = Vector2.zero;
-                cellFillBackground.offsetMax = Vector2.zero;
-            }
-
             RectTransform highlightRect = blockBgHighlightImage.rectTransform;
             highlightRect.offsetMin = Vector2.zero;
             highlightRect.offsetMax = Vector2.zero;
-        }
-
-        /// <summary>
-        /// Stops this cell drawing its own chrome, because the board draws it: one sprite behind the
-        /// whole grid carries both the lines and the cell fills. Leaves the path wash and every
-        /// mechanic marker alone -- those stay per cell.
-        /// </summary>
-        public void UseBoardBackground()
-        {
-            if (cellFillBackground != null) { cellFillBackground.gameObject.SetActive(false); }
         }
 
         private void SetObstacleVisual(Sprite sprite, Color color)
@@ -559,51 +649,50 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Shows the shared center marker, drawn with <paramref name="sprite"/> and tinted to
-        /// <paramref name="targetPairId"/>'s color.
-        /// Assumes pairId doubles as a valid PairColorType value (true for every level
-        /// authored so far); levels that give a Checkpoint/ForbiddenForPair cell a pairId
-        /// outside 1-9 would need a real pairId-to-color lookup instead.
+        /// Shows the checkpoint flag, tinted to the checkpoint's own pair -- the only cue telling
+        /// two checkpoints for two different pairs apart on the same board.
+        /// Assumes pairId doubles as a valid PairColorType value (true for every level authored
+        /// so far); a level giving a Checkpoint cell a pairId outside 1-9 would need a real
+        /// pairId-to-color lookup instead.
         /// </summary>
-        private void ShowSpecialMarker(Sprite sprite, int targetPairId)
+        private void ShowCheckpointMarker()
         {
-            specialMarkerImage.gameObject.SetActive(true);
-            specialMarkerImage.transform.localEulerAngles = Vector3.zero;
-            specialMarkerImage.transform.localScale = Vector3.one;
-            specialMarkerImage.sprite = sprite != null ? sprite : defaultMarkerSprite;
+            if (EnsureCheckpointMarker() == null) { return; }
 
-            Color color = GamePlayController.Instance.GetColor((PairColorType)targetPairId);
+            checkpointMarkerImage.gameObject.SetActive(true);
+
+            Color color = GamePlayController.Instance.GetColor((PairColorType)pairId);
             color.a = 1f;
-            specialMarkerImage.color = color;
+            checkpointMarkerImage.color = color;
         }
 
         /// <summary>
-        /// Shows the shared center marker as an arrow pointing the way a path is forced to leave.
-        /// Neutral white: the rule applies to every pair, so tinting it to one would be a lie.
-        /// This is the one marker whose meaning is its rotation, which is why the arrow glyph is
-        /// reserved for it -- a OneWay cell marks its entry EDGE instead, so the two directional
-        /// mechanics never look alike.
+        /// Shows the arrow marker, pointing the way a path is forced to leave. Neutral white: the
+        /// rule applies to every pair, so tinting it to one would be a lie. This is the one marker
+        /// whose meaning is its rotation, which is why the arrow glyph is reserved for it -- a
+        /// OneWay cell marks its entry EDGE instead, so the two directional mechanics never look
+        /// alike. The base sprite points UP; MarkerRotationFor turns it from there.
         /// </summary>
         private void ShowArrowMarker()
         {
-            specialMarkerImage.gameObject.SetActive(true);
-            specialMarkerImage.transform.localEulerAngles = new Vector3(0, 0, MarkerRotationFor(forcedExitDirection));
-            specialMarkerImage.transform.localScale = arrowMarkerSprite != null ? Vector3.one : Vector3.one * 0.4f;
-            specialMarkerImage.sprite = arrowMarkerSprite;
-            specialMarkerImage.color = ArrowMarkerColor;
+            if (EnsureArrowMarker() == null) { return; }
+
+            arrowMarkerImage.gameObject.SetActive(true);
+            arrowMarkerImage.transform.localEulerAngles = new Vector3(0, 0, MarkerRotationFor(forcedExitDirection));
+            arrowMarkerImage.color = ArrowMarkerColor;
         }
 
         /// <summary>
-        /// Shows the shared center marker as a crossing, marking a cell two pairs may share on
-        /// strict terms. Cool neutral tint, so it is not mistaken for a pair-coloured marker.
+        /// Shows the bridge marker: a crossing, marking a cell two pairs may share on strict
+        /// terms. Plain white -- the rule applies to whichever two pairs cross here, so tinting it
+        /// to either would be a lie, same reasoning as the arrow.
         /// </summary>
         private void ShowBridgeMarker()
         {
-            specialMarkerImage.gameObject.SetActive(true);
-            specialMarkerImage.transform.localEulerAngles = Vector3.zero;
-            specialMarkerImage.transform.localScale = bridgeMarkerSprite != null ? Vector3.one : Vector3.one * 0.4f;
-            specialMarkerImage.sprite = bridgeMarkerSprite;
-            specialMarkerImage.color = BridgeMarkerColor;
+            if (EnsureBridgeMarker() == null) { return; }
+
+            bridgeMarkerImage.gameObject.SetActive(true);
+            bridgeMarkerImage.color = Color.white;
         }
 
         /// <summary>
@@ -622,7 +711,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ShowOneWayMarker()
         {
-            if (oneWayImage == null) { return; }
+            if (EnsureOneWayImage() == null) { return; }
 
             RectTransform cellRect = transform as RectTransform;
             RectTransform bar = oneWayImage.rectTransform;
@@ -653,7 +742,6 @@ namespace FreeFlow.GamePlay
 
             oneWayImage.gameObject.SetActive(true);
             oneWayImage.sprite = oneWaySprite;
-            oneWayImage.color = OneWayColor;
         }
 
         // Z rotation that turns an up-pointing sprite toward dir. Positive Z is counter-clockwise
@@ -715,7 +803,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ShowPermissionBorder(bool namedColoursAreAllowed)
         {
-            if (permissionBorderView == null) { return; }
+            if (EnsurePermissionBorder() == null) { return; }
 
             int count = secondPairId != 0 ? 2 : 1;
             Color[] colors = new Color[count];
@@ -774,10 +862,12 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ShowSharedDotCluster()
         {
+            EnsureSharedDotGroup();
             if (sharedDotGroup != null) { sharedDotGroup.gameObject.SetActive(true); }
             if (sharedDotImages == null) { return; }
 
             int count = Mathf.Min(SharedPairCount(), sharedDotImages.Length);
+            Sprite dotSprite = PairDotSprite();
 
             for (int i = 0; i < sharedDotImages.Length; i++)
             {
@@ -790,7 +880,7 @@ namespace FreeFlow.GamePlay
                 circle.gameObject.SetActive(i < count);
                 if (i >= count) { continue; }
 
-                circle.sprite = pairDotImage != null ? pairDotImage.sprite : circle.sprite;
+                circle.sprite = dotSprite != null ? dotSprite : circle.sprite;
 
                 // Same (PairColorType)pairId assumption the markers make -- see ShowSpecialMarker.
                 Color color = GamePlayController.Instance.GetColor((PairColorType)SharedPairIdAt(i));
@@ -800,6 +890,18 @@ namespace FreeFlow.GamePlay
                 circle.transform.localScale = Vector3.zero;
                 circle.transform.DOScale(1f, 0.5f);
             }
+        }
+
+        /// <summary>
+        /// The pair dot's authored sprite, read off the SOURCE prefab rather than a live
+        /// instance -- a shared destination never instantiates its own single dot (see SetBlock),
+        /// so there is no <see cref="pairDotImage"/> instance to read this off on that cell.
+        /// </summary>
+        private Sprite PairDotSprite()
+        {
+            if (pairDotVisual == null) { return null; }
+            Image source = pairDotVisual.GetComponent<Image>();
+            return source != null ? source.sprite : null;
         }
 
         private void ScaleSharedDotCluster(float target)
@@ -995,7 +1097,11 @@ namespace FreeFlow.GamePlay
             // during play came up as an untextured quad while a wall present at level load came up
             // textured. Two ways to draw the same thing is one too many.
             ShowWallBar(dir);
-            ApplyWallGeometry();
+
+            // This cell's own level data may have named no wall at all, in which case SetBlock
+            // never turned the group on (or, now, never even instantiated it) -- a wall arriving
+            // here afterward, mirrored from a neighbour by NormalizeWalls, still needs it visible.
+            if (wallGroup != null) { wallGroup.gameObject.SetActive(true); }
         }
 
         private static int WallBit(Direction dir)
@@ -1123,13 +1229,6 @@ namespace FreeFlow.GamePlay
             ApplyBarGeometry(idx);
         }
 
-        // How long a bar takes to finish filling once a step commits. The cell being left
-        // already sits at fillAmount ~1 from the live drag preview, so this is a no-op there;
-        // it only matters for the entered cell's incoming bar. 0.08s verified geometrically
-        // correct (grows from the seam inward) but was too short to read as motion at all --
-        // sub-100ms changes get perceived as an instant switch regardless of direction.
-        private const float CommitFillDuration = 0.18f;
-
         /// <summary>
         /// Highlights the block in a specified direction with a given pair color type.
         /// Every direction bar is the same capsule (pivot at the cell-center end, tip at the
@@ -1137,11 +1236,11 @@ namespace FreeFlow.GamePlay
         /// cell's center outward to the edge". That's correct for the bar on the cell being
         /// LEFT (it's already been growing that way all through the live preview), but wrong
         /// for the bar on the cell being ENTERED: growing center-to-edge means the part that
-        /// actually touches the previous cell is the last sliver to appear, so the seam still
-        /// looks like it pops in no matter how long the tween runs. Pass
-        /// <paramref name="growFromFarEdge"/> true for that entering-cell call so it fills
-        /// edge-to-center instead -- the seam lights up immediately and the fill finishes
-        /// toward the dot, reading as the stroke continuing rather than a new bar switching on.
+        /// actually touches the previous cell is the last sliver to appear, so the seam would
+        /// still look like it pops in. Pass <paramref name="growFromFarEdge"/> true for that
+        /// entering-cell call so it fills edge-to-center instead -- the seam lights up
+        /// immediately and the fill finishes toward the dot, reading as the stroke continuing
+        /// rather than a new bar switching on.
         /// </summary>
         /// <param name="dir">The direction in which to highlight the block.</param>
         /// <param name="type">The pair color type used for the highlight color.</param>
@@ -1159,26 +1258,17 @@ namespace FreeFlow.GamePlay
 
             Color color = GamePlayController.Instance.GetColor(type);
             directionImages[idx].color = color;
-            directionImages[idx].DOKill();
 
             if (growFromFarEdge)
             {
                 // Driven live, every frame, by GamePlayController's drag preview
                 // (SetDirectionFillAmount) for as long as this stays the entry edge of the
-                // current last selected block -- an autonomous tween can't track where the
-                // pointer actually is, which is exactly what looked wrong: the bar would
-                // finish filling on its own schedule regardless of how far the pointer had
-                // actually moved into the cell.
+                // current last selected block.
                 SetBarFraction(idx, 0f, true);
             }
             else
             {
-                int tweened = idx;
-                DOTween.To(() => directionBarFraction[tweened],
-                           value => SetBarFraction(tweened, value, false),
-                           1f,
-                           CommitFillDuration)
-                       .SetTarget(directionImages[tweened]);
+                SetBarFraction(idx, 1f, false);
             }
         }
 
