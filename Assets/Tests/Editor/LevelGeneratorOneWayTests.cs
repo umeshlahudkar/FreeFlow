@@ -24,11 +24,11 @@ namespace FreeFlow.Tests
             "IsRowMajorBefore", BindingFlags.NonPublic | BindingFlags.Static);
 
         private static List<(int Row, int Col, Direction EntryDir)> PlaceOneWayCells(
-            List<(int Row, int Col)> snake, HashSet<(int Row, int Col)> dotCells,
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
             Dictionary<(int Row, int Col), bool> reversedByCell, int count, System.Random rng)
         {
             return (List<(int, int, Direction)>)PlaceOneWayCellsMethod.Invoke(
-                null, new object[] { snake, dotCells, reversedByCell, count, rng });
+                null, new object[] { paths, excludedCells, reversedByCell, count, rng });
         }
 
         private static Direction DirectionOfTravel((int Row, int Col) from, (int Row, int Col) to)
@@ -65,6 +65,14 @@ namespace FreeFlow.Tests
             return new List<(int, int)> { (0, 0), (0, 1), (0, 2), (0, 3), (0, 4) };
         }
 
+        /// <summary>Wraps a single colour's path as the list-of-paths the production code now
+        /// takes. These tests deliberately use one path: the per-path indexing is what is under
+        /// test, and one path exercises it without obscuring it.</summary>
+        private static List<List<(int Row, int Col)>> AsPaths(List<(int Row, int Col)> single)
+        {
+            return new List<List<(int, int)>> { single };
+        }
+
         private static Dictionary<(int Row, int Col), bool> NotReversed(List<(int Row, int Col)> snake)
         {
             var map = new Dictionary<(int, int), bool>();
@@ -87,7 +95,7 @@ namespace FreeFlow.Tests
 
             // Request more than could possibly be needed to exercise every remaining candidate.
             List<(int Row, int Col, Direction EntryDir)> placed =
-                PlaceOneWayCells(snake, dots, NotReversed(snake), 10, new System.Random(1));
+                PlaceOneWayCells(AsPaths(snake), dots, NotReversed(snake), 10, new System.Random(1));
 
             Assert.IsTrue(placed.Count > 0);
             foreach (var p in placed)
@@ -104,7 +112,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction EntryDir)> placed =
-                PlaceOneWayCells(snake, dots, NotReversed(snake), 3, new System.Random(7));
+                PlaceOneWayCells(AsPaths(snake), dots, NotReversed(snake), 3, new System.Random(7));
 
             foreach (var p in placed)
             {
@@ -124,7 +132,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction EntryDir)> placed =
-                PlaceOneWayCells(snake, dots, AllReversed(snake), 3, new System.Random(7));
+                PlaceOneWayCells(AsPaths(snake), dots, AllReversed(snake), 3, new System.Random(7));
 
             foreach (var p in placed)
             {
@@ -141,7 +149,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction EntryDir)> placed =
-                PlaceOneWayCells(snake, dots, NotReversed(snake), 10, new System.Random(3));
+                PlaceOneWayCells(AsPaths(snake), dots, NotReversed(snake), 10, new System.Random(3));
 
             Assert.AreEqual(3, placed.Count);
         }
@@ -153,7 +161,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction EntryDir)> placed =
-                PlaceOneWayCells(snake, dots, NotReversed(snake), 0, new System.Random(9));
+                PlaceOneWayCells(AsPaths(snake), dots, NotReversed(snake), 0, new System.Random(9));
 
             Assert.AreEqual(0, placed.Count);
         }

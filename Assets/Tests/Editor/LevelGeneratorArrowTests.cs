@@ -21,17 +21,25 @@ namespace FreeFlow.Tests
             "PlaceArrowCells", BindingFlags.NonPublic | BindingFlags.Static);
 
         private static List<(int Row, int Col, Direction ExitDir)> PlaceArrowCells(
-            List<(int Row, int Col)> snake, HashSet<(int Row, int Col)> excludedCells,
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
             Dictionary<(int Row, int Col), bool> reversedByCell, int count, System.Random rng)
         {
             return (List<(int, int, Direction)>)PlaceArrowCellsMethod.Invoke(
-                null, new object[] { snake, excludedCells, reversedByCell, count, rng });
+                null, new object[] { paths, excludedCells, reversedByCell, count, rng });
         }
 
         private static List<(int Row, int Col)> StraightSnake()
         {
             // A 1x5 straight snake: (0,0)-(0,1)-(0,2)-(0,3)-(0,4).
             return new List<(int, int)> { (0, 0), (0, 1), (0, 2), (0, 3), (0, 4) };
+        }
+
+        /// <summary>Wraps a single colour's path as the list-of-paths the production code now
+        /// takes. These tests deliberately use one path: the per-path indexing is what is under
+        /// test, and one path exercises it without obscuring it.</summary>
+        private static List<List<(int Row, int Col)>> AsPaths(List<(int Row, int Col)> single)
+        {
+            return new List<List<(int, int)>> { single };
         }
 
         private static Dictionary<(int Row, int Col), bool> NotReversed(List<(int Row, int Col)> snake)
@@ -56,7 +64,7 @@ namespace FreeFlow.Tests
 
             // Request more than could possibly be needed to exercise every remaining candidate.
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, dots, NotReversed(snake), 10, new System.Random(1));
+                PlaceArrowCells(AsPaths(snake), dots, NotReversed(snake), 10, new System.Random(1));
 
             Assert.IsTrue(placed.Count > 0);
             foreach (var p in placed)
@@ -73,7 +81,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, dots, NotReversed(snake), 3, new System.Random(7));
+                PlaceArrowCells(AsPaths(snake), dots, NotReversed(snake), 3, new System.Random(7));
 
             foreach (var p in placed)
             {
@@ -93,7 +101,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, dots, AllReversed(snake), 3, new System.Random(7));
+                PlaceArrowCells(AsPaths(snake), dots, AllReversed(snake), 3, new System.Random(7));
 
             foreach (var p in placed)
             {
@@ -111,7 +119,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> excluded = new HashSet<(int, int)> { (0, 0), (0, 4), (0, 2) };
 
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, excluded, NotReversed(snake), 10, new System.Random(2));
+                PlaceArrowCells(AsPaths(snake), excluded, NotReversed(snake), 10, new System.Random(2));
 
             Assert.AreEqual(2, placed.Count); // only (0,1) and (0,3) remain
             foreach (var p in placed)
@@ -128,7 +136,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, dots, NotReversed(snake), 10, new System.Random(3));
+                PlaceArrowCells(AsPaths(snake), dots, NotReversed(snake), 10, new System.Random(3));
 
             Assert.AreEqual(3, placed.Count);
         }
@@ -140,7 +148,7 @@ namespace FreeFlow.Tests
             HashSet<(int Row, int Col)> dots = new HashSet<(int, int)> { (0, 0), (0, 4) };
 
             List<(int Row, int Col, Direction ExitDir)> placed =
-                PlaceArrowCells(snake, dots, NotReversed(snake), 0, new System.Random(9));
+                PlaceArrowCells(AsPaths(snake), dots, NotReversed(snake), 0, new System.Random(9));
 
             Assert.AreEqual(0, placed.Count);
         }

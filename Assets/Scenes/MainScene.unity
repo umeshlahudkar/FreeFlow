@@ -5164,7 +5164,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   thisTransform: {fileID: 1053313368}
-  thisButton: {fileID: 1053313369}
   levelNumberText: {fileID: 1849980832}
   buttonImg: {fileID: 1053313370}
   move: {fileID: 1374669835}
@@ -7052,7 +7051,6 @@ MonoBehaviour:
   stageText: {fileID: 1842151493}
   completeLevel: {r: 0.5058824, g: 0.87058824, b: 0.47843137, a: 1}
   unlockedLevel: {r: 0.27450982, g: 0.54901963, b: 0.8235294, a: 1}
-  lockedLevel: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   levelStages: []
   currentstageOnScreen: 0
   swipeThreshold: 500

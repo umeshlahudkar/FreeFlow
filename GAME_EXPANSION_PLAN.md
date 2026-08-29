@@ -12,10 +12,10 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 | 1 — Full-board coverage as a real rule | ✅ Done | Win condition now requires full coverage, not just connected pairs |
 | 2 — The solver core | ✅ Done | `PuzzleSolver` built and tested; one real bug found and fixed (see §6) |
 | 3 — Solver-backed validator + uniqueness + duplicates | ✅ Done | `LevelValidator.ValidateSolvability`, multi-solution search, `LevelCanonicalizer`; all correct on first test run (see §6) |
-| 4 — Level generator (Editor tool) | 🟡 Partial | Generator built and working, driven by DifficultyAnalyzer's real score; **generates Blocked cells, Wall edges, One-Way cells, and Arrow cells** (all path/solution-preserving placement + `RequiredMechanicValidator`-gated necessity), a shared `GenerationSpec.RequireMechanicsNecessary` flag now covers all of them uniformly — 5 more mechanics' generation logic still to build |
+| 4 — Level generator (Editor tool) | 🟡 Partial | Solution built by `TryGeneratePathPartition` (grows every colour's path at once, Warnsdorff most-constrained-first) after the Hamiltonian-snake constructor was deleted for not scaling past 6x6 (§6.15); **generates Blocked cells, Wall barriers, One-Way cells, and Arrow cells**, all placement derived from the solution and necessity-gated; acceptance driven by path length + the full-coverage rule, NOT DifficultyAnalyzer's score (§6.14) — 5 more mechanics' generation logic still to build |
 | 5 — Difficulty analyzer | ✅ Done | `DifficultyAnalyzer` built, tested, and wired into `LevelGenerator` as the actual acceptance gate — see §6 for the achievable-range finding this surfaced |
 | 6 — Required-mechanic validator | ✅ Done | `RequiredMechanicValidator` built and tested (a real mathematical correction to the spec's naive reading surfaced along the way, see §6) — wired into `LevelGenerator` for Blocked cells, Walls, One-Way, and Arrow (§6.6–6.10) |
-| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **25/200 levels built** to the new spec (Levels 1–10: Basic Flow + Blocked Cell; 11–15: Wall; 16–20: One-Way; 21–25: Arrow) — see §6.6–6.10 for exactly what's done and what the remaining 175 levels/5 mechanics honestly require |
+| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **25/200 levels built** to the new spec (Levels 1–10: Basic Flow + Blocked Cell; 11–15: Wall; 16–20: One-Way; 21–25: Arrow) — all 25 verified against the full-coverage rule, interior-only blocked cells, no trivial paths, and connected wall barriers; levels 3–24 all Medium tier — see §6.6–6.17 for what's done and what the remaining 175 levels/5 mechanics honestly require |
 | 8 — Hint system | ⬜ Not started | |
 | 9 — Player skill system + save-data expansion | ⬜ Not started | |
 | 10 — Daily challenge | ⬜ Not started | |
@@ -406,7 +406,105 @@ Two related notes from the user, the second the more important: *"why there is o
 - **All three guarantees hold on the shipped assets**: every level reports `pairings=1, partial=0` (coverage rule intact), `edgeBlocked=0` (placement rule intact), and no path ≤ 2 cells anywhere (the shortest on the whole range is a single 3 on Level 1).
 - Live in Play Mode: all 10 load cleanly at 4×4/5×5/6×6, blocked cells render 0,0,0,0,0,3,4,5,6,6, pair goals correct, zero console errors. **105/105 tests passing.**
 
-**Issues found:** none outstanding. Two standing notes: (1) `DifficultyAnalyzer.Score` should not be used as a generation target for any range where board size or colour count is being varied — it rewards packing in short paths and will silently drive levels the wrong way; path length is the honest proxy, and the analyzer's own weights are flagged in its class doc as an untuned first pass. (2) Level 8's mean (6.2) sits slightly below Level 7's (7.0) because its band bottomed out; its floor is still 5, so no trivial pairs — worth tightening if the range is ever revisited.
+### 6.15 Researched the genre, then replaced the solution constructor
+
+Asked to stop tuning blind and research how these puzzles are actually built. Flow Free is an implementation of **Numberlink**, a Nikoli puzzle type with established conventions ([Nikoli](https://www.nikoli.co.jp/en/puzzles/numberlink/), [Wikipedia](https://en.wikipedia.org/wiki/Numberlink), [thomasahle/numberlink](https://github.com/thomasahle/numberlink), [UKPA discussion](https://forum.ukpuzzles.org/viewtopic.php?t=41)):
+- **No path may touch itself** — two same-colour cells that are orthogonally adjacent must be consecutive along the path. Ahle's generator states its solver "assumes the solution uses 100% of the paper and no link touches itself."
+- **Well-designed = unique solution + every cell filled.** The user's hard rule is the genuine Numberlink standard, independently arrived at.
+- **Pair count ≈ √(width × height)** is the established default.
+
+**A hypothesis I held confidently and was wrong about.** I expected the snake-then-cut construction to produce self-touching paths everywhere, and that this explained the "mushy" feel. Audited all 10 shipped levels: **zero self-touching across 223 path cells**. The coverage rule already implies the Numberlink property — a self-touching path can generally be short-cut, which creates exactly the hole-leaving pairing the rule rejects. Worth recording because the fix that followed came from measuring, not from the theory.
+
+**The real ceiling was the constructor.** Real Flow Free ships 5×5–6×6 as tutorial packs; its difficulty lives at 8×8+. The generator could not go there: building one Hamiltonian path over the whole board is exponential, and 7×7 did not merely run slowly, it **hung the editor**.
+
+**`TryGeneratePathPartition`** replaces it. Asking for *k* paths that partition the board is strictly weaker than one Hamiltonian path and needs no exponential search: every colour's path grows a cell at a time, choosing next by **Warnsdorff's rule** (always take the free cell with the fewest free neighbours — the knight's-tour heuristic, which exists precisely to avoid stranding cells), with **shortest-path-first** as a tie-break to keep lengths even. Failure is cheap and expected — a stranded cell returns null and the caller retries.
+
+| Board | old (Hamiltonian) | new (partition) |
+|---|---|---|
+| 6×6 | works | 0.0ms, 39/40 |
+| 7×7 | **hung the editor** | 0.0ms, 39/40 |
+| 10×10 | impossible | 0.1ms, 38/40 |
+
+**Wall / One-Way / Arrow migrated, and the old constructor deleted** (~121 lines: `TryGenerateHamiltonianSnake`, `ExtendSnake`, `OrderedSteps`, `CutIntoSegments`, `DistributeLengths`, plus the temporary `UsePathPartition` flag and its guard). All three previously derived a direction from `index-1`/`index+1` in one contiguous list, which silently reads across a path boundary once the solution is several paths — a direction between two unconnected cells. They now take the per-path lists:
+- One-Way/Arrow share a new **`InteriorPathCells`** helper returning `(path, index)` for cells strictly interior to a path. This *removed* a check rather than adding one: interior means "not an endpoint", and endpoints are exactly the dots, so dot exclusion is now structural. Arrow keeps an exclusion set only for cells One-Way already claimed.
+- **`PlaceWalls`** builds its protected-edge set per path. It had been passed a concatenation, which invents a phantom edge at each junction — harmless there (it only over-protects) but wrong, and unsafe for the directional mechanics. All three now share one representation.
+
+The existing One-Way/Arrow tests carried over with only an `AsPaths` wrapper and **no change to their assertions** — the candidate sets are identical for a single path, evidence the semantics were preserved rather than redefined.
+
+**A correction to an earlier claim in this document.** §6.12 recorded 6×6 as viable and later notes implied 7×7 would follow. Levels 9–10 were specced at 7×7 and **failed outright**: the generator builds those boards in microseconds, but the coverage rule admits only ~11% of 7×7 candidates and 1500 attempts found none that also met a path-length band. They were moved back to 6×6 with more blocked cells. **The ceiling is the rule, not the board size** — and the solver is the next wall after that (full-coverage multi-pair solving is NP-hard; 6×6 settles inside 300k steps, 7×7 wants millions, 8×8 needs ~8M ≈ 1–3s). `SolverBudgetFor` now scales the budget by board size, because a flat budget was silently reporting Inconclusive and making large boards look impossible when they were merely unfinished.
+
+**Verified — all 25 levels regenerated on the new constructor:**
+
+| Range | Result | Tier |
+|---|---|---|
+| 1–10 (Basic + Blocked) | 10/10, avgPath 4.0→7.5, minPath 3→7 | Medium from L3 |
+| 11–15 (Wall) | 5/5, wall present + necessity-gated | all Medium |
+| 16–20 (One-Way) | 5/5, 19–20 combine One-Way+Wall+Blocked | all Medium |
+| 21–25 (Arrow) | 5/5, 24–25 combine Arrow+Wall+Blocked | all Medium |
+
+Path lengths on 1–10 now reach `[7,8,8,9]` (L8) and `[6,6,7,12]` (L9), against `[2,3,4,4,4,4,5,7]` before this work. All four guarantees re-checked on the shipped assets: **coverage rule holds** (`pairings=1, partial=0` on all 10), **blocked cells interior-only** (`edgeBlocked=0`), **no path ≤2 cells**, **zero self-touching**. Live in Play Mode, levels 11–25 carry their mechanics with directions correctly readable (e.g. L16 One-Way entry=Left, L21 Arrow exit=Up), zero console errors. **105/105 tests passing.**
+
+### 6.16 The coverage rule was never applied to Levels 11–25 (found in play)
+
+*"In level 11, connected all the pairs, still some cells are empty."* Checked, and it was not one level: **all 15 levels from 11–25 violated the rule**, because `RequireEveryPairingCoversBoard` was set in exactly one place — `SpecForLevel1To10`. The mechanic ranges never had it.
+
+| Level | Pairings | Partial | Cells that could be left empty |
+|---|---|---|---|
+| 11 | 21 | 20 | 8 |
+| 13 | 72 | 71 | 10 |
+| 22 | 152 | 151 | 12 |
+| 25 | 55 | 54 | 12 |
+
+**How it was missed.** The rule was introduced (§6.12) to fix the same complaint on Level 7, and Levels 1–10 were then verified thoroughly. When the constructor migration (§6.15) later touched every range, 11–25 were re-verified for *mechanics only* — walls present, arrow directions readable — and the coverage check was never re-run on them. The thing that had just been changed got verified; the thing originally asked for did not.
+
+**Fixed** by bringing all three mechanic specs up to the same standard as 1–10 rather than only setting the flag: 6×6 boards (was 5×5), 4 colours, interior-only blocked cells, `MinPathCells`, a path-length target band in place of the misleading difficulty score, and the coverage rule.
+
+**Two structural findings surfaced while getting Arrow to generate:**
+
+1. **The coverage rule and mechanic-necessity are in direct tension.** The rule forces a board to have exactly one pairing; necessity asks that *removing* the mechanic create a second solution. On a board geometry has already pinned to one answer, deleting a restriction rarely opens a new one, so the mechanic reads as decorative and the candidate is rejected. Instrumented rejection counts for Level 21 (1500 attempts): `minPath` 697, **arrow-necessity 722**, coverage 15, passes **0**. Relaxing path constraints did not help (minPath=4: still 0). An alternative definition — "removing the mechanic lets a partial-coverage pairing appear" — was implemented and measured, and also scored 0. The two rules together admit roughly **1 candidate in 2000**, which is why 21–22 failed at 12000 attempts while 23–25 happened to succeed.
+2. **Board density is what makes the rule satisfiable.** Measured on the Arrow spec: blocked=1..4 produced zero candidates clearing the rule in 400 attempts; blocked=5 produced 2. An open board simply has more pairings, and the rule demands exactly one. Levels 1–10 pass routinely because they run blocked=4–6.
+
+Resolved by raising the Arrow range to blocked 4–5 and `MaxAttempts` 60000 rather than dropping either rule. **A wrong first diagnosis worth recording:** the two failures were initially attributed to `StraightnessBias` (21 and 22 were the two straightest specs — a clean-looking correlation). Lowering it changed nothing; only per-gate instrumentation found the real cause. Measure before tuning.
+
+**Verified — all 25 levels regenerated, 105/105 tests passing:**
+- **Coverage rule holds on all 25** (the reported bug, fixed).
+- Blocked cells interior-only: OK. No path ≤2 cells: OK.
+- `UIController.totalLevelCount` set to 25, scene saved.
+
+**Issue found — self-touching returned on 7 levels** (11, 13, 14, 17, 18, 20, 25; one or two instances each). This **corrects §6.15's claim** that the coverage rule implies the Numberlink non-self-touching property. It holds only on mechanic-free boards: there, a self-touching path can be short-cut, creating the hole-leaving pairing the rule rejects. Once a wall, one-way or arrow *blocks* that short-cut, the self-touching path stays uniquely forced and passes. The property was never implied by the rule — it was implied by the absence of mechanics, and levels 1–10 were the only evidence.
+
+**Decision: not enforced, deliberately.** Inspecting an actual case (Level 11, pair 2: `(3,2)(3,3)(2,3)(1,3)(1,4)(2,4)(2,5)(3,5)` — steps 2 and 5 adjacent) shows the usual argument does not apply here. That argument is "if a line runs beside itself you could cut the corner, so a second solution exists" — but cutting from `(2,3)` to `(2,4)` would skip `(1,3)` and `(1,4)`, which full coverage forbids. The detour is genuinely forced, and the level is still uniquely solvable and fully covered. The convention comes from **pencil Numberlink, where filling every cell is not required**; in a 100%-coverage game paths are obliged to wind, and running alongside yourself is normal (real Flow Free levels do it constantly). Treated as a purity criterion, not a defect.
+
+### 6.17 Walls as connected barriers, and the gate-ordering mistake that made generation slow
+
+Two changes driven by the user, both measured on the shipped assets afterward.
+
+**Walls now form connected barriers** (user's sketch: a horizontal run meeting a vertical one). `PlaceWalls` previously shuffled the legal non-path edges and took the first N, giving scattered one-cell stubs that each block a single step and read as noise. It now grows a connected run: two walls join when they share a lattice corner (`WallCorners` — cell (r,c) spans corners (r,c)..(r+1,c+1), so its Right edge is the segment (r,c+1)-(r+1,c+1) and its Down edge (r+1,c)-(r+1,c+1)), and after the first pick each subsequent one prefers a candidate touching a corner already used. Falls back to a random edge when the barrier cannot extend, so a board with few legal edges still gets its walls rather than failing. Levels 11–15 also raised from 1 wall to **2–4** — a single edge cannot form a barrier at all.
+
+Unexpected benefit: connected barriers block more alternative routes, and the coverage rule needs the board to have exactly one pairing — so the hardest constraint in the pipeline got *easier*, not harder. Levels 11–15 generated 5/5 first try at the higher wall counts.
+
+**The gate-ordering mistake.** Generation had grown to 28–40 minutes per range. Cause: `RequireMechanicsNecessary` ran *before* the coverage rule. Necessity is the most expensive check in the pipeline — `AllCellsOfTypeAreNecessary`/`AllWallsAreNecessary` clone the board and run **two extra solves per mechanic instance**, so a level with 2 walls + 2 blocked + 1 One-Way pays ~10 extra solves. The coverage rule costs ~0.5ms and rejects the large majority of candidates. Every candidate was paying the expensive test before the cheap one discarded it.
+
+That ordering was correct when written — with `PairingEnumerationCap` at 200, coverage really was the expensive gate, and the code comment said exactly that. Cutting the cap to 2 (§6.16) inverted the economics, and the ordering was never revisited; the comment stayed plausible and wrong. **Stale optimisations do not announce themselves — when the cost of one stage changes by two orders of magnitude, re-check every decision that was justified by the old cost.**
+
+Coverage now runs immediately after the duplicate check, before the difficulty analysis and before any necessity check.
+
+| Range | before reorder | after |
+|---|---|---|
+| 16–20 | ~28 min, **4/5** (L19 failed twice) | 11 min, **5/5** |
+| 21–25 | ~40 min, **3/5** | **~1 min, 5/5** |
+
+Same 60000-attempt budget. It did not only speed things up: by not burning the budget on redundant solves, the search reached candidates it had never got to before, which is why Level 19 — which had failed at 60000 attempts twice — was found.
+
+**Verified on all 25 shipped assets:**
+- Coverage rule (no pairing can leave a cell empty): **OK, all 25**
+- Blocked cells interior-only: OK · No path ≤2 cells: OK
+- **Walls form a fully connected barrier: 9/9** multi-wall levels
+- Levels 3–24 all Medium tier (25 is Easy at 36.5). 105/105 tests passing; `totalLevelCount` = 25, scene saved.
+
+**Issues found (§6.15):** none outstanding. Standing note: the generator now scales far past what the *verification* pipeline can afford — board size is limited by the coverage rule's hit rate and the solver's NP-hard cost, not by construction. Reaching 8×8+ means either relaxing the coverage rule or investing in solver pruning (constraint propagation / forced-move deduction), not further generator work.
+
+**Issues found (earlier rounds):** two standing notes: (1) `DifficultyAnalyzer.Score` should not be used as a generation target for any range where board size or colour count is being varied — it rewards packing in short paths and will silently drive levels the wrong way; path length is the honest proxy, and the analyzer's own weights are flagged in its class doc as an untuned first pass. (2) Level 8's mean (6.2) sits slightly below Level 7's (7.0) because its band bottomed out; its floor is still 5, so no trivial pairs — worth tightening if the range is ever revisited.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.

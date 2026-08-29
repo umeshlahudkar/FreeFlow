@@ -59,11 +59,18 @@ namespace FreeFlow.GamePlay
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
+            bool cancelled = false;
 
             for (int levelNumber = 1; levelNumber <= levelCount; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel1To10(levelNumber);
-                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 1-10", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
 
                 if (generated == null)
                 {
@@ -90,6 +97,8 @@ namespace FreeFlow.GamePlay
                     .Append('\n');
             }
 
+            EditorUtility.ClearProgressBar();
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
@@ -103,7 +112,7 @@ namespace FreeFlow.GamePlay
             const string levelsFolder = "Assets/Resources/Levels";
             const int startLevel = 11;
             const int endLevel = 15;
-            const int gridSize = 5;
+            const int gridSize = 6;
 
             System.Random rng = new System.Random(20260831); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -111,11 +120,18 @@ namespace FreeFlow.GamePlay
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
+            bool cancelled = false;
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel11To15(levelNumber, gridSize);
-                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 11-15", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
 
                 if (generated == null)
                 {
@@ -139,6 +155,8 @@ namespace FreeFlow.GamePlay
                     .Append('\n');
             }
 
+            EditorUtility.ClearProgressBar();
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
@@ -152,7 +170,7 @@ namespace FreeFlow.GamePlay
             const string levelsFolder = "Assets/Resources/Levels";
             const int startLevel = 16;
             const int endLevel = 20;
-            const int gridSize = 5;
+            const int gridSize = 6;
 
             System.Random rng = new System.Random(20260901); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -160,11 +178,18 @@ namespace FreeFlow.GamePlay
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
+            bool cancelled = false;
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel16To20(levelNumber, gridSize);
-                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 16-20", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
 
                 if (generated == null)
                 {
@@ -189,6 +214,8 @@ namespace FreeFlow.GamePlay
                     .Append('\n');
             }
 
+            EditorUtility.ClearProgressBar();
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
@@ -202,7 +229,7 @@ namespace FreeFlow.GamePlay
             const string levelsFolder = "Assets/Resources/Levels";
             const int startLevel = 21;
             const int endLevel = 25;
-            const int gridSize = 5;
+            const int gridSize = 6;
 
             System.Random rng = new System.Random(20260902); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -210,11 +237,18 @@ namespace FreeFlow.GamePlay
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
+            bool cancelled = false;
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel21To25(levelNumber, gridSize);
-                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 21-25", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
 
                 if (generated == null)
                 {
@@ -239,10 +273,71 @@ namespace FreeFlow.GamePlay
                     .Append('\n');
             }
 
+            EditorUtility.ClearProgressBar();
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
             Debug.Log("LevelGenerator: Levels 21-25 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 26-30 (Forbidden)")]
+        public static void GenerateLevels26To30()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 26;
+            const int endLevel = 30;
+            const int gridSize = 6;
+
+            System.Random rng = new System.Random(20260903); // a fresh seed for this level range
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel26To30(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 26-30", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" forbidden=").Append(spec.ForbiddenCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 26-30 generation complete -- " + savedCount + "/" +
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
@@ -315,6 +410,7 @@ namespace FreeFlow.GamePlay
             /// mechanic.</summary>
             public bool BlockedCellsInteriorOnly;
 
+
             /// <summary>How many single edges to wall off. Placed only on edges the intended
             /// snake solution never crosses (spec: mechanics must be built onto the solution,
             /// never bolted on afterward) -- placing a wall the solution itself needs would break
@@ -333,6 +429,11 @@ namespace FreeFlow.GamePlay
             /// its own constraint. Mirrors OneWayCount exactly, constraining exit instead of
             /// entry (see PlaceArrowCells).</summary>
             public int ArrowCount;
+
+            /// <summary>How many Forbidden cells to place on interior (non-dot) path cells, each
+            /// naming a colour that does NOT pass through it in the intended solution -- see
+            /// PlaceForbiddenCells for why naming the cell's own colour would be self-defeating.</summary>
+            public int ForbiddenCount;
 
             /// <summary>If true, every placed mechanic above (any count > 0) must be verified
             /// load-bearing via RequiredMechanicValidator before a candidate is fully accepted --
@@ -440,8 +541,17 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private const float PreferredUniquenessPenalty = 1f;
 
+        /// <summary>
+        /// <paramref name="shouldCancel"/> is polled with the current attempt index and returns
+        /// true to abort the search early, keeping whatever candidate is best so far (which may be
+        /// none). This is the ONLY way to interrupt generation: the menu entry points run
+        /// synchronously on Unity's main thread, so once this loop starts nothing else in the
+        /// editor -- rendering, input, the MCP socket -- gets a turn until it returns. Without a
+        /// cancel hook a badly-chosen spec means an uninterruptible freeze, which is exactly how an
+        /// earlier 7x7 experiment locked the editor up.
+        /// </summary>
         public static GeneratedLevel TryGenerateLevel(GenerationSpec spec, System.Random rng,
-            HashSet<string> seenCanonicalKeys)
+            HashSet<string> seenCanonicalKeys, Func<int, bool> shouldCancel = null)
         {
             GeneratedLevel best = null;
             string bestKey = null;
@@ -449,6 +559,10 @@ namespace FreeFlow.GamePlay
 
             for (int attempt = 0; attempt < spec.MaxAttempts; attempt++)
             {
+                // Polled rather than checked every attempt: the callback repaints the editor's
+                // progress bar, which costs more than a whole cheap attempt does.
+                if (shouldCancel != null && (attempt % 25) == 0 && shouldCancel(attempt)) { break; }
+
                 int colorCount = spec.MinColorCount == spec.MaxColorCount
                     ? spec.MinColorCount
                     : rng.Next(spec.MinColorCount, spec.MaxColorCount + 1);
@@ -467,8 +581,15 @@ namespace FreeFlow.GamePlay
                     // here means a bug in BuildCandidate, and Validate has already logged it.
                     LevelValidator.Validate(grid, rows, cols);
 
+                    // Full-coverage multi-pair solving is NP-hard, and the cost climbs steeply with
+                    // board size: measured, a 6x6 settles well inside 300k steps, a 7x7 wants
+                    // millions, and an 8x8 needs on the order of 8M (~1-3 seconds) to finish rather
+                    // than time out. A flat budget silently reports Inconclusive on the larger
+                    // boards, which the loop below then discards -- so a too-small budget doesn't
+                    // produce bad levels, it just makes big boards look impossible.
+                    int solverBudget = SolverBudgetFor(spec.GridSize);
                     PuzzleSolver.SolveResult solveResult = LevelValidator.ValidateSolvability(
-                        grid, rows, cols, new PuzzleSolver.SolverOptions(300000, 2));
+                        grid, rows, cols, new PuzzleSolver.SolverOptions(solverBudget, 2));
 
                     if (solveResult.Status != PuzzleSolver.SolveStatus.Solved) { continue; }
 
@@ -479,6 +600,27 @@ namespace FreeFlow.GamePlay
 
                     string key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
                     if (seenCanonicalKeys.Contains(key)) { continue; }
+
+                    // A HARD reject, not a penalty: penalties only RANK candidates, and the
+                    // best-ranked one still ships when nothing hits its target exactly -- so
+                    // expressing this as a penalty would let a board that breaks the rule through
+                    // as a fallback. Skipping the candidate outright is what makes the rule
+                    // unbreakable.
+                    //
+                    // Runs HERE, before the necessity checks and the difficulty analysis, because
+                    // it is both the cheapest strong filter and the most selective: ~0.5ms, and it
+                    // rejects the large majority of candidates. The necessity checks below are the
+                    // opposite -- each one clones the board and runs two more solves PER mechanic
+                    // instance, so on a board with a few walls plus a One-Way they cost tens of
+                    // milliseconds. Running them first meant paying the expensive test on ~99% of
+                    // candidates that this cheap test was about to discard anyway. (This gate used
+                    // to sit lower, back when it enumerated 200 pairings and really was the
+                    // expensive one; cutting PairingEnumerationCap to 2 inverted that, and the
+                    // ordering was not revisited.)
+                    if (spec.RequireEveryPairingCoversBoard && !EveryPairingCoversTheBoard(grid, rows, cols))
+                    {
+                        continue;
+                    }
 
                     // Reuses solveResult rather than solving again -- see the class doc.
                     DifficultyAnalyzer.DifficultyReport report = DifficultyAnalyzer.Analyze(grid, rows, cols, solveResult);
@@ -510,6 +652,10 @@ namespace FreeFlow.GamePlay
                         {
                             mechanicPenalty += RequiredUniquenessPenalty;
                         }
+                        if (spec.ForbiddenCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.ForbiddenForPair))
+                        {
+                            mechanicPenalty += RequiredUniquenessPenalty;
+                        }
                     }
 
                     int maxSlack = MaxSlackAcrossSolution(solveResult);
@@ -520,22 +666,8 @@ namespace FreeFlow.GamePlay
                         + BandPenalty(averagePath, spec.TargetAvgPathMin, spec.TargetAvgPathMax)
                         + uniquenessPenalty + mechanicPenalty + slackPenalty;
 
-                    // Ranked out already -- nothing below can change that, and the coverage check
-                    // beneath is far too expensive to spend on a candidate that cannot win.
+                    // Ranked out already -- nothing below can change that.
                     if (penalty >= bestPenalty) { continue; }
-
-                    // A HARD reject, not a penalty: penalties only RANK candidates, and the
-                    // best-ranked one still ships when nothing hits its target exactly -- so
-                    // expressing this as a penalty would let a board that breaks the rule through
-                    // as a fallback. Skipping the candidate outright is what makes the rule
-                    // actually unbreakable. Deliberately placed after the ranking check above
-                    // (it is by far the most expensive gate, enumerating the board's whole pairing
-                    // space) but before anything is recorded, so every candidate that can still
-                    // become `best` -- fallbacks included -- has passed it.
-                    if (spec.RequireEveryPairingCoversBoard && !EveryPairingCoversTheBoard(grid, rows, cols))
-                    {
-                        continue;
-                    }
 
                     {
                         bestPenalty = penalty;
@@ -598,6 +730,29 @@ namespace FreeFlow.GamePlay
 
             if (count == 0) { shortestCells = 0; averageCells = 0f; return; }
             averageCells = (float)total / count;
+        }
+
+        /// <summary>
+        /// Shows a cancellable progress bar for one level's search and reports whether the user
+        /// asked to stop. Pass as TryGenerateLevel's shouldCancel.
+        /// </summary>
+        private static bool ReportGenerationProgress(string rangeLabel, int levelNumber, int attempt,
+            int maxAttempts)
+        {
+            float fraction = maxAttempts > 0 ? (float)attempt / maxAttempts : 0f;
+            return EditorUtility.DisplayCancelableProgressBar(
+                "Generating " + rangeLabel,
+                "Level " + levelNumber + " -- attempt " + attempt + " / " + maxAttempts,
+                fraction);
+        }
+
+        /// <summary>Solver step budget for a board of this side length -- see the call site for the
+        /// measured costs this is derived from.</summary>
+        private static int SolverBudgetFor(int gridSize)
+        {
+            if (gridSize <= 6) { return 300000; }
+            if (gridSize == 7) { return 2000000; }
+            return 8000000;
         }
 
         private static float BandPenalty(float score, float min, float max)
@@ -698,11 +853,20 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// How many connect-the-pairs arrangements <see cref="EveryPairingCoversTheBoard"/> will
-        /// enumerate before giving up and reporting "can't tell". Generous, because the answer is
-        /// only trustworthy when the search EXHAUSTS -- a board with more distinct pairings than
-        /// this is treated as unproven (and therefore rejected), never as proven safe.
+        /// enumerate before giving up and reporting "can't tell". A board with more distinct
+        /// pairings than this is treated as unproven, and therefore REJECTED -- never as proven
+        /// safe -- so a low cap can only ever cost candidates, never let a bad one through.
+        ///
+        /// Deliberately 2, not a generous number. Measured across every board that has ever passed
+        /// this rule: they have exactly ONE pairing. And whenever a board had more than one, nearly
+        /// all the extras were the hole-leaving kind (one 6x6 sample: 104 pairings, 102 partial;
+        /// another: 20 with 18 partial). So "a second pairing exists" is, in practice, already the
+        /// answer -- enumerating 200 of them to confirm it just burned time. This was the dominant
+        /// cost in generation, and dropping the cap from 200 to 2 cuts it by roughly two orders of
+        /// magnitude. The trade is a rare false rejection (a board whose several pairings all
+        /// happen to cover), which costs one retry.
         /// </summary>
-        private const int PairingEnumerationCap = 200;
+        private const int PairingEnumerationCap = 2;
 
         /// <summary>
         /// The player-facing rule this whole generator exists to guarantee, stated exactly:
@@ -741,7 +905,7 @@ namespace FreeFlow.GamePlay
             }
 
             PuzzleSolver.SolveResult pairings = PuzzleSolver.Solve(grid, rowCount, colCount,
-                new PuzzleSolver.SolverOptions(300000, PairingEnumerationCap, true));
+                new PuzzleSolver.SolverOptions(SolverBudgetFor(rowCount), PairingEnumerationCap, true));
 
             // No arrangement at all, or the enumeration never finished -- either way, unproven.
             // Hitting the solution cap counts as "never finished" too: the solver stops early once
@@ -868,19 +1032,24 @@ namespace FreeFlow.GamePlay
                 // fairly full of colours, which caps how long the paths can get -- so this stretch
                 // ramps mainly by raising the FLOOR (no trivial 2-3 cell pairs) rather than the mean.
                 case 1: gridSize = 4; colorCount = 4; blockedCount = 0; minPath = 3; avgPathMin = 3.5f; avgPathMax = 5.0f; break;
-                case 2: gridSize = 4; colorCount = 4; blockedCount = 0; minPath = 3; avgPathMin = 4.0f; avgPathMax = 5.5f; break;
-                case 3: gridSize = 4; colorCount = 3; blockedCount = 0; minPath = 4; avgPathMin = 5.0f; avgPathMax = 6.5f; break;
-                case 4: gridSize = 5; colorCount = 5; blockedCount = 0; minPath = 4; avgPathMin = 4.5f; avgPathMax = 6.0f; break;
-                case 5: gridSize = 4; colorCount = 3; blockedCount = 0; minPath = 5; avgPathMin = 5.0f; avgPathMax = 6.5f; break;
+                case 2: gridSize = 5; colorCount = 5; blockedCount = 0; minPath = 3; avgPathMin = 4.0f; avgPathMax = 6.0f; break;
+                case 3: gridSize = 5; colorCount = 4; blockedCount = 0; minPath = 4; avgPathMin = 5.0f; avgPathMax = 7.0f; break;
+                case 4: gridSize = 6; colorCount = 6; blockedCount = 0; minPath = 4; avgPathMin = 5.0f; avgPathMax = 7.0f; break;
+                case 5: gridSize = 6; colorCount = 5; blockedCount = 0; minPath = 4; avgPathMin = 6.0f; avgPathMax = 8.0f; break;
                 // Levels 6-10: the Blocked Cell mechanic is what finally makes LONG paths possible.
                 // Blocked cells close off the alternative pairings that a sparse, few-colour board
                 // would otherwise have, so colour count can drop and path length climb -- the
                 // mechanic earns its place by making the puzzle better, not just by being present.
-                case 6: gridSize = 5; colorCount = 4; blockedCount = 3; minPath = 4; avgPathMin = 5.0f; avgPathMax = 7.0f; break;
-                case 7: gridSize = 5; colorCount = 3; blockedCount = 4; minPath = 5; avgPathMin = 6.5f; avgPathMax = 8.0f; break;
-                case 8: gridSize = 6; colorCount = 5; blockedCount = 5; minPath = 5; avgPathMin = 6.0f; avgPathMax = 8.0f; break;
-                case 9: gridSize = 6; colorCount = 4; blockedCount = 6; minPath = 6; avgPathMin = 7.0f; avgPathMax = 9.0f; break;
-                default: gridSize = 6; colorCount = 4; blockedCount = 6; minPath = 6; avgPathMin = 7.5f; avgPathMax = 9.5f; break; // 10
+                case 6: gridSize = 6; colorCount = 5; blockedCount = 3; minPath = 4; avgPathMin = 5.5f; avgPathMax = 7.5f; break;
+                case 7: gridSize = 6; colorCount = 5; blockedCount = 4; minPath = 5; avgPathMin = 6.0f; avgPathMax = 8.0f; break;
+                case 8: gridSize = 6; colorCount = 4; blockedCount = 4; minPath = 5; avgPathMin = 7.0f; avgPathMax = 9.0f; break;
+                // 7x7 was tried here and failed outright: the generator builds those boards fine,
+                // but the coverage rule admits only ~11% of 7x7 candidates and 1500 attempts found
+                // none that also hit a path-length band. 6x6 with more blocked cells buys the same
+                // long paths at a hit rate that actually terminates -- the ceiling is the rule, not
+                // the board size (see the class doc).
+                case 9: gridSize = 6; colorCount = 4; blockedCount = 5; minPath = 6; avgPathMin = 7.0f; avgPathMax = 9.0f; break;
+                default: gridSize = 6; colorCount = 4; blockedCount = 6; minPath = 7; avgPathMin = 7.5f; avgPathMax = 10.0f; break; // 10
             }
 
             // Only a coarse nudge on the snake's shape, and deliberately mild: the acceptance gates
@@ -935,24 +1104,26 @@ namespace FreeFlow.GamePlay
             float t = (levelNumber - 11) / 4f;
             float straightness = Mathf.Lerp(0.7f, 0.3f, t);
 
-            // Same "small honest drift, not an invented ramp" calibration as Levels 6-10 -- one
-            // walled edge moves the score about as little as one Blocked cell does.
-            float bandCenter = Mathf.Lerp(37f, 41f, t);
-            const float halfWidth = 4f;
-
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = 2,
-                MaxColorCount = 3,
+                MinColorCount = 4,
+                MaxColorCount = 4,
                 StraightnessBias = straightness,
-                TargetScoreMin = bandCenter - halfWidth,
-                TargetScoreMax = bandCenter + halfWidth,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f, // path length is the honest difficulty control, not the score -- see SpecForLevel1To10
                 Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = hasBlockedCell ? 1 : 0,
-                WallCount = 1,
+                BlockedCellCount = hasBlockedCell ? 2 : 1,
+                BlockedCellsInteriorOnly = true,
+                // Starts at 2, not 1: a single walled edge cannot form a barrier, and PlaceWalls
+                // now grows connected runs (an L or a longer wall) rather than scattering stubs.
+                WallCount = 2 + (int)(t * 2f), // 2 -> 4 walls across the range
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.0f,
+                RequireEveryPairingCoversBoard = true,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 300
+                MaxAttempts = 12000
             };
         }
 
@@ -967,29 +1138,32 @@ namespace FreeFlow.GamePlay
         {
             bool combineOthers = levelNumber >= 19;
 
-            int minColors = levelNumber <= 17 ? 2 : 3;
-
             float t = (levelNumber - 16) / 4f;
             float straightness = Mathf.Lerp(0.7f, 0.3f, t);
-
-            // Same "small honest drift" calibration as Levels 6-15 -- see the class doc.
-            float bandCenter = Mathf.Lerp(38f, 43f, t);
-            const float halfWidth = 4f;
 
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = minColors,
-                MaxColorCount = 3,
+                MinColorCount = 4,
+                MaxColorCount = 4,
                 StraightnessBias = straightness,
-                TargetScoreMin = bandCenter - halfWidth,
-                TargetScoreMax = bandCenter + halfWidth,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
                 Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = combineOthers ? 1 : 0,
-                WallCount = combineOthers ? 1 : 0,
+                BlockedCellCount = combineOthers ? 2 : 1,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
                 OneWayCount = 1,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.0f,
+                RequireEveryPairingCoversBoard = true,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 300
+                // 60000, matching the Arrow range: levels 19-20 share a spec, and at 12000 one
+                // succeeded while the other found nothing -- the combination of coverage rule +
+                // mechanic necessity admits candidates rarely enough that the budget, not the
+                // spec, decides whether a level exists.
+                MaxAttempts = 60000
             };
         }
 
@@ -1006,34 +1180,91 @@ namespace FreeFlow.GamePlay
         {
             bool combineOthers = levelNumber >= 24;
 
-            int minColors = levelNumber <= 22 ? 2 : 3;
-
             float t = (levelNumber - 21) / 4f;
-            float straightness = Mathf.Lerp(0.7f, 0.3f, t);
 
-            // Same "small honest drift" calibration as Levels 6-20 -- see the class doc.
-            float bandCenter = Mathf.Lerp(39f, 44f, t);
-            const float halfWidth = 4f;
+            // Starts lower than the Wall and One-Way ranges (which begin at 0.7) because Arrow is
+            // the most constrained mechanic here: on top of the coverage rule it must also pass the
+            // necessity check, and its head-on entry rule rules out an approach the other mechanics
+            // allow. Measured directly -- at 12000 attempts, Levels 21 (bias 0.7) and 22 (0.6) found
+            // nothing at all while 23-25 (0.5 and below) succeeded first try. A straighter snake
+            // yields shorter, straighter paths that cannot reach the average-length band while
+            // staying tight enough for the coverage rule.
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
 
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = minColors,
-                MaxColorCount = 3,
+                MinColorCount = 4,
+                MaxColorCount = 4,
                 StraightnessBias = straightness,
-                TargetScoreMin = bandCenter - halfWidth,
-                TargetScoreMax = bandCenter + halfWidth,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
                 Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = combineOthers ? 1 : 0,
-                WallCount = combineOthers ? 1 : 0,
+                // Denser than the Wall and One-Way ranges (which use 1-2). The coverage rule needs
+                // the board to have exactly ONE pairing, and an open board simply has more; measured
+                // on this range, blocked=1..4 produced zero candidates that cleared the rule in 400
+                // attempts, blocked=5 produced 2. Blocked is already taught by level 6, so leaning
+                // on it here does not introduce anything new alongside Arrow.
+                BlockedCellCount = combineOthers ? 5 : 4,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
                 ArrowCount = 1,
+                MinPathCells = 4,
+                TargetAvgPathMin = 5.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = true,
+                // Kept, but it is the binding constraint here and it fights the coverage rule:
+                // that rule already forces a unique pairing, and necessity asks that REMOVING the
+                // Arrow create a second solution -- which a board with only one pairing rarely
+                // allows. Measured, the two together admit roughly 1 candidate in 2000, which is
+                // why levels 21-22 failed at 12000 attempts while 23-25 happened to succeed. The
+                // budget below buys the margin rather than dropping either rule.
+                MaxAttempts = 60000
+            };
+        }
+
+        /// <summary>
+        /// Levels 26-30: Forbidden Cell introduced -- a cell that refuses one named colour while
+        /// letting every other through. Levels 29-30 combine it with Wall and Blocked, the same
+        /// "introduce alone, then recombine with what was already taught" shape the earlier
+        /// mechanic ranges use.
+        ///
+        /// Board density and attempt budget are inherited from the Arrow range rather than
+        /// re-derived: both mechanics are pure restrictions gated by RequireMechanicsNecessary on
+        /// top of the coverage rule, which is the combination measured at roughly 1 accepted
+        /// candidate in 2000 (see SpecForLevel21To25). Starting lower would just rediscover that.
+        /// </summary>
+        private static GenerationSpec SpecForLevel26To30(int levelNumber, int gridSize)
+        {
+            bool combineOthers = levelNumber >= 29;
+
+            float t = (levelNumber - 26) / 4f;
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 4,
+                MaxColorCount = 4,
+                StraightnessBias = straightness,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Ignore,
+                BlockedCellCount = combineOthers ? 5 : 4,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
+                ForbiddenCount = 1,
+                MinPathCells = 4,
+                TargetAvgPathMin = 5.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = true,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 300
+                MaxAttempts = 60000
             };
         }
 
         // ---------------------------------------------------------------------------------------
-        // Candidate construction: Hamiltonian snake -> cut into per-colour segments -> LevelData.
+        // Candidate construction: grow every colour's path at once -> per-colour segments -> LevelData.
         // ---------------------------------------------------------------------------------------
 
         private static bool TryBuildCandidate(GenerationSpec spec, int colorCount, System.Random rng,
@@ -1045,13 +1276,13 @@ namespace FreeFlow.GamePlay
             bool[,] usable = PlaceBlockedCells(size, spec.BlockedCellCount, spec.BlockedCellsInteriorOnly, rng);
             int usableCount = (size * size) - spec.BlockedCellCount;
 
-            List<(int Row, int Col)> snake = TryGenerateHamiltonianSnake(size, usable, usableCount, rng,
-                spec.StraightnessBias);
-            if (snake == null) { return false; }
+            // Grows every colour's path at once rather than cutting one Hamiltonian path. Every
+            // consumer below takes these per-path lists, which is what keeps the directional
+            // mechanics honest -- see TryGeneratePathPartition.
+            List<List<(int Row, int Col)>> segments =
+                TryGeneratePathPartition(size, usable, usableCount, colorCount, rng);
+            if (segments == null) { return false; }
 
-            // Cut into segments BEFORE placing any other mechanic: One-Way (and later Arrow) must
-            // never land on a dot/endpoint cell, and dot positions aren't known until segments are.
-            List<List<(int Row, int Col)>> segments = CutIntoSegments(snake, colorCount, rng);
             HashSet<(int Row, int Col)> dotCells = new HashSet<(int, int)>();
             for (int s = 0; s < segments.Count; s++)
             {
@@ -1083,24 +1314,35 @@ namespace FreeFlow.GamePlay
                 }
             }
 
-            List<(int Row, int Col, Direction Dir)> walls = PlaceWalls(usable, size, snake, spec.WallCount, rng);
-            if (walls.Count < spec.WallCount) { return false; } // not enough non-path edges -- retry with a fresh snake
+            List<(int Row, int Col, Direction Dir)> walls = PlaceWalls(usable, size, segments, spec.WallCount, rng);
+            if (walls.Count < spec.WallCount) { return false; } // not enough non-path edges -- retry
 
+            // Endpoints are excluded by InteriorPathCells itself now, so nothing extra to pass.
             List<(int Row, int Col, Direction EntryDir)> oneWays =
-                PlaceOneWayCells(snake, dotCells, reversedByCell, spec.OneWayCount, rng);
-            if (oneWays.Count < spec.OneWayCount) { return false; } // not enough interior cells -- retry with a fresh snake
+                PlaceOneWayCells(segments, null, reversedByCell, spec.OneWayCount, rng);
+            if (oneWays.Count < spec.OneWayCount) { return false; } // not enough interior cells -- retry
 
-            // Arrow must never land on a dot/endpoint (same reason as One-Way) or on a cell
-            // One-Way already claimed -- the two are mutually exclusive BlockTypes, so a cell
-            // can't carry both.
-            HashSet<(int Row, int Col)> arrowExcluded = new HashSet<(int, int)>(dotCells);
+            // Arrow must never land on a cell One-Way already claimed -- the two are mutually
+            // exclusive BlockTypes, so a cell can't carry both. (Dots are already excluded.)
+            HashSet<(int Row, int Col)> arrowExcluded = new HashSet<(int, int)>();
             for (int o = 0; o < oneWays.Count; o++) { arrowExcluded.Add((oneWays[o].Row, oneWays[o].Col)); }
 
             List<(int Row, int Col, Direction ExitDir)> arrows =
-                PlaceArrowCells(snake, arrowExcluded, reversedByCell, spec.ArrowCount, rng);
-            if (arrows.Count < spec.ArrowCount) { return false; } // not enough interior cells -- retry with a fresh snake
+                PlaceArrowCells(segments, arrowExcluded, reversedByCell, spec.ArrowCount, rng);
+            if (arrows.Count < spec.ArrowCount) { return false; } // not enough interior cells -- retry
 
             List<PairColorType> palette = PickDistinctColors(colorCount, rng);
+
+            // Placed after the palette because a Forbidden cell names a COLOUR, which does not
+            // exist until the palette is drawn -- unlike the mechanics above, which only need the
+            // geometry. Excludes cells One-Way or Arrow already claimed: all three are BlockTypes
+            // and a cell can carry only one.
+            HashSet<(int Row, int Col)> forbiddenExcluded = new HashSet<(int, int)>(arrowExcluded);
+            for (int a = 0; a < arrows.Count; a++) { forbiddenExcluded.Add((arrows[a].Row, arrows[a].Col)); }
+
+            List<(int Row, int Col, int ForbiddenPairId)> forbidden =
+                PlaceForbiddenCells(segments, forbiddenExcluded, palette, spec.ForbiddenCount, rng);
+            if (forbidden.Count < spec.ForbiddenCount) { return false; } // not enough interior cells -- retry
 
             PairColorType[,] colorGrid = new PairColorType[size, size];
             for (int s = 0; s < segments.Count; s++)
@@ -1138,6 +1380,17 @@ namespace FreeFlow.GamePlay
                 forcedExitGrid[arrows[a].Row, arrows[a].Col] = arrows[a].ExitDir;
             }
 
+            // A Forbidden cell stores the colour it refuses in its own pairId column. That column
+            // otherwise identifies which pair a DOT belongs to, and these cells are never dots
+            // (InteriorPathCells excludes endpoints), so the two uses cannot collide -- see
+            // Block.SecondIdNamesAPair, which documents the same dual meaning.
+            int[,] pairIdGrid = new int[size, size];
+            for (int f = 0; f < forbidden.Count; f++)
+            {
+                typeGrid[forbidden[f].Row, forbidden[f].Col] = BlockType.ForbiddenForPair;
+                pairIdGrid[forbidden[f].Row, forbidden[f].Col] = forbidden[f].ForbiddenPairId;
+            }
+
             data = new LevelData
             {
                 gridSize = (GridSize)size,
@@ -1152,6 +1405,7 @@ namespace FreeFlow.GamePlay
                 int[] wallRow = new int[size];
                 Direction[] entryRow = new Direction[size];
                 Direction[] exitRow = new Direction[size];
+                int[] pairIdRow = new int[size];
                 for (int c = 0; c < size; c++)
                 {
                     colorRow[c] = colorGrid[r, c];
@@ -1159,10 +1413,12 @@ namespace FreeFlow.GamePlay
                     wallRow[c] = wallMaskGrid[r, c];
                     entryRow[c] = requiredEntryGrid[r, c];
                     exitRow[c] = forcedExitGrid[r, c];
+                    pairIdRow[c] = pairIdGrid[r, c];
                 }
                 data.gridRows[r] = new GridRow
                 {
                     coloum = colorRow,
+                    pairId = pairIdRow,
                     blockType = typeRow,
                     wallMask = wallRow,
                     requiredEntryDirection = entryRow,
@@ -1174,53 +1430,117 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Every cell that is strictly interior to some colour's path -- identified as
+        /// (path index, cell index) so the caller can still reach the neighbours on either side.
+        ///
+        /// Interior means "not an endpoint", and endpoints are exactly the pair dots, so this
+        /// excludes dot cells by construction rather than by checking a separate set. That matters
+        /// now that the solution is a list of independent paths instead of one contiguous cell
+        /// list: a cell's neighbours along its own path can only be found by knowing which path it
+        /// belongs to, and reading index-1/index+1 across a path boundary would silently produce a
+        /// direction between two cells that are not connected at all.
+        /// </summary>
+        private static List<(int Path, int Index)> InteriorPathCells(
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells, System.Random rng)
+        {
+            List<(int Path, int Index)> candidates = new List<(int, int)>();
+
+            for (int p = 0; p < paths.Count; p++)
+            {
+                for (int i = 1; i < paths[p].Count - 1; i++)
+                {
+                    if (excludedCells != null && excludedCells.Contains(paths[p][i])) { continue; }
+                    candidates.Add((p, i));
+                }
+            }
+
+            for (int i = candidates.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
         /// Chooses OneWayCount interior (non-dot) path cells and locks each to the direction the
         /// solver will ACTUALLY be moving in when it enters that cell along the intended solution
         /// -- the only direction it will ever be asked to admit, so the solution trivially
-        /// satisfies its own constraint. Never chosen from index 0 (the very first cell of the
-        /// whole snake has no "entry direction" -- it's always a dot anyway) or any cell in
-        /// <paramref name="dotCells"/> (a One-Way constraint on an endpoint isn't meaningful: a
-        /// pair's path only ever touches its own dot once, at whichever end it happens to be).
+        /// satisfies its own constraint. Endpoints are never chosen: a One-Way constraint on a dot
+        /// isn't meaningful, since a pair's path touches its own dot exactly once.
         ///
-        /// "Actually be moving in" is not always the snake's own array order -- see
+        /// "Actually be moving in" is not always the path's own array order -- see
         /// <paramref name="reversedByCell"/> and TryBuildCandidate's own doc comment on it.
         /// </summary>
         private static List<(int Row, int Col, Direction EntryDir)> PlaceOneWayCells(
-            List<(int Row, int Col)> snake, HashSet<(int Row, int Col)> dotCells,
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
             Dictionary<(int Row, int Col), bool> reversedByCell, int count, System.Random rng)
         {
             List<(int Row, int Col, Direction EntryDir)> result = new List<(int, int, Direction)>();
             if (count <= 0) { return result; }
 
-            List<int> candidateIndices = new List<int>();
-            for (int i = 1; i < snake.Count; i++)
-            {
-                if (dotCells.Contains(snake[i])) { continue; }
-                candidateIndices.Add(i);
-            }
+            List<(int Path, int Index)> candidates = InteriorPathCells(paths, excludedCells, rng);
 
-            for (int i = candidateIndices.Count - 1; i > 0; i--)
-            {
-                int j = rng.Next(i + 1);
-                (candidateIndices[i], candidateIndices[j]) = (candidateIndices[j], candidateIndices[i]);
-            }
-
-            int take = Math.Min(count, candidateIndices.Count);
+            int take = Math.Min(count, candidates.Count);
             for (int k = 0; k < take; k++)
             {
-                int idx = candidateIndices[k];
-                (int Row, int Col) cell = snake[idx];
-                (int Row, int Col) prev = snake[idx - 1];
-                (int Row, int Col) next = snake[idx + 1];
+                List<(int Row, int Col)> path = paths[candidates[k].Path];
+                int idx = candidates[k].Index;
 
-                // Both always exist here: a surviving candidate index is never a dot cell (the
-                // dotCells exclusion above already rules that out for both ends of the segment it
-                // sits in), so idx is strictly interior to its segment and both array-neighbours
-                // are real path cells.
+                // All three exist: idx is strictly interior to this path.
+                (int Row, int Col) cell = path[idx];
+                (int Row, int Col) prev = path[idx - 1];
+                (int Row, int Col) next = path[idx + 1];
+
                 Direction actualEntry = reversedByCell[cell]
                     ? BoardTopology.Opposite(DirectionOfTravel(cell, next))
                     : DirectionOfTravel(prev, cell);
                 result.Add((cell.Row, cell.Col, actualEntry));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Chooses ForbiddenCount interior path cells and names, on each, a colour that is barred
+        /// from entering it.
+        ///
+        /// The colour named is always one OTHER than the colour whose path actually runs through
+        /// that cell. Forbidding the cell's own colour would forbid the intended solution itself --
+        /// the candidate would simply become unsolvable and be thrown away, so the generator would
+        /// spin forever producing nothing. This is the same "derive the mechanic from the solution"
+        /// rule the directional mechanics follow, just inverted: One-Way and Arrow record what the
+        /// solution DOES do, Forbidden records something it does not.
+        ///
+        /// Which other colour is picked at random. Whether that choice is load-bearing (the barred
+        /// colour could plausibly have wanted this cell) or decorative is not decided here -- the
+        /// RequireMechanicsNecessary gate answers that by re-solving with the rule stripped, the
+        /// same as for every other mechanic.
+        ///
+        /// Returns (row, col, pairId-to-bar). The pair id is the one BuildBlockGrid/BoardGenerator
+        /// store in the cell's own pairId column, which Block.NamesPair reads -- a Forbidden cell
+        /// is not a dot, so that column is free to mean "the colour this cell refuses".
+        /// </summary>
+        private static List<(int Row, int Col, int ForbiddenPairId)> PlaceForbiddenCells(
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
+            List<PairColorType> palette, int count, System.Random rng)
+        {
+            List<(int Row, int Col, int ForbiddenPairId)> result = new List<(int, int, int)>();
+            if (count <= 0 || paths.Count < 2) { return result; }
+
+            List<(int Path, int Index)> candidates = InteriorPathCells(paths, excludedCells, rng);
+
+            int take = Math.Min(count, candidates.Count);
+            for (int k = 0; k < take; k++)
+            {
+                int ownerPath = candidates[k].Path;
+                (int Row, int Col) cell = paths[ownerPath][candidates[k].Index];
+
+                // Any colour but the one that owns this cell; each cell belongs to exactly one path.
+                int offset = 1 + rng.Next(paths.Count - 1);
+                int barredPath = (ownerPath + offset) % paths.Count;
+
+                result.Add((cell.Row, cell.Col, (int)palette[barredPath]));
             }
             return result;
         }
@@ -1253,40 +1573,27 @@ namespace FreeFlow.GamePlay
         /// when it leaves that cell along the intended solution -- the only direction it will ever
         /// be asked to leave by, so the solution trivially satisfies its own constraint. Mirrors
         /// PlaceOneWayCells exactly, just reading the NEXT step instead of the previous one when
-        /// not reversed (see <paramref name="reversedByCell"/>). Never chosen from the snake's very
-        /// last cell (no "next" cell to derive an exit from) -- already covered by the dot-cell
-        /// exclusion, since the whole snake's last cell is always its last segment's own endpoint.
+        /// not reversed (see <paramref name="reversedByCell"/>).
         /// </summary>
         private static List<(int Row, int Col, Direction ExitDir)> PlaceArrowCells(
-            List<(int Row, int Col)> snake, HashSet<(int Row, int Col)> excludedCells,
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
             Dictionary<(int Row, int Col), bool> reversedByCell, int count, System.Random rng)
         {
             List<(int Row, int Col, Direction ExitDir)> result = new List<(int, int, Direction)>();
             if (count <= 0) { return result; }
 
-            List<int> candidateIndices = new List<int>();
-            for (int i = 0; i < snake.Count - 1; i++)
-            {
-                if (excludedCells.Contains(snake[i])) { continue; }
-                candidateIndices.Add(i);
-            }
+            List<(int Path, int Index)> candidates = InteriorPathCells(paths, excludedCells, rng);
 
-            for (int i = candidateIndices.Count - 1; i > 0; i--)
-            {
-                int j = rng.Next(i + 1);
-                (candidateIndices[i], candidateIndices[j]) = (candidateIndices[j], candidateIndices[i]);
-            }
-
-            int take = Math.Min(count, candidateIndices.Count);
+            int take = Math.Min(count, candidates.Count);
             for (int k = 0; k < take; k++)
             {
-                int idx = candidateIndices[k];
-                (int Row, int Col) cell = snake[idx];
-                (int Row, int Col) prev = snake[idx - 1];
-                (int Row, int Col) next = snake[idx + 1];
+                List<(int Row, int Col)> path = paths[candidates[k].Path];
+                int idx = candidates[k].Index;
 
-                // Both always exist here -- see PlaceOneWayCells's identical note; excludedCells
-                // always includes dotCells, so idx is strictly interior to its segment.
+                (int Row, int Col) cell = path[idx];
+                (int Row, int Col) prev = path[idx - 1];
+                (int Row, int Col) next = path[idx + 1];
+
                 Direction actualExit = reversedByCell[cell]
                     ? BoardTopology.Opposite(DirectionOfTravel(prev, cell))
                     : DirectionOfTravel(cell, next);
@@ -1296,24 +1603,34 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Chooses WallCount edges to wall off, restricted to edges the intended snake solution
-        /// never crosses -- placing a wall on an edge the solution itself needs would break the
-        /// very thing generation just built (spec: mechanics must be constructed onto the
-        /// solution, never bolted on afterward). Each undirected edge is considered exactly once
-        /// (via Right/Down only) so the same wall can't be picked twice from either side. Returns
-        /// fewer than requested if the board doesn't have enough non-path edges to offer -- the
-        /// caller treats that as a failed attempt to retry with a fresh snake, not an error.
+        /// Chooses WallCount edges to wall off, restricted to edges the intended solution never
+        /// crosses -- placing a wall on an edge the solution itself needs would break the very
+        /// thing generation just built (spec: mechanics must be constructed onto the solution,
+        /// never bolted on afterward). Each undirected edge is considered exactly once (via
+        /// Right/Down only) so the same wall can't be picked twice from either side. Returns fewer
+        /// than requested if the board doesn't have enough non-path edges to offer -- the caller
+        /// treats that as a failed attempt to retry, not an error.
+        ///
+        /// Takes the colour paths separately rather than one concatenated list, so the edges it
+        /// protects are exactly the ones the solution uses. Concatenating would invent an edge
+        /// between the end of one path and the start of the next -- harmless here (it only
+        /// over-protects) but wrong, and the same concatenation is genuinely unsafe for the
+        /// directional mechanics, so all three now agree on the same representation.
         /// </summary>
         private static List<(int Row, int Col, Direction Dir)> PlaceWalls(bool[,] usable, int size,
-            List<(int Row, int Col)> snake, int wallCount, System.Random rng)
+            List<List<(int Row, int Col)>> paths, int wallCount, System.Random rng)
         {
             List<(int Row, int Col, Direction Dir)> result = new List<(int, int, Direction)>();
             if (wallCount <= 0) { return result; }
 
             HashSet<(int, int, int, int)> pathEdges = new HashSet<(int, int, int, int)>();
-            for (int i = 0; i < snake.Count - 1; i++)
+            for (int p = 0; p < paths.Count; p++)
             {
-                pathEdges.Add(NormalizedEdge(snake[i], snake[i + 1]));
+                List<(int Row, int Col)> path = paths[p];
+                for (int i = 0; i < path.Count - 1; i++)
+                {
+                    pathEdges.Add(NormalizedEdge(path[i], path[i + 1]));
+                }
             }
 
             List<(int Row, int Col, Direction Dir)> candidates = new List<(int, int, Direction)>();
@@ -1343,9 +1660,72 @@ namespace FreeFlow.GamePlay
                 (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
             }
 
+            // Grow a CONNECTED barrier rather than scattering independent edges. Picking each wall
+            // at random gives one-cell-long stubs spread across the board: each blocks a single
+            // step, which the player routes around without ever really seeing it. Walls that meet
+            // at a corner read as one obstacle -- an L, or a longer run -- and force a detour around
+            // the whole thing, which is what makes them worth having.
+            //
+            // Two walls join when they share a lattice corner (see WallCorners). After the first
+            // pick, each subsequent one prefers a candidate touching a corner already used, falling
+            // back to the next random candidate when the barrier cannot be extended -- so a board
+            // with few legal edges still gets its walls rather than failing outright.
+            HashSet<(int, int)> usedCorners = new HashSet<(int, int)>();
+            bool[] taken = new bool[candidates.Count];
             int count = Math.Min(wallCount, candidates.Count);
-            for (int i = 0; i < count; i++) { result.Add(candidates[i]); }
+
+            for (int placed = 0; placed < count; placed++)
+            {
+                int chosen = -1;
+
+                if (usedCorners.Count > 0)
+                {
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        if (taken[i]) { continue; }
+
+                        ((int, int) a, (int, int) b) = WallCorners(candidates[i]);
+                        if (usedCorners.Contains(a) || usedCorners.Contains(b)) { chosen = i; break; }
+                    }
+                }
+
+                if (chosen < 0)
+                {
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        if (!taken[i]) { chosen = i; break; }
+                    }
+                }
+
+                if (chosen < 0) { break; }
+
+                taken[chosen] = true;
+                result.Add(candidates[chosen]);
+
+                ((int, int) c1, (int, int) c2) = WallCorners(candidates[chosen]);
+                usedCorners.Add(c1);
+                usedCorners.Add(c2);
+            }
+
             return result;
+        }
+
+        /// <summary>
+        /// The two lattice corners a walled edge runs between. Cell (r,c) spans lattice points
+        /// (r,c)..(r+1,c+1), so its Right edge is the vertical segment (r,c+1)-(r+1,c+1) and its
+        /// Down edge the horizontal segment (r+1,c)-(r+1,c+1). Two walls meet -- and so read as a
+        /// single barrier -- exactly when they share one of these.
+        ///
+        /// Only Right and Down are produced by the candidate scan above (each undirected edge is
+        /// considered once), so those are the only cases handled.
+        /// </summary>
+        private static ((int, int), (int, int)) WallCorners((int Row, int Col, Direction Dir) wall)
+        {
+            if (wall.Dir == Direction.Right)
+            {
+                return ((wall.Row, wall.Col + 1), (wall.Row + 1, wall.Col + 1));
+            }
+            return ((wall.Row + 1, wall.Col), (wall.Row + 1, wall.Col + 1));
         }
 
         private static (int, int, int, int) NormalizedEdge((int Row, int Col) a, (int Row, int Col) b)
@@ -1373,6 +1753,158 @@ namespace FreeFlow.GamePlay
         /// single-cell-island remainder (spec §15-17) could never admit one Hamiltonian path
         /// covering it, so there is no point even trying the snake search against it.
         /// </summary>
+        /// <summary>
+        /// Partitions the usable board directly into <paramref name="pathCount"/> simple paths --
+        /// one per colour, each path's two ends becoming that colour's dots.
+        ///
+        /// <b>Replaces the snake-then-cut construction, which could not scale.</b> That approach
+        /// asked for a single Hamiltonian path covering the whole board and then cut it into
+        /// segments. Finding a Hamiltonian path is exponential, and it showed: 5x5 and 6x6 were
+        /// fine, 7x7 did not merely run slowly but hung the editor outright. Since board size is
+        /// where this genre's difficulty actually lives (Flow Free ships 5x5-6x6 as tutorial packs
+        /// and its real puzzles are 8x8 and up), that ceiling capped how hard any level could be,
+        /// no matter how the other knobs were tuned.
+        ///
+        /// Asking for k paths instead of one is a strictly weaker requirement and needs no
+        /// exponential search. Every path grows at once, one cell at a time, and the choice of
+        /// which cell to take next is what makes this work:
+        ///   - <b>Most-constrained-first (Warnsdorff's rule).</b> Always extend into the free cell
+        ///     with the fewest free neighbours of its own. This is the same heuristic used for
+        ///     knight's tours, and it exists to avoid the one failure mode that matters here --
+        ///     walking past a cell and stranding it with no path able to reach it later. Taking the
+        ///     most enclosed cell first means cells never get left behind.
+        ///   - <b>Shortest path first, as a tie-break.</b> Keeps path lengths even, which is the
+        ///     same thing MinPathCells guards: one colour eating half the board while another gets
+        ///     a 2-cell stub is exactly the level that plays as trivial.
+        /// Failure is cheap and expected -- a run that strands a cell simply returns null and the
+        /// caller retries with fresh seeds, rather than backtracking.
+        ///
+        /// Returns null if any cell was stranded, or if any path came out shorter than 2 cells (a
+        /// colour needs two distinct cells to have two distinct dots).
+        /// </summary>
+        private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
+            int usableCount, int pathCount, System.Random rng)
+        {
+            if (pathCount < 1 || usableCount < pathCount * 2) { return null; }
+
+            List<(int Row, int Col)> freeCells = new List<(int, int)>();
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++)
+                {
+                    if (usable[r, c]) { freeCells.Add((r, c)); }
+                }
+            }
+
+            // taken[r,c]: -1 free, otherwise the index of the path occupying it.
+            int[,] taken = new int[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { taken[r, c] = -1; }
+            }
+
+            // Seed one cell per path, all distinct.
+            for (int i = freeCells.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (freeCells[i], freeCells[j]) = (freeCells[j], freeCells[i]);
+            }
+
+            List<List<(int Row, int Col)>> paths = new List<List<(int, int)>>();
+            for (int i = 0; i < pathCount; i++)
+            {
+                (int Row, int Col) seed = freeCells[i];
+                taken[seed.Row, seed.Col] = i;
+                paths.Add(new List<(int, int)> { seed });
+            }
+
+            int placed = pathCount;
+            while (placed < usableCount)
+            {
+                int bestPath = -1;
+                bool bestAtFront = false;
+                (int Row, int Col) bestCell = (0, 0);
+                int bestFreeNeighbours = int.MaxValue;
+                int bestPathLength = int.MaxValue;
+                int tieCount = 0;
+
+                for (int p = 0; p < paths.Count; p++)
+                {
+                    List<(int Row, int Col)> path = paths[p];
+
+                    // Both ends of a path can grow. A 1-cell path has the same cell for both;
+                    // considering it twice is harmless, just redundant.
+                    for (int side = 0; side < 2; side++)
+                    {
+                        (int Row, int Col) end = side == 0 ? path[0] : path[path.Count - 1];
+
+                        for (int d = 0; d < Directions.Length; d++)
+                        {
+                            int nr = end.Row, nc = end.Col;
+                            switch (Directions[d])
+                            {
+                                case Direction.Left: nc--; break;
+                                case Direction.Right: nc++; break;
+                                case Direction.Up: nr--; break;
+                                case Direction.Down: nr++; break;
+                            }
+
+                            if (nr < 0 || nr >= size || nc < 0 || nc >= size) { continue; }
+                            if (!usable[nr, nc] || taken[nr, nc] != -1) { continue; }
+
+                            int freeNeighbours = CountFreeNeighbours(size, usable, taken, nr, nc);
+
+                            // Most-constrained cell first; shortest path breaks ties; a random
+                            // pick breaks the rest, so repeated runs explore different boards.
+                            bool better = freeNeighbours < bestFreeNeighbours
+                                || (freeNeighbours == bestFreeNeighbours && path.Count < bestPathLength);
+                            bool equal = freeNeighbours == bestFreeNeighbours && path.Count == bestPathLength;
+
+                            if (equal)
+                            {
+                                tieCount++;
+                                if (rng.Next(tieCount) != 0) { continue; }
+                            }
+                            else if (better) { tieCount = 1; }
+                            else { continue; }
+
+                            bestPath = p;
+                            bestAtFront = side == 0;
+                            bestCell = (nr, nc);
+                            bestFreeNeighbours = freeNeighbours;
+                            bestPathLength = path.Count;
+                        }
+                    }
+                }
+
+                // Nothing can grow but cells remain -- they are stranded. Cheap failure; the
+                // caller retries with different seeds.
+                if (bestPath < 0) { return null; }
+
+                taken[bestCell.Row, bestCell.Col] = bestPath;
+                if (bestAtFront) { paths[bestPath].Insert(0, bestCell); }
+                else { paths[bestPath].Add(bestCell); }
+                placed++;
+            }
+
+            for (int i = 0; i < paths.Count; i++)
+            {
+                if (paths[i].Count < 2) { return null; }
+            }
+
+            return paths;
+        }
+
+        private static int CountFreeNeighbours(int size, bool[,] usable, int[,] taken, int row, int col)
+        {
+            int count = 0;
+            if (row > 0 && usable[row - 1, col] && taken[row - 1, col] == -1) { count++; }
+            if (row < size - 1 && usable[row + 1, col] && taken[row + 1, col] == -1) { count++; }
+            if (col > 0 && usable[row, col - 1] && taken[row, col - 1] == -1) { count++; }
+            if (col < size - 1 && usable[row, col + 1] && taken[row, col + 1] == -1) { count++; }
+            return count;
+        }
+
         /// <summary>
         /// Excludes <paramref name="blockedCount"/> cells from the board, retrying until whatever
         /// remains is still a single connected region.
@@ -1474,127 +2006,6 @@ namespace FreeFlow.GamePlay
             (0, -1), (0, 1), (-1, 0), (1, 0) // Left, Right, Up, Down
         };
 
-        /// <summary>
-        /// Returns null (rather than throwing) when no Hamiltonian path over the usable cells was
-        /// found within budget -- a specific Blocked-cell placement can be connected yet still
-        /// admit no full-coverage path at all (a parity argument, same one Phase 6 documented for
-        /// why Blocked cells are so often Required), and that is a failed ATTEMPT for the caller
-        /// to retry with a fresh placement, not a fatal error.
-        /// </summary>
-        private static List<(int Row, int Col)> TryGenerateHamiltonianSnake(int size, bool[,] usable,
-            int usableCount, System.Random rng, float straightnessBias)
-        {
-            for (int restart = 0; restart < 20; restart++)
-            {
-                bool[,] visited = new bool[size, size];
-                List<(int Row, int Col)> path = new List<(int, int)>();
-
-                int startRow, startCol;
-                int guard = 0;
-                do
-                {
-                    startRow = rng.Next(size);
-                    startCol = rng.Next(size);
-                    guard++;
-                }
-                while (!usable[startRow, startCol] && guard < 1000);
-                if (!usable[startRow, startCol]) { return null; }
-
-                path.Add((startRow, startCol));
-                visited[startRow, startCol] = true;
-
-                if (ExtendSnake(path, visited, size, usable, usableCount, rng, straightnessBias)) { return path; }
-            }
-
-            return null;
-        }
-
-        private static bool ExtendSnake(List<(int Row, int Col)> path, bool[,] visited, int size, bool[,] usable,
-            int usableCount, System.Random rng, float straightnessBias)
-        {
-            if (path.Count == usableCount) { return true; }
-
-            (int dr, int dc)[] order = OrderedSteps(path, rng, straightnessBias);
-            (int Row, int Col) current = path[path.Count - 1];
-
-            for (int i = 0; i < order.Length; i++)
-            {
-                int nr = current.Row + order[i].dr;
-                int nc = current.Col + order[i].dc;
-                if (nr < 0 || nr >= size || nc < 0 || nc >= size || !usable[nr, nc] || visited[nr, nc]) { continue; }
-
-                visited[nr, nc] = true;
-                path.Add((nr, nc));
-
-                if (ExtendSnake(path, visited, size, usable, usableCount, rng, straightnessBias)) { return true; }
-
-                path.RemoveAt(path.Count - 1);
-                visited[nr, nc] = false;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// A shuffled direction order, biased toward repeating the previous step's direction
-        /// first when <paramref name="straightnessBias"/> "hits" -- the one knob that makes the
-        /// snake favour long straight runs or constant turning, with nothing else about the
-        /// search changing.
-        /// </summary>
-        private static (int dr, int dc)[] OrderedSteps(List<(int Row, int Col)> path, System.Random rng,
-            float straightnessBias)
-        {
-            (int dr, int dc)[] shuffled = (StepDirs.Clone() as (int, int)[]);
-            for (int i = shuffled.Length - 1; i > 0; i--)
-            {
-                int j = rng.Next(i + 1);
-                (shuffled[i], shuffled[j]) = (shuffled[j], shuffled[i]);
-            }
-
-            if (path.Count >= 2 && rng.NextDouble() < straightnessBias)
-            {
-                (int Row, int Col) last = path[path.Count - 1];
-                (int Row, int Col) prev = path[path.Count - 2];
-                (int dr, int dc) lastDir = (last.Row - prev.Row, last.Col - prev.Col);
-
-                int idx = Array.IndexOf(shuffled, lastDir);
-                if (idx > 0)
-                {
-                    (shuffled[0], shuffled[idx]) = (shuffled[idx], shuffled[0]);
-                }
-            }
-
-            return shuffled;
-        }
-
-        private static List<List<(int Row, int Col)>> CutIntoSegments(List<(int Row, int Col)> snake,
-            int segmentCount, System.Random rng)
-        {
-            int[] lengths = DistributeLengths(snake.Count, segmentCount, rng);
-
-            List<List<(int Row, int Col)>> segments = new List<List<(int, int)>>();
-            int index = 0;
-            for (int s = 0; s < segmentCount; s++)
-            {
-                segments.Add(snake.GetRange(index, lengths[s]));
-                index += lengths[s];
-            }
-            return segments;
-        }
-
-        private static int[] DistributeLengths(int total, int segmentCount, System.Random rng)
-        {
-            int[] lengths = new int[segmentCount];
-            for (int i = 0; i < segmentCount; i++) { lengths[i] = 2; } // every pair needs 2 distinct dots
-
-            int remaining = total - (segmentCount * 2);
-            for (int i = 0; i < remaining; i++)
-            {
-                lengths[rng.Next(segmentCount)]++;
-            }
-            return lengths;
-        }
-
         private static List<PairColorType> PickDistinctColors(int count, System.Random rng)
         {
             List<PairColorType> pool = new List<PairColorType>((PairColorType[])Enum.GetValues(typeof(PairColorType)));
@@ -1631,6 +2042,7 @@ namespace FreeFlow.GamePlay
                 int[] wallRow = data.gridRows[r].wallMask;
                 Direction[] entryRow = data.gridRows[r].requiredEntryDirection;
                 Direction[] exitRow = data.gridRows[r].forcedExitDirection;
+                int[] pairIdRow = data.gridRows[r].pairId;
                 for (int c = 0; c < cols; c++)
                 {
                     PairColorType color = colorRow[c];
@@ -1653,6 +2065,16 @@ namespace FreeFlow.GamePlay
                         SetField(block, "isPairBlock", true);
                         SetField(block, "pairColorType", color);
                         SetField(block, "pairId", (int)color); // matches BoardGenerator's own color-fallback
+                    }
+                    else
+                    {
+                        // A cell with no colour can still carry a pair id: a permission cell
+                        // (ForbiddenForPair / AllowedForPairs) stores the colour it names there.
+                        // Mirrors BoardGenerator's "explicit pairId wins" rule -- without this the
+                        // offline validation would see the cell as an unconditional Normal and
+                        // silently accept boards whose rule does nothing.
+                        int explicitPairId = (pairIdRow != null && c < pairIdRow.Length) ? pairIdRow[c] : 0;
+                        if (explicitPairId != 0) { SetField(block, "pairId", explicitPairId); }
                     }
 
                     grid[r, c] = block;
