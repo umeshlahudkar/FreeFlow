@@ -22,6 +22,18 @@ namespace FreeFlow.GamePlay
 
         private List<Block> selectedBlocks;
 
+        // The cell a rejected drag is currently blinking, so a pointer sitting still over a
+        // blocked/restricted cell keeps blinking it on a loop instead of restarting the tween
+        // every frame. Cleared -- and the blink explicitly stopped -- the moment the pointer
+        // lands anywhere else, so the blink never outlives the touch that triggered it.
+        private Block invalidFeedbackBlock;
+
+        // Set only while invalidFeedbackBlock is blinking a WALL rather than a cell: the block on
+        // the other side of that wall, and invalidFeedbackBlock's own edge direction, so the
+        // matching blink on both sides of the wall (see FlashInvalidStep) can be stopped together.
+        private Block invalidFeedbackWallOther;
+        private Direction invalidFeedbackWallDir;
+
         // Every pair's drawn path, as a SET of segments rather than one list: the player can
         // start from either dot, so a pair can hold two half-drawn segments before they meet. The
         // old shape was Dictionary<int, List<Block>> assigned wholesale on commit, so the second
@@ -231,6 +243,10 @@ namespace FreeFlow.GamePlay
                 {
                     Block block = BlockFromHit(raycastResults[0]);
 
+                    // A rejected cell/wall blinks on a loop only while the pointer keeps landing
+                    // on it -- stop it the moment the pointer is somewhere else.
+                    if (block != invalidFeedbackBlock) { StopInvalidFeedback(); }
+
                     // selected block is not select again, check for the new block
                     if(CanSelectToAdd(block))
                     {
@@ -250,16 +266,30 @@ namespace FreeFlow.GamePlay
                             {
                                 foreach (Block cell in path)
                                 {
-                                    if (!CanSelectToAdd(cell)) { break; }
-
                                     Block stepFrom = selectedBlocks[selectedBlocks.Count - 1];
+
+                                    if (!CanSelectToAdd(cell)) { FlashInvalidStep(stepFrom, cell); break; }
+
                                     Direction stepDir = GetDirection(stepFrom, cell);
-                                    if (stepDir == Direction.None) { break; }
-                                    if (!CanTakeStep(stepFrom, cell, stepDir)) { break; }
+                                    if (stepDir == Direction.None) { FlashInvalidStep(stepFrom, cell); break; }
+                                    if (!CanTakeStep(stepFrom, cell, stepDir)) { FlashInvalidStep(stepFrom, cell); break; }
 
                                     ProcessBlockStep(cell, stepDir);
                                 }
                             }
+                            else if (AdjacentDirection(selectedBlocks[selectedBlocks.Count - 1], block) != Direction.None)
+                            {
+                                // Genuinely the path head's neighbour, but a wall on the shared
+                                // edge or a one-way's required entry direction refuses it --
+                                // GetDirection folds both of those into None.
+                                FlashInvalidStep(selectedBlocks[selectedBlocks.Count - 1], block);
+                            }
+                        }
+                        else
+                        {
+                            // Adjacent across a legal edge, but the destination itself refuses the
+                            // step: a bridge lane already taken, or an illegal forced-arrow chain.
+                            FlashInvalidStep(selectedBlocks[selectedBlocks.Count - 1], block);
                         }
                     }
                     // if selected block is already highlighted pair blocks, resets the block (unhighlight it)
@@ -315,14 +345,95 @@ namespace FreeFlow.GamePlay
                             ResetBlockToRemove(selectedBlocks, targetIndex);
                         }
                     }
+                    else if (block != null
+                        && AdjacentDirection(selectedBlocks[selectedBlocks.Count - 1], block) != Direction.None)
+                    {
+                        // Adjacent to the path head but CanSelectToAdd refused it outright --
+                        // blocked, wrong pair colour/permission, or it would cross the path's
+                        // own line.
+                        FlashInvalidStep(selectedBlocks[selectedBlocks.Count - 1], block);
+                    }
+                }
+                else
+                {
+                    // Pointer has been dragged off every raycastable cell (past the board's
+                    // edge) -- nothing is being landed on any more, so nothing should still be
+                    // blinking.
+                    StopInvalidFeedback();
                 }
 
                 UpdateDragPreview();
             }
         }
 
+        /// <summary>
+        /// Blinks the reason a step from <paramref name="from"/> to <paramref name="to"/> was
+        /// rejected, looping for as long as the pointer keeps landing on <paramref name="to"/> --
+        /// see <see cref="invalidFeedbackBlock"/>. Whatever was blinking before this call is
+        /// stopped first, so at most one cell/wall blinks at a time. A wall on the shared edge
+        /// blinks the wall itself rather than the cell, since the wall -- not the cell -- is what
+        /// refused the step; every other rejection (blocked, forbidden pair, one-way, taken
+        /// bridge lane, illegal arrow chain, self-crossing path) blinks the destination cell.
+        ///
+        /// Both cells sharing a wall draw their own copy of the bar on the same spot (see
+        /// wallVisual's field comment on <see cref="Block"/>), and only one of the two copies
+        /// ends up on top -- which one depends on board build order, not anything this method
+        /// can see. Flashing only the "owning" side risks blinking the copy that's actually
+        /// hidden behind the other, so both are flashed together; the hidden one blinking is
+        /// invisible and harmless, and the visible one is guaranteed to be among them.
+        /// </summary>
+        private void FlashInvalidStep(Block from, Block to)
+        {
+            if (to == null || to == invalidFeedbackBlock) { return; }
+
+            StopInvalidFeedback();
+            invalidFeedbackBlock = to;
+
+            Direction dir = AdjacentDirection(from, to);
+            bool wallOnEdge = dir != Direction.None
+                && (from.HasWall(dir) || to.HasWall(OppositeDirection(dir)));
+
+            if (wallOnEdge)
+            {
+                invalidFeedbackWallOther = from;
+                invalidFeedbackWallDir = OppositeDirection(dir);
+
+                from.PlayInvalidWallFeedback(dir);
+                to.PlayInvalidWallFeedback(invalidFeedbackWallDir);
+            }
+            else
+            {
+                to.PlayInvalidMoveFeedback();
+            }
+        }
+
+        /// <summary>
+        /// Stops whatever <see cref="FlashInvalidStep"/> last started blinking, if anything --
+        /// called the moment the pointer stops landing on that cell/wall (a new target, a valid
+        /// step, release, or the drag ending outright), so a rejected cell never keeps blinking
+        /// after the touch that triggered it has moved on.
+        /// </summary>
+        private void StopInvalidFeedback()
+        {
+            if (invalidFeedbackBlock == null) { return; }
+
+            if (invalidFeedbackWallOther != null)
+            {
+                invalidFeedbackBlock.StopInvalidWallFeedback(invalidFeedbackWallDir);
+                invalidFeedbackWallOther.StopInvalidWallFeedback(OppositeDirection(invalidFeedbackWallDir));
+                invalidFeedbackWallOther = null;
+            }
+            else
+            {
+                invalidFeedbackBlock.StopInvalidMoveFeedback();
+            }
+
+            invalidFeedbackBlock = null;
+        }
+
         private void OnPointerUp()
         {
+            StopInvalidFeedback();
             ClearDragPreview();
 
             // The last selected block may have only just been entered when the pointer was
@@ -1424,6 +1535,8 @@ namespace FreeFlow.GamePlay
             moves = 0;
 
             gameState = GameState.Waiting;
+
+            StopInvalidFeedback();
 
             selectedBlocks.Clear();
             pairSegments.Clear();

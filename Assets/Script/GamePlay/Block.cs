@@ -1434,6 +1434,102 @@ namespace FreeFlow.GamePlay
             blockBgHighlightImage.gameObject.SetActive(false);
         }
 
+        // A plain overlay built at runtime rather than a serialized/instantiated visual like the
+        // mechanic art above: it has no sprite and no per-type variation, and every cell can hit
+        // it regardless of BlockType, so there is nothing a source prefab would be reusing.
+        // Kept separate from blockBgHighlightImage, which already carries obstacle art and the
+        // path wash -- flashing that one would mean snapshotting and restoring whatever it was
+        // showing, for a cell that may be a Blocked tile, a wall-adjacent Normal cell, or mid
+        // path wash.
+        private Image invalidMoveFlashImage;
+        private static readonly Color InvalidMoveFlashColor = new Color(1f, 0.25f, 0.25f, 0f);
+        private const float InvalidMoveFlashAlpha = 0.55f;
+
+        private void EnsureInvalidMoveFlashImage()
+        {
+            if (invalidMoveFlashImage != null) { return; }
+
+            GameObject go = new GameObject("InvalidMoveFlash", typeof(RectTransform), typeof(Image));
+            RectTransform rt = (RectTransform)go.transform;
+            rt.SetParent(transform, false);
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            invalidMoveFlashImage = go.GetComponent<Image>();
+            invalidMoveFlashImage.color = InvalidMoveFlashColor;
+            invalidMoveFlashImage.raycastTarget = false;
+
+            // Drawn above every mechanic marker, wall bar and the path wash so the blink reads
+            // clearly no matter what the cell already looks like.
+            rt.SetAsLastSibling();
+        }
+
+        /// <summary>
+        /// Blinks the cell red on a loop to tell the player a drag onto it was rejected -- fully
+        /// blocked, wrong pair colour/permission, a one-way entered from the wrong side, a taken
+        /// bridge lane, an illegal arrow chain, or a self-crossing path. Not used for a wall on
+        /// the shared edge -- see <see cref="PlayInvalidWallFeedback"/>, which blinks the wall
+        /// itself, since the wall rather than either cell is what refused the step. Keeps looping
+        /// until <see cref="StopInvalidMoveFeedback"/> is called; callers own that lifetime
+        /// (start while the pointer sits on the rejected cell, stop the moment it leaves).
+        /// </summary>
+        public void PlayInvalidMoveFeedback()
+        {
+            EnsureInvalidMoveFlashImage();
+
+            invalidMoveFlashImage.DOKill();
+            invalidMoveFlashImage.color = InvalidMoveFlashColor;
+            invalidMoveFlashImage.DOFade(InvalidMoveFlashAlpha, 0.09f).SetLoops(-1, LoopType.Yoyo);
+        }
+
+        public void StopInvalidMoveFeedback()
+        {
+            if (invalidMoveFlashImage == null) { return; }
+
+            invalidMoveFlashImage.DOKill();
+            invalidMoveFlashImage.color = InvalidMoveFlashColor;
+        }
+
+        private static readonly Color InvalidWallFlashColor = new Color(1f, 0.2f, 0.2f, 1f);
+
+        /// <summary>
+        /// Blinks the wall bar on <paramref name="edge"/> red on a loop -- a step was rejected
+        /// because a wall sits on that shared edge, so the wall blinks rather than either cell
+        /// either side of it. Both cells sharing a wall draw their own copy of the bar on top of
+        /// each other (see wallVisual's field comment), and only one copy ends up visible, so
+        /// callers flash both sides together rather than relying on this method alone to pick
+        /// the right one. Keeps looping until <see cref="StopInvalidWallFeedback"/> is called.
+        /// </summary>
+        public void PlayInvalidWallFeedback(Direction edge)
+        {
+            EnsureWallGroup();
+
+            Image wallImage = WallImageFor(edge);
+            if (wallImage == null) { return; }
+
+            wallImage.DOKill();
+            wallImage.color = WallColor;
+            wallImage.DOColor(InvalidWallFlashColor, 0.09f).SetLoops(-1, LoopType.Yoyo);
+        }
+
+        public void StopInvalidWallFeedback(Direction edge)
+        {
+            Image wallImage = WallImageFor(edge);
+            if (wallImage == null) { return; }
+
+            wallImage.DOKill();
+            wallImage.color = WallColor;
+        }
+
+        private Image WallImageFor(Direction edge)
+        {
+            int idx = (int)edge - 1;
+            if (wallImages == null || idx < 0 || idx >= wallImages.Length) { return null; }
+            return wallImages[idx];
+        }
+
         public bool IsPairBlock
         {
             get { return isPairBlock; }
