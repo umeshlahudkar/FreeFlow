@@ -84,3 +84,10 @@ crashlytics-build.properties
 # Python bytecode from the level tools in Tools/
 __pycache__/
 *.pyc
+
+# Unity Performance Testing package writes these on every test run
+Assets/Resources/PerformanceTestRunInfo.json*
+Assets/Resources/PerformanceTestRunSettings.json*
+
+# UnityMCP scratch
+.utmp/
