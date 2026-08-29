@@ -61,6 +61,13 @@ namespace FreeFlow.GamePlay
             int savedCount = 0;
             bool cancelled = false;
 
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
+
             for (int levelNumber = 1; levelNumber <= levelCount; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel1To10(levelNumber);
@@ -122,6 +129,13 @@ namespace FreeFlow.GamePlay
             int savedCount = 0;
             bool cancelled = false;
 
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
+
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel11To15(levelNumber, gridSize);
@@ -180,6 +194,13 @@ namespace FreeFlow.GamePlay
             int savedCount = 0;
             bool cancelled = false;
 
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
+
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
                 GenerationSpec spec = SpecForLevel16To20(levelNumber, gridSize);
@@ -229,7 +250,7 @@ namespace FreeFlow.GamePlay
             const string levelsFolder = "Assets/Resources/Levels";
             const int startLevel = 21;
             const int endLevel = 25;
-            const int gridSize = 6;
+            const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
 
             System.Random rng = new System.Random(20260902); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -238,6 +259,13 @@ namespace FreeFlow.GamePlay
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
+
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
@@ -282,13 +310,130 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        /// <summary>
+        /// EXPERIMENT, not campaign content. Writes levels 31-33 to test one question: does
+        /// relaxing the full-coverage generation rule actually make levels more challenging?
+        ///
+        /// Every shipped level today has exactly ONE possible pairing, because
+        /// RequireEveryPairingCoversBoard rejects any board where a second pairing exists (a
+        /// second pairing nearly always leaves a hole). One pairing means no wrong routes, so the
+        /// player traces the only line that exists rather than searching -- and it is also why
+        /// mechanics come out decorative, since "necessary" means "removing it creates a second
+        /// solution" and there is no second solution to create.
+        ///
+        /// These three drop that rule and rely on UniquenessPolicy.Require instead: the
+        /// FULL-COVERAGE solution must still be unique, so each level still has exactly one
+        /// winning answer. What changes is that wrong routes may exist for the player to try and
+        /// reject. IsBoardFullyCovered still gates completion, so those wrong routes lose -- they
+        /// are not alternative wins.
+        ///
+        /// 31 and 32 hold the board at 6x6 to isolate the rule change; 33 goes to 7x7, which the
+        /// old rule could not reach at all (levels 9-10 were specced there and failed outright).
+        /// What to look for in the report: pairings > 1 means real search exists, and
+        /// necessity=Required on the mechanic means it finally does something.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Prototype Levels 31-33 (relaxed coverage)")]
+        public static void GeneratePrototypeLevels31To33()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 31;
+            const int endLevel = 33;
+
+            System.Random rng = new System.Random(20260904);
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForPrototype31To33(levelNumber);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Prototype 31-33", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: prototype level " + levelNumber + " failed after " +
+                        spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": grid=").Append(spec.GridSize)
+                    .Append(" colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" avgPath=").Append(generated.AveragePathCells.ToString("0.0"))
+                    .Append(" minPath=").Append(generated.ShortestPathCells)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" fullCoverageSolutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : " (NOT UNIQUE)")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: prototype 31-33 complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
+        /// <summary>Prototype spec -- see GeneratePrototypeLevels31To33. Mirrors the Wall range so
+        /// the comparison is like-for-like, with the coverage rule off and uniqueness required.</summary>
+        private static GenerationSpec SpecForPrototype31To33(int levelNumber)
+        {
+            bool bigBoard = levelNumber == 33;
+
+            return new GenerationSpec
+            {
+                GridSize = bigBoard ? 7 : 6,
+                MinColorCount = bigBoard ? 5 : 4,
+                MaxColorCount = bigBoard ? 5 : 4,
+                StraightnessBias = 0.5f,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                // The full-coverage solution must still be unique -- one winning answer per level.
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = bigBoard ? 4 : 3,
+                BlockedCellsInteriorOnly = true,
+                WallCount = 2,
+                MinPathCells = 4,
+                TargetAvgPathMin = 5.5f,
+                TargetAvgPathMax = 12.0f,
+                // THE experiment: off, where every shipped level has it on.
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 20000
+            };
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 26-30 (Forbidden)")]
         public static void GenerateLevels26To30()
         {
             const string levelsFolder = "Assets/Resources/Levels";
             const int startLevel = 26;
             const int endLevel = 30;
-            const int gridSize = 6;
+            const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
 
             System.Random rng = new System.Random(20260903); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -297,6 +442,13 @@ namespace FreeFlow.GamePlay
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
+
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
             {
@@ -622,9 +774,17 @@ namespace FreeFlow.GamePlay
                         continue;
                     }
 
-                    // Reuses solveResult rather than solving again -- see the class doc.
-                    DifficultyAnalyzer.DifficultyReport report = DifficultyAnalyzer.Analyze(grid, rows, cols, solveResult);
                     bool isUnique = solveResult.SolutionsFound == 1 && solveResult.SearchExhausted;
+
+                    // Free (solveResult already knows) and highly selective, so it runs before the
+                    // expensive gates below. Only a hard filter under Require, where a non-unique
+                    // board is not shippable anyway -- Prefer keeps its soft tie-break penalty.
+                    //
+                    // This matters most on the ranges that switched the coverage rule OFF: that
+                    // rule used to reject ~99% of candidates for ~0.5ms before anything costly ran,
+                    // and turning it off silently removed the only cheap filter in front of the
+                    // necessity checks. Level 21 then ran for ten minutes without finishing.
+                    if (spec.Uniqueness == UniquenessPolicy.Require && !isUnique) { continue; }
 
                     float uniquenessPenalty = isUnique ? 0f : spec.Uniqueness switch
                     {
@@ -633,30 +793,55 @@ namespace FreeFlow.GamePlay
                         _ => 0f
                     };
 
-                    float mechanicPenalty = 0f;
+                    // HARD REJECTS, not penalties. As a penalty this gate almost never passed and
+                    // almost always fell back to a candidate that failed it: an audit found only
+                    // 13 of 41 mechanic instances across levels 11-30 load-bearing, with every
+                    // Arrow in the game doing nothing. A mechanic the player can ignore is
+                    // indistinguishable from one that is not there.
+                    //
+                    // This is only affordable because RequireEveryPairingCoversBoard is off for
+                    // these ranges. That rule forced each board to have exactly ONE pairing, and
+                    // "necessary" means removing the mechanic creates a SECOND solution -- with one
+                    // pairing there was no second solution to create, so the two rules were
+                    // mathematically opposed and this gate could not be satisfied. With wrong
+                    // routes allowed to exist, a wall that rules one out is genuinely load-bearing:
+                    // measured 6 of 6 on the relaxed prototypes against 1 of 5 on the old levels.
+                    //
+                    // Each check clones the board and re-solves it twice PER mechanic instance, so
+                    // these are the most expensive things in the pipeline. Ordered cheapest-and-
+                    // most-selective first: the range's HEADLINE mechanic (one instance, and the
+                    // one actually at risk of being decorative) before Blocked, which has several
+                    // instances and nearly always passes -- removing a Blocked cell adds a cell
+                    // that must now be covered, which usually breaks the solution outright. Testing
+                    // Blocked first meant paying for several solves before discovering the Arrow
+                    // was decorative anyway.
                     if (spec.RequireMechanicsNecessary)
                     {
-                        if (spec.BlockedCellCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked))
-                        {
-                            mechanicPenalty += RequiredUniquenessPenalty;
-                        }
-                        if (spec.WallCount > 0 && !AllWallsAreNecessary(grid, rows, cols))
-                        {
-                            mechanicPenalty += RequiredUniquenessPenalty;
-                        }
-                        if (spec.OneWayCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.OneWay))
-                        {
-                            mechanicPenalty += RequiredUniquenessPenalty;
-                        }
                         if (spec.ArrowCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Arrow))
                         {
-                            mechanicPenalty += RequiredUniquenessPenalty;
+                            continue;
                         }
                         if (spec.ForbiddenCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.ForbiddenForPair))
                         {
-                            mechanicPenalty += RequiredUniquenessPenalty;
+                            continue;
+                        }
+                        if (spec.OneWayCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.OneWay))
+                        {
+                            continue;
+                        }
+                        if (spec.WallCount > 0 && !AllWallsAreNecessary(grid, rows, cols))
+                        {
+                            continue;
+                        }
+                        if (spec.BlockedCellCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked))
+                        {
+                            continue;
                         }
                     }
+
+                    // Scoring only, so it runs last, on the few candidates that survived every hard
+                    // gate. Reuses solveResult rather than solving again -- see the class doc.
+                    DifficultyAnalyzer.DifficultyReport report = DifficultyAnalyzer.Analyze(grid, rows, cols, solveResult);
 
                     int maxSlack = MaxSlackAcrossSolution(solveResult);
                     float slackBandDistance = BandPenalty(maxSlack, spec.MinSlackPerColor, spec.MaxSlackPerColor);
@@ -664,7 +849,7 @@ namespace FreeFlow.GamePlay
 
                     float penalty = BandPenalty(report.Score, spec.TargetScoreMin, spec.TargetScoreMax)
                         + BandPenalty(averagePath, spec.TargetAvgPathMin, spec.TargetAvgPathMax)
-                        + uniquenessPenalty + mechanicPenalty + slackPenalty;
+                        + uniquenessPenalty + slackPenalty;
 
                     // Ranked out already -- nothing below can change that.
                     if (penalty >= bestPenalty) { continue; }
@@ -1074,7 +1259,7 @@ namespace FreeFlow.GamePlay
                 MinPathCells = minPath,
                 TargetAvgPathMin = avgPathMin,
                 TargetAvgPathMax = avgPathMax,
-                Uniqueness = UniquenessPolicy.Ignore, // the coverage rule below is the real constraint; stacking a uniqueness requirement on top mostly just starves the search
+                Uniqueness = UniquenessPolicy.Ignore, // spec §4/§34: very easy levels may have several solutions
                 BlockedCellCount = blockedCount,
                 // Every blocked cell in this range sits off the outer ring, so the mechanic is
                 // something the player has to route around and therefore actually learns -- see
@@ -1082,6 +1267,13 @@ namespace FreeFlow.GamePlay
                 BlockedCellsInteriorOnly = true,
                 // The hard rule. Slack is deliberately left unconstrained (defaults) -- see the
                 // class doc for why bounding it was the wrong way to express this.
+                // Levels 1-10 KEEP the strict rule while the mechanic ranges relax it. This is
+                // the tutorial: a brand-new player who connects every pair and is left staring at
+                // empty cells has no idea what the game wants, and that is exactly what was
+                // reported here. Guaranteeing it cannot happen is worth more over ten levels than
+                // the challenge it costs -- these are meant to be easy. From level 11 the player
+                // knows the goal, the cell counter shows progress, and the rule is dropped so the
+                // puzzle can actually have wrong routes to reject.
                 RequireEveryPairingCoversBoard = true,
                 RequireMechanicsNecessary = true,
                 // Much higher than other ranges: the coverage rule rejects roughly 85-95% of
@@ -1112,8 +1304,8 @@ namespace FreeFlow.GamePlay
                 StraightnessBias = straightness,
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f, // path length is the honest difficulty control, not the score -- see SpecForLevel1To10
-                Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = hasBlockedCell ? 2 : 1,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = hasBlockedCell ? 3 : 2,
                 BlockedCellsInteriorOnly = true,
                 // Starts at 2, not 1: a single walled edge cannot form a barrier, and PlaceWalls
                 // now grows connected runs (an L or a longer wall) rather than scattering stubs.
@@ -1121,9 +1313,9 @@ namespace FreeFlow.GamePlay
                 MinPathCells = 5,
                 TargetAvgPathMin = 6.5f,
                 TargetAvgPathMax = 9.0f,
-                RequireEveryPairingCoversBoard = true,
+                RequireEveryPairingCoversBoard = false,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 12000
+                MaxAttempts = 20000
             };
         }
 
@@ -1149,21 +1341,21 @@ namespace FreeFlow.GamePlay
                 StraightnessBias = straightness,
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f,
-                Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = combineOthers ? 2 : 1,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = combineOthers ? 3 : 2,
                 BlockedCellsInteriorOnly = true,
                 WallCount = combineOthers ? 2 : 0,
                 OneWayCount = 1,
                 MinPathCells = 5,
                 TargetAvgPathMin = 6.5f,
                 TargetAvgPathMax = 9.0f,
-                RequireEveryPairingCoversBoard = true,
+                RequireEveryPairingCoversBoard = false,
                 RequireMechanicsNecessary = true,
                 // 60000, matching the Arrow range: levels 19-20 share a spec, and at 12000 one
                 // succeeded while the other found nothing -- the combination of coverage rule +
                 // mechanic necessity admits candidates rarely enough that the budget, not the
                 // spec, decides whether a level exists.
-                MaxAttempts = 60000
+                MaxAttempts = 20000
             };
         }
 
@@ -1194,32 +1386,40 @@ namespace FreeFlow.GamePlay
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = 4,
-                MaxColorCount = 4,
+                // Six on a 7x7, not four. Measured: 4 colours cost 127ms per candidate and
+                // produced zero unique solutions in 8 tries -- long paths on a big open board
+                // make proving uniqueness both rare and slow, which is what left level 21
+                // grinding for over five minutes. 6 colours costs 9ms and actually passes
+                // (~4% of attempts clear uniqueness AND mechanic necessity). Blocked rises to
+                // 5 for the same reason: these ranges introduce their mechanic alone, so
+                // walls are unavailable to constrain routes and Blocked has to do that work.
+                MinColorCount = 6,
+                MaxColorCount = 6,
                 StraightnessBias = straightness,
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f,
-                Uniqueness = UniquenessPolicy.Ignore,
+                Uniqueness = UniquenessPolicy.Require,
                 // Denser than the Wall and One-Way ranges (which use 1-2). The coverage rule needs
                 // the board to have exactly ONE pairing, and an open board simply has more; measured
                 // on this range, blocked=1..4 produced zero candidates that cleared the rule in 400
                 // attempts, blocked=5 produced 2. Blocked is already taught by level 6, so leaning
                 // on it here does not introduce anything new alongside Arrow.
-                BlockedCellCount = combineOthers ? 5 : 4,
+                BlockedCellCount = 5,
                 BlockedCellsInteriorOnly = true,
                 WallCount = combineOthers ? 2 : 0,
                 ArrowCount = 1,
-                MinPathCells = 4,
-                TargetAvgPathMin = 5.5f,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
                 TargetAvgPathMax = 9.5f,
-                RequireEveryPairingCoversBoard = true,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
                 // Kept, but it is the binding constraint here and it fights the coverage rule:
                 // that rule already forces a unique pairing, and necessity asks that REMOVING the
                 // Arrow create a second solution -- which a board with only one pairing rarely
                 // allows. Measured, the two together admit roughly 1 candidate in 2000, which is
                 // why levels 21-22 failed at 12000 attempts while 23-25 happened to succeed. The
                 // budget below buys the margin rather than dropping either rule.
-                MaxAttempts = 60000
+                MaxAttempts = 20000
             };
         }
 
@@ -1244,22 +1444,33 @@ namespace FreeFlow.GamePlay
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = 4,
-                MaxColorCount = 4,
+                // Six on a 7x7, not four. Measured: 4 colours cost 127ms per candidate and
+                // produced zero unique solutions in 8 tries -- long paths on a big open board
+                // make proving uniqueness both rare and slow, which is what left level 21
+                // grinding for over five minutes. 6 colours costs 9ms and actually passes
+                // (~4% of attempts clear uniqueness AND mechanic necessity). Blocked rises to
+                // 5 for the same reason: these ranges introduce their mechanic alone, so
+                // walls are unavailable to constrain routes and Blocked has to do that work.
+                MinColorCount = 6,
+                MaxColorCount = 6,
                 StraightnessBias = straightness,
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f,
-                Uniqueness = UniquenessPolicy.Ignore,
-                BlockedCellCount = combineOthers ? 5 : 4,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 5,
                 BlockedCellsInteriorOnly = true,
                 WallCount = combineOthers ? 2 : 0,
                 ForbiddenCount = 1,
-                MinPathCells = 4,
-                TargetAvgPathMin = 5.5f,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
                 TargetAvgPathMax = 9.5f,
-                RequireEveryPairingCoversBoard = true,
+                RequireEveryPairingCoversBoard = false,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 60000
+                // 40000: levels 29 and 30 share a spec and 30 generated while 29 did not, so the
+                // spec is satisfiable and the search simply ran out of room. The rng is seeded
+                // deterministically, so a plain re-run reproduces the same miss -- the budget has
+                // to change for the outcome to.
+                MaxAttempts = 40000
             };
         }
 

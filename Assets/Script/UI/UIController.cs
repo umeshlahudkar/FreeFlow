@@ -92,7 +92,7 @@ namespace FreeFlow.UI
 
                 gameplaylevelText.text = "Level : " + levelNumber;
                 UpdateMechanicLabel(currentLevelData);
-                UpdatePairCount(0);
+                UpdateFilledCells();
                 UpdateMovesCount(0);
             }
         }
@@ -359,12 +359,20 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Update and shows the completed pair count, basically on game screen
+        /// Shows how much of the board is filled, on the game screen.
+        ///
+        /// Deliberately cells rather than pairs. Completing a level needs every usable cell
+        /// covered, not just every pair joined, so a pair counter reads "4/4" -- the game
+        /// announcing the level is done -- while the level refuses to end. Players hit exactly
+        /// that and reported it as the game being broken. Cells are the real win condition, so
+        /// showing them means the readout can never claim completion the game will not honour.
         /// </summary>
-        /// <param name="completePair">Count of completed pairs</param>
-        public void UpdatePairCount(int completePair)
+        public void UpdateFilledCells()
         {
-            gameplayPairText.text = "Pair : " + completePair + "/" + currentLevelData.pairCount;
+            GamePlayController controller = GamePlayController.Instance;
+            if (controller == null) { return; }
+
+            gameplayPairText.text = "Cells : " + controller.FilledCellCount + "/" + controller.UsableCellCount;
         }
 
         /// <summary>

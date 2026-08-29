@@ -506,7 +506,7 @@ namespace FreeFlow.GamePlay
             selectedBlocks.Clear();
 
             int count = GetPairCompleteCount();
-            UIController.Instance.UpdatePairCount(count);
+            UIController.Instance.UpdateFilledCells();
 
             if (count >= UIController.Instance.CurrentLevelGoal && IsBoardFullyCovered())
             {
@@ -527,6 +527,54 @@ namespace FreeFlow.GamePlay
         /// connecting every pair is necessary but not sufficient -- a Flow-style board is only
         /// complete once nothing empty is left on it either.
         /// </summary>
+        /// <summary>
+        /// Usable cells on the board -- everything except Blocked, matching what
+        /// <see cref="IsBoardFullyCovered"/> counts. This is the denominator the player is filling.
+        /// </summary>
+        public int UsableCellCount
+        {
+            get
+            {
+                if (grid == null) { return 0; }
+
+                int count = 0;
+                for (int r = 0; r < gridRow; r++)
+                {
+                    for (int c = 0; c < gridCol; c++)
+                    {
+                        Block cell = grid[r, c];
+                        if (cell != null && cell.BlockType != BlockType.Blocked) { count++; }
+                    }
+                }
+                return count;
+            }
+        }
+
+        /// <summary>
+        /// Usable cells that currently carry a path. Same occupancy test
+        /// <see cref="IsBoardFullyCovered"/> uses, so the two can never disagree: when this equals
+        /// <see cref="UsableCellCount"/>, the board is covered.
+        /// </summary>
+        public int FilledCellCount
+        {
+            get
+            {
+                if (grid == null) { return 0; }
+
+                int count = 0;
+                for (int r = 0; r < gridRow; r++)
+                {
+                    for (int c = 0; c < gridCol; c++)
+                    {
+                        Block cell = grid[r, c];
+                        if (cell == null || cell.BlockType == BlockType.Blocked) { continue; }
+                        if (cell.OccupantCount > 0) { count++; }
+                    }
+                }
+                return count;
+            }
+        }
+
         private bool IsBoardFullyCovered()
         {
             return BoardTopology.IsFullyCovered(grid, gridRow, gridCol, cell => cell.OccupantCount > 0);

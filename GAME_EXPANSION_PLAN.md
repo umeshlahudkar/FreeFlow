@@ -15,7 +15,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 | 4 — Level generator (Editor tool) | 🟡 Partial | Solution built by `TryGeneratePathPartition` (grows every colour's path at once, Warnsdorff most-constrained-first) after the Hamiltonian-snake constructor was deleted for not scaling past 6x6 (§6.15); **generates Blocked cells, Wall barriers, One-Way cells, and Arrow cells**, all placement derived from the solution and necessity-gated; acceptance driven by path length + the full-coverage rule, NOT DifficultyAnalyzer's score (§6.14) — 5 more mechanics' generation logic still to build |
 | 5 — Difficulty analyzer | ✅ Done | `DifficultyAnalyzer` built, tested, and wired into `LevelGenerator` as the actual acceptance gate — see §6 for the achievable-range finding this surfaced |
 | 6 — Required-mechanic validator | ✅ Done | `RequiredMechanicValidator` built and tested (a real mathematical correction to the spec's naive reading surfaced along the way, see §6) — wired into `LevelGenerator` for Blocked cells, Walls, One-Way, and Arrow (§6.6–6.10) |
-| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **25/200 levels built** to the new spec (Levels 1–10: Basic Flow + Blocked Cell; 11–15: Wall; 16–20: One-Way; 21–25: Arrow) — all 25 verified against the full-coverage rule, interior-only blocked cells, no trivial paths, and connected wall barriers; levels 3–24 all Medium tier — see §6.6–6.17 for what's done and what the remaining 175 levels/5 mechanics honestly require |
+| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **30/200 levels built** (1–10 Basic+Blocked, 11–15 Wall, 16–20 One-Way, 21–25 Arrow, 26–30 Forbidden). Levels 1–10 keep the strict full-coverage rule as the tutorial; 11–30 relax it so wrong routes exist and mechanics can matter — 41/41 mechanic instances now load-bearing, every level uniquely solvable, boards 6×6–7×7 — see §6.6–6.18 |
 | 8 — Hint system | ⬜ Not started | |
 | 9 — Player skill system + save-data expansion | ⬜ Not started | |
 | 10 — Daily challenge | ⬜ Not started | |
@@ -505,6 +505,38 @@ Same 60000-attempt budget. It did not only speed things up: by not burning the b
 **Issues found (§6.15):** none outstanding. Standing note: the generator now scales far past what the *verification* pipeline can afford — board size is limited by the coverage rule's hit rate and the solver's NP-hard cost, not by construction. Reaching 8×8+ means either relaxing the coverage rule or investing in solver pruning (constraint propagation / forced-move deduction), not further generator work.
 
 **Issues found (earlier rounds):** two standing notes: (1) `DifficultyAnalyzer.Score` should not be used as a generation target for any range where board size or colour count is being varied — it rewards packing in short paths and will silently drive levels the wrong way; path length is the honest proxy, and the analyzer's own weights are flagged in its class doc as an untuned first pass. (2) Level 8's mean (6.2) sits slightly below Level 7's (7.0) because its band bottomed out; its floor is still 5, so no trivial pairs — worth tightening if the range is ever revisited.
+
+### 6.18 Relaxing the coverage rule on Levels 11–30: the change that finally made the puzzles work
+
+The strict rule from §6.16 fixed the confusion but had a cost that only became visible once it was measured: **it forced every board to have exactly ONE possible pairing.** With no wrong routes, the player traces the only line that exists rather than searching — and mechanics cannot be load-bearing, because "necessary" means *removing it creates a second solution* and there is no second solution to create. That is why only 13 of 41 mechanic instances were doing anything, with every Arrow in the game decorative.
+
+**Prototyped before committing** (levels 31–33, written outside the campaign so nothing shipped changed). One setting differed: `RequireEveryPairingCoversBoard = false`, with `Uniqueness = Require` so the FULL-COVERAGE solution stays unique. Result:
+
+| | Board | Pairings | Wrong routes | Walls load-bearing |
+|---|---|---|---|---|
+| Shipped L13 | 6×6 | 1 | **0** | 1 / 3 |
+| Shipped L20 | 6×6 | 1 | **0** | **0 / 2** |
+| Prototype L31 | 6×6 | 408 | 407 | **2 / 2** |
+| Prototype L33 | 7×7 | 500+ | 499 | **2 / 2** |
+
+Generation also went from 8–40 minutes per range to **3 seconds**, and 7×7 — which the strict rule could not produce at all — worked first try. The user played them and confirmed they feel more challenging, so it was rolled out.
+
+**What shipped:**
+- **Levels 11–30 relaxed.** Each level still has exactly one winning solution, and `IsBoardFullyCovered` still gates completion, so wrong routes lose — they are attempts, not alternative wins.
+- **Levels 1–10 deliberately keep the strict rule.** They are the tutorial; a new player who connects everything and faces empty cells has no idea what the game wants. Over ten easy levels that guarantee is worth more than the challenge it costs.
+- **Necessity became a HARD REJECT**, which only became possible because of the relaxation — with wrong routes to rule out, a wall that eliminates one is genuinely load-bearing.
+- **Board ramp:** Wall/One-Way at 6×6, Arrow/Forbidden at **7×7**.
+- **The HUD counter now reads `Cells : 28/36` instead of `Pair : 3/4`.** Completion needs every cell covered, so a pair counter could read "4/4" — the game announcing the level is done — while refusing to end. That was the actual defect behind the Level 7 and Level 11 reports. Wired to the same occupancy test `IsBoardFullyCovered` uses, so the two cannot drift.
+
+**Result across levels 11–30:** mechanics load-bearing **41/41** (was 13/41), every level has exactly one winning solution, no path under 3 cells, blocked cells all interior, wrong routes ranging 3–299 per level. Scores rose from 43–46 to **47–54**. 110/110 tests, `totalLevelCount` = 30, prototypes 31–33 deleted.
+
+**Four mistakes worth recording, because three are the same mistake:**
+1. **Tuning carried across configurations.** 4 colours worked at 6×6, so I reused it at 7×7 — where it cost **127 ms/candidate and produced zero unique solutions**, leaving Level 21 grinding past five minutes. Six colours cost **9 ms**. Fewer colours on a bigger board means very long paths, which makes proving uniqueness both rare and slow. Measure per configuration; do not carry numbers forward.
+2. **A cheap gate removed without re-checking what followed it.** Turning the coverage rule off deleted the ~0.5 ms filter that had been rejecting ~99% of candidates ahead of the necessity checks (two extra solves *per mechanic instance*). This is the second instance of the same class of bug as §6.17's gate ordering. **Standing rule: when a gate is disabled or its cost changes, re-check the ordering of everything after it.**
+3. **Necessity checks were ordered worst-first** — Blocked (3–5 instances, nearly always passes) before the headline mechanic (one instance, the one at risk). Reordered.
+4. **Scripted bulk edits silently dropped a line.** `RequireMechanicsNecessary` vanished from the Arrow spec during a pattern substitution, so levels 21–25 shipped with decorative Arrows — the gate was never asked to run. An earlier bulk edit had also stripped the strict rule from levels 1–10 (caught and reverted). For a handful of lines, use targeted edits that can be read back, not file-wide substitutions.
+
+**Open, and it gates the remaining four mechanics:** `EditorUtility.DisplayCancelableProgressBar`'s cancel flag is sticky — a cancelled run leaves the next run aborting on its first poll, reported as "CANCELLED by user" when the user did nothing. All six generate methods now call `ClearProgressBar()` on entry as well as exit. Self-touching (§6.16) remains a deliberate non-issue.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.
