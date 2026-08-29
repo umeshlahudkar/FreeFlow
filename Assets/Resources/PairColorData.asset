@@ -14,20 +14,26 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   pairColorDatas:
   - pairColorType: 1
-    color: {r: 1, g: 0, b: 0, a: 1}
+    color: {r: 1, g: 0.23137255, b: 0.18823529, a: 1}
   - pairColorType: 2
-    color: {r: 0, g: 0, b: 1, a: 1}
+    color: {r: 0, g: 0.47843137, b: 1, a: 1}
   - pairColorType: 3
-    color: {r: 1, g: 1, b: 0, a: 1}
+    color: {r: 1, g: 0.8, b: 0, a: 1}
   - pairColorType: 4
-    color: {r: 0, g: 1, b: 0, a: 1}
+    color: {r: 0.20392157, g: 0.78039216, b: 0.34901961, a: 1}
   - pairColorType: 5
-    color: {r: 1, g: 0.64705884, b: 0, a: 1}
+    color: {r: 1, g: 0.58431373, b: 0, a: 1}
   - pairColorType: 6
-    color: {r: 0, g: 1, b: 1, a: 1}
+    color: {r: 0, g: 0.78039216, b: 0.74509804, a: 1}
   - pairColorType: 7
-    color: {r: 1, g: 0.73333335, b: 1, a: 1}
+    color: {r: 0.34509804, g: 0.3372549, b: 0.83921569, a: 1}
   - pairColorType: 8
-    color: {r: 0.54509807, g: 0.37254903, b: 0.39607844, a: 1}
+    color: {r: 1, g: 0.17647059, b: 0.33333333, a: 1}
   - pairColorType: 9
-    color: {r: 0.60784316, g: 0.1882353, b: 1, a: 1}
+    color: {r: 0.68627451, g: 0.32156863, b: 0.87058824, a: 1}
+  - pairColorType: 10
+    color: {r: 0.63529412, g: 0.51764706, b: 0.36862745, a: 1}
+  - pairColorType: 11
+    color: {r: 0.54509804, g: 0.76470588, b: 0.29019608, a: 1}
+  - pairColorType: 12
+    color: {r: 0, g: 0.58823529, b: 0.53333333, a: 1}
