@@ -4,6 +4,8 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 **Campaign rescoped (superseding §12 of the original spec and Phase 7's "Worlds 1–11, 500+ levels" framing):** the user replaced the original 500+/11-world campaign design with a detailed **200-level** campaign spec — a 50-level Learning Phase teaching all 9 mechanics one at a time (Basic Flow → Blocked → Wall → One-Way → Arrow → Forbidden → Permitted → Bridge → Checkpoint → Shared Destination, levels 47–50 combining them), followed by a 150-level Mastery Phase that only recombines what's already been taught, scaling grid size (7×7→12×12), mechanic count per level (2–3 up to 5–7), and difficulty — never introducing anything new after level 50. See §6.6–6.10 for what's actually built against this new structure (25/200 so far) and what the remaining scope honestly looks like.
 
+> **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
+
 ## Progress Log
 
 | Phase | Status | One-line summary |
@@ -23,6 +25,76 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 | — Full-coverage generation rules audit | ✅ Done | User supplied a detailed "hard rules" spec for the generator; audited against it — 2 real gaps fixed (single source of truth, graduated uniqueness), 2 deferred with reasoning. See §6.5 |
 | 12 — Mobile UX polish + performance pass | ⬜ Not started | |
 | 13 — Test suite hardening + final QA gate | ⬜ Not started | |
+
+## 0. How levels are generated — start here when picking this up again
+
+Everything below is history and reasoning. **This section is the runbook.** Read it first after a break; the rest is only needed when something behaves unexpectedly.
+
+### Running it
+
+Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
+
+| Menu entry | Levels | Board | Colours | Mechanic |
+|---|---|---|---|---|
+| Generate Levels 1-10 (Basic Flow + Blocked Cell) | 1–10 | 4×4 → 6×6 | 3–6 | Blocked (from 6) |
+| Generate Levels 11-15 (Wall) | 11–15 | 6×6 | 4 | Wall ×2–4 |
+| Generate Levels 16-20 (One-Way) | 16–20 | 6×6 | 4 | One-Way (+Wall on 19–20) |
+| Generate Levels 21-25 (Arrow) | 21–25 | 7×7 | 6 | Arrow (+Wall on 24–25) |
+| Generate Levels 26-30 (Forbidden) | 26–30 | 7×7 | 6 | Forbidden (+Wall on 29–30) |
+
+Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
+
+### The two regimes — the single most important thing to know
+
+- **Levels 1–10: strict.** `RequireEveryPairingCoversBoard = true`. Connecting the pairs *cannot* leave a cell empty. This is the tutorial; a new player who connects everything and faces empty cells has no idea what the game wants. The cost is that these boards have exactly one possible pairing, so they are easy by construction — which is correct here.
+- **Levels 11+: relaxed.** That rule is **off**; `Uniqueness = Require` instead. Each level still has exactly one *winning* solution, and `IsBoardFullyCovered` still gates completion, so wrong routes are attempts, not alternative wins. This is what gives the player something to search, and what lets mechanics matter at all. **Do not turn the strict rule back on for 11+** without re-reading §6.18 — it silently makes every mechanic decorative.
+
+### Pipeline, in order
+
+`TryBuildCandidate` builds a board: place Blocked cells → `TryGeneratePathPartition` grows every colour's path at once (Warnsdorff most-constrained-first, so no cell is stranded) → place Wall / One-Way / Arrow / Forbidden onto that solution → assemble `LevelData`.
+
+`TryGenerateLevel` then filters each candidate. **Order is deliberate — cheap and selective first:**
+1. solve (full coverage) — reject if unsolvable
+2. `MinPathCells` — cheap, kills trivial 2-cell pairs
+3. canonical-key dedup
+4. coverage rule (only levels 1–10) — ~0.5 ms, rejects ~99%
+5. uniqueness (hard reject under `Require`) — free, `solveResult` already knows
+6. **mechanic necessity — hard reject**, headline mechanic first, Blocked last. Each clones the board and re-solves it *twice per mechanic instance*; the most expensive thing here by far
+7. `DifficultyAnalyzer` + path-length band → ranking
+
+**If you change or disable any gate, re-check the ordering of everything after it.** Getting this wrong cost hours twice (§6.17, §6.18).
+
+### Verifying a range after generating
+
+Never trust the generation log alone — it reports what the generator believed, not what shipped. Load each `Level_N.asset` via `BuildBlockGrid` and check:
+
+- **Coverage (1–10 only):** solve with `AllowPartialCoverage = true`; every pairing must cover all usable cells.
+- **Unique win:** `ValidateSolvability(..., MaxSolutionsToFind: 2)` → `SolutionsFound == 1 && SearchExhausted`.
+- **Mechanics load-bearing:** `RequiredMechanicValidator.CheckBlockTypeMechanicRequired` / `CheckWallRequired` → `Required` for every instance. Target is 100%.
+- **Wrong routes exist (11+):** solve with `AllowPartialCoverage = true`; expect tens to hundreds. A count of 1 means the board is a trace, not a puzzle.
+- **No path ≤ 2 cells**, and **blocked cells off the outer ring**.
+
+### Adding the next mechanic
+
+Remaining: Permitted, Bridge, Checkpoint, Shared Destination. The recipe each of the last four followed:
+
+1. Check `Block.cs` — the rules engine already implements all nine mechanics. This is generator work, not gameplay work.
+2. Write `Place<Mechanic>Cells(paths, excluded, …)` deriving the mechanic **from the intended solution** — One-Way/Arrow record the direction the solution travels; Forbidden names a colour that does *not* cross the cell. Use `InteriorPathCells` so dots are excluded structurally.
+3. Add `<Mechanic>Count` to `GenerationSpec`, place it in `TryBuildCandidate`, write it into the grid, and add its necessity check to the hard-reject block.
+4. If it needs a new `LevelData` column, check `BoardGenerator` reads it **and** that the generator's own `BuildBlockGrid` does — Forbidden's `pairId` was missing from the latter, which would have let the offline validation pass boards whose rule did nothing.
+5. Add tests for the placement invariant (the "never bar its own colour" class of bug).
+6. **Measure a sample before a full run:** count rejections per gate and time per attempt. Do not reuse another range's numbers — see the gotchas.
+
+**Bridge is the hard one.** It needs an actual crossing constructed between two paths, which `TryGeneratePathPartition` does not currently produce.
+
+### Gotchas that cost real time
+
+- **Tuning does not transfer between configurations.** 4 colours is fine at 6×6 and disastrous at 7×7 (127 ms/candidate, zero unique solutions, vs 9 ms at 6 colours). Fewer colours on a bigger board means long paths, and proving uniqueness gets rare and slow. Always sample the actual configuration.
+- **The RNG is seeded per range.** Re-running a failed range reproduces the same failure exactly — change `MaxAttempts` or the seed, or nothing will differ.
+- **Board size is capped by verification, not construction.** The partition builder does a 10×10 in 0.1 ms; the solver is NP-hard — 6×6 ≈ 300k steps, 7×7 ≈ 2M, 8×8 ≈ 8M (1–3 s). `SolverBudgetFor` scales with board size. Beyond 8×8 needs solver pruning, not generator work.
+- **The progress bar's cancel flag is sticky.** All generate methods call `ClearProgressBar()` on entry for this reason; without it a cancelled run makes the *next* run abort instantly, reported as "CANCELLED by user" when nobody cancelled.
+- **Editing specs:** use targeted edits, not file-wide substitutions. A scripted replace silently dropped `RequireMechanicsNecessary` from the Arrow spec, and those levels shipped with the gate never running.
+- **`DifficultyAnalyzer.Score` is not a generation target.** It rewards packing in many short paths, so optimising it makes levels *feel* easier while measuring harder. Path length is the honest proxy.
 
 ## 1. Verdict
 
