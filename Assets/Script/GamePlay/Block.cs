@@ -1091,12 +1091,37 @@ namespace FreeFlow.GamePlay
             int bit = WallBit(dir);
             if (bit == 0 || (wallMask & bit) != 0) { return; }
 
+            // If this cell's own level data named no wall at all, SetBlock never called
+            // EnsureWallGroup, so the source prefab hasn't been instantiated for this cell yet --
+            // ShowWallBar below is about to do that for the first time. SetBlock's own loop is
+            // what normally turns off the three sides a cell doesn't use, right after every wall
+            // group gets created; that loop already ran (and found nothing to show) before this
+            // cell ever had a reason to instantiate one, so nothing has told the OTHER three bars
+            // to be inactive -- they come up however the source prefab authored them, which is
+            // exactly the "4 sides lit up when only 1 should be" bug this guards against.
+            bool groupIsNew = wallGroup == null;
+
             wallMask |= bit;
 
             // Through ShowWallBar, not by hand: this used to set only the tint, so a wall added
             // during play came up as an untextured quad while a wall present at level load came up
             // textured. Two ways to draw the same thing is one too many.
             ShowWallBar(dir);
+
+            if (groupIsNew)
+            {
+                Direction[] edges = { Direction.Left, Direction.Right, Direction.Up, Direction.Down };
+                for (int i = 0; i < edges.Length; i++)
+                {
+                    if (edges[i] == dir || HasWall(edges[i])) { continue; }
+
+                    int idx = (int)edges[i] - 1;
+                    if (wallImages != null && idx >= 0 && idx < wallImages.Length && wallImages[idx] != null)
+                    {
+                        wallImages[idx].gameObject.SetActive(false);
+                    }
+                }
+            }
 
             // This cell's own level data may have named no wall at all, in which case SetBlock
             // never turned the group on (or, now, never even instantiated it) -- a wall arriving

@@ -19,7 +19,6 @@ namespace FreeFlow.UI
 
         [SerializeField] private Color completeLevel;
         [SerializeField] private Color unlockedLevel;
-        [SerializeField] private Color lockedLevel;
 
         private int levelButtonPerScreen = 30;
 
@@ -59,7 +58,7 @@ namespace FreeFlow.UI
         /// <summary>
         /// Prepares the level selection screen by instantiating and setting up level buttons.
         /// </summary>
-        /// <param name="unlockedLevels">The number of levels that are unlocked.</param>
+        /// <param name="totalLevels">The total number of levels to create buttons for.</param>
         public void SpawnLevelButtons(int totalLevels)
         {
             this.totalLevels = totalLevels;
@@ -109,7 +108,6 @@ namespace FreeFlow.UI
 
             SaveData data = SavingSystem.Instance.Load();
             int completedLevels = data.completedLevel;
-            int currentUnlockedLevel = completedLevels + 1;
 
             HashSet<int> wantedPages = new HashSet<int>();
             for (int p = centerStage - 1; p <= centerStage + 1; p++)
@@ -153,12 +151,11 @@ namespace FreeFlow.UI
                         button.ThisTransform.sizeDelta = new Vector2(buttonWidth, buttonWidth);
                         button.ThisTransform.localPosition = new Vector3(currentX, currentY);
 
-                        bool isUnlocked = (level <= currentUnlockedLevel);
                         bool isCompleted = (level <= completedLevels);
                         int levelCompletionMoves = isCompleted ? data.completedlevelMoves[level - 1] : 0;
-                        Color color = isUnlocked ? (isCompleted ? completeLevel : unlockedLevel) : lockedLevel;
+                        Color color = isCompleted ? completeLevel : unlockedLevel;
 
-                        button.SetDetails(level, isUnlocked, color, levelCompletionMoves);
+                        button.SetDetails(level, color, levelCompletionMoves);
                         pageButtons.Add(button);
 
                         currentX += buttonWidth + horizontalSpacing;
@@ -175,9 +172,9 @@ namespace FreeFlow.UI
         private void SetButtons()
         {
             SaveData data = SavingSystem.Instance.Load();
-            int currentUnlockedLevel = data.completedLevel + 1;
+            int nextLevel = data.completedLevel + 1;
 
-            currentstageOnScreen = Mathf.CeilToInt((float)currentUnlockedLevel / levelButtonPerScreen);
+            currentstageOnScreen = Mathf.CeilToInt((float)nextLevel / levelButtonPerScreen);
             currentstageOnScreen--;
             currentstageOnScreen = Mathf.Clamp(currentstageOnScreen, 0, Mathf.Max(0, levelStages.Length - 1));
 

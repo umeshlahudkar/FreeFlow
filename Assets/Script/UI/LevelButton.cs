@@ -11,7 +11,6 @@ namespace FreeFlow.UI
     public class LevelButton : MonoBehaviour
     {
         [SerializeField] private RectTransform thisTransform;
-        [SerializeField] private Button thisButton;
         [SerializeField] private TextMeshProUGUI levelNumberText;
         [SerializeField] private Image buttonImg;
 
@@ -23,14 +22,12 @@ namespace FreeFlow.UI
         public RectTransform ThisTransform { get { return thisTransform; } }
 
         /// <summary>
-        /// Sets the details for the level button, including the level number and its interactability.
+        /// Sets the details for the level button, including the level number.
         /// </summary>
         /// <param name="_levelNumber">The number associated with this level button.</param>
-        /// <param name="interactable">Whether the button should be interactable.</param>
-        public void SetDetails(int _levelNumber, bool interactable, Color imgColor, int movesCount = 0)
+        public void SetDetails(int _levelNumber, Color imgColor, int movesCount = 0)
         {
             levelNumber = _levelNumber;
-            thisButton.interactable = interactable;
             levelNumberText.text = levelNumber.ToString();
             buttonImg.color = imgColor;
 

@@ -37,36 +37,38 @@ namespace FreeFlow.GamePlay
             ValidateReachability(grid, rowCount, colCount, dots);
         }
 
-        private static Dictionary<int, List<Block>> CollectDots(Block[,] grid, int rowCount, int colCount)
+        /// <summary>
+        /// The real solvability question Validate cannot answer: does a full-coverage arrangement
+        /// of every pair's path actually exist? Deliberately NOT part of Validate, and never called
+        /// automatically from a level load -- PuzzleSolver's search has no performance guarantee
+        /// (see its own class doc), so running it on every GamePlayController.LoadLevel would risk
+        /// stalling the very gameplay this project's performance principles (plan §4.3/§40) say
+        /// must stay responsive. This is for offline use: the level generator (rejecting a
+        /// candidate board), an editor tool, or a test -- never the runtime load path.
+        /// </summary>
+        public static PuzzleSolver.SolveResult ValidateSolvability(Block[,] grid, int rowCount, int colCount,
+            PuzzleSolver.SolverOptions options = default)
         {
-            Dictionary<int, List<Block>> dots = new Dictionary<int, List<Block>>();
+            PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rowCount, colCount, options);
 
-            for (int i = 0; i < rowCount; i++)
+            if (result.Status == PuzzleSolver.SolveStatus.Unsolvable)
             {
-                for (int j = 0; j < colCount; j++)
-                {
-                    Block block = grid[i, j];
-                    if (block == null || !block.IsPairBlock) { continue; }
-
-                    // A shared destination counts as a dot for every pair it names.
-                    Register(dots, block.PairId, block);
-                    if (block.SecondPairId != 0) { Register(dots, block.SecondPairId, block); }
-                    if (block.ThirdPairId != 0) { Register(dots, block.ThirdPairId, block); }
-                    if (block.FourthPairId != 0) { Register(dots, block.FourthPairId, block); }
-                }
+                Error("this board has no full-coverage solution -- no arrangement of every pair's " +
+                      "path, respecting every mechanic, leaves every usable cell occupied.");
+            }
+            else if (result.Status == PuzzleSolver.SolveStatus.Inconclusive)
+            {
+                Error("solvability could not be determined within the search budget -- this does " +
+                      "not mean the board is invalid, only that validation could not prove it " +
+                      "either way in time. Retry with a larger SolverOptions.MaxSteps.");
             }
 
-            return dots;
+            return result;
         }
 
-        private static void Register(Dictionary<int, List<Block>> dots, int pairId, Block block)
+        private static Dictionary<int, List<Block>> CollectDots(Block[,] grid, int rowCount, int colCount)
         {
-            if (!dots.TryGetValue(pairId, out List<Block> list))
-            {
-                list = new List<Block>();
-                dots[pairId] = list;
-            }
-            list.Add(block);
+            return BoardTopology.CollectDots(grid, rowCount, colCount);
         }
 
         /// <summary>
@@ -473,32 +475,12 @@ namespace FreeFlow.GamePlay
 
         private static Block Neighbor(Block[,] grid, int rowCount, int colCount, Block from, Direction dir)
         {
-            int r = from.Row_ID;
-            int c = from.Coloum_ID;
-
-            switch (dir)
-            {
-                case Direction.Left: c--; break;
-                case Direction.Right: c++; break;
-                case Direction.Up: r--; break;
-                case Direction.Down: r++; break;
-                default: return null;
-            }
-
-            if (r < 0 || r >= rowCount || c < 0 || c >= colCount) { return null; }
-            return grid[r, c];
+            return BoardTopology.Neighbor(grid, rowCount, colCount, from, dir);
         }
 
         private static Direction Opposite(Direction dir)
         {
-            switch (dir)
-            {
-                case Direction.Left: return Direction.Right;
-                case Direction.Right: return Direction.Left;
-                case Direction.Up: return Direction.Down;
-                case Direction.Down: return Direction.Up;
-                default: return Direction.None;
-            }
+            return BoardTopology.Opposite(dir);
         }
 
         private static void Error(string message)

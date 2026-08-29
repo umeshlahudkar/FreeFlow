@@ -7,6 +7,14 @@ public struct LevelData
     public int pairCount;
 
     public GridRow[] gridRows;
+
+    // DifficultyAnalyzer's 0-100 score for this level's solution, recorded at generation time.
+    // Optional: 0 on any level nothing has scored (all hand-authored levels, and anything
+    // generated before DifficultyAnalyzer existed) -- 0 is indistinguishable from "genuinely
+    // trivial" and "never scored", which is fine for now since nothing reads this yet except the
+    // generator that writes it; a real consumer (level-select UI, daily-challenge selection) will
+    // need to tell those apart later.
+    public float difficultyScore;
 }
 
 [System.Serializable]

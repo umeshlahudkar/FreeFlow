@@ -508,12 +508,28 @@ namespace FreeFlow.GamePlay
             int count = GetPairCompleteCount();
             UIController.Instance.UpdatePairCount(count);
 
-            if (count >= UIController.Instance.CurrentLevelGoal)
+            if (count >= UIController.Instance.CurrentLevelGoal && IsBoardFullyCovered())
             {
                 GameState = GameState.Ending;
                 UIController.Instance.ActivateLevelCompleteScreen(moves);
                 SaveLevelData();
             }
+        }
+
+        /// <summary>
+        /// Whether every usable cell on the board currently carries a path. A Blocked cell is the
+        /// only kind excluded from "usable" -- it is never part of the board's required coverage,
+        /// by definition. Every other cell needs at least one occupant: a Bridge may carry two
+        /// (one per lane) but is satisfied by either, and a shared destination is satisfied the
+        /// same way a plain dot is, by whichever pair(s) actually reached it.
+        ///
+        /// This is the second half of "the level is solved", alongside <see cref="GetPairCompleteCount"/>:
+        /// connecting every pair is necessary but not sufficient -- a Flow-style board is only
+        /// complete once nothing empty is left on it either.
+        /// </summary>
+        private bool IsBoardFullyCovered()
+        {
+            return BoardTopology.IsFullyCovered(grid, gridRow, gridCol, cell => cell.OccupantCount > 0);
         }
 
         /// <summary>
