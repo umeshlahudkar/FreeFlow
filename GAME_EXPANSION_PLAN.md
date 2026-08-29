@@ -43,6 +43,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 26-30 (Forbidden) | 26–30 | 7×7 | 6 | Forbidden (+Wall on 29–30) |
 | Generate Levels 31-35 (Permitted) | 31–35 | 7×7 | 6 | Permitted (+Wall on 34–35) |
 | Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
+| Generate Levels 41-45 (Checkpoint) | 41–45 | 7×7 | 6 | Checkpoint (+Wall on 44–45) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -79,7 +80,7 @@ Never trust the generation log alone — it reports what the generator believed,
 
 ### Adding the next mechanic
 
-Remaining: Bridge, Checkpoint, Shared Destination. The recipe each of the last five followed:
+Remaining: Shared Destination. The recipe each of the last six followed:
 
 1. Check `Block.cs` — the rules engine already implements all nine mechanics. This is generator work, not gameplay work.
 2. Write `Place<Mechanic>Cells(paths, excluded, …)` deriving the mechanic **from the intended solution** — One-Way/Arrow record the direction the solution travels; Forbidden names a colour that does *not* cross the cell. Use `InteriorPathCells` so dots are excluded structurally.
@@ -659,6 +660,29 @@ Blocked drops to 4 (from 5) because a bridge needs all four neighbours usable, a
 **A second gate, for a problem that was never measured before.** Verification also showed L36 and L39 with **1 wrong route** each — the player draws the only line that exists, with nothing to search. Levels 11–35 had all landed at 3 or more without being asked to, so nothing had ever checked. `MinWrongRoutes` now states it: one partial-coverage solve capped at floor+1, rejecting ~7.5% of candidates at 4.43 ms, and only on candidates that already passed uniqueness (~1 attempt in 150), so roughly 0.03 ms/attempt amortised. Set to 3 for this range only — the earlier ranges already satisfy it, and regenerating verified levels to enforce a rule they already meet would be churn.
 
 **Result across levels 36–40:** bridges 5/5 load-bearing and 5/5 carrying two colours, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5–6, wrong routes **7–127** (was 1 on two of them), scores 47.9–49.4. 123/123 tests, `totalLevelCount` = 40.
+
+### 6.21 Levels 41–45 built (Checkpoint)
+
+Back to the ordinary recipe after Bridge broke it. Checkpoint is a per-cell rule again, so no constructor work: `PlaceCheckpointCells`, a spec count, a necessity check, tests, measure, generate.
+
+**Checkpoint is the first rule the player can violate without ever making an illegal move.** Every other mechanic polices entry — `Block.CanEnter` refuses the move. Checkpoint does not appear in `CanEnter` at all; `PuzzleSolver.CheckpointsSatisfied` tests it only when the pair is complete. The board simply refuses to finish, which is why it deserves its own introduction range.
+
+**Shared body with Permitted, deliberately.** Both answer the same placement question — "which colour owns this cell" — so `PlaceOwnerNamedCells` holds the body and both call it, rather than a same-shaped copy per mechanic (the pattern `AllCellsOfTypeAreNecessary` already established). The rules do opposite things with the answer, and even the *reason* the owner is correct differs in kind:
+
+| | Names | Why the owner |
+|---|---|---|
+| Permitted | the colour allowed through | naming anyone else **bars** the intended solution |
+| Checkpoint | the colour required through | the cell belongs to one path, so requiring another colour demands a second visit full coverage forbids — **unsolvable**, not merely worse |
+
+Because one body now serves two mechanics, a bug there would break both at once silently, so Checkpoint got its own test suite rather than leaning on Permitted's.
+
+**Measured before running** (600 attempts, seed 5150): 7.5 ms/attempt, 1 pass in 600 (~0.17%) — same profile as Permitted, ample headroom at 40 000.
+
+The notable number is **necessity rejecting 16 of the 17 candidates that reached it (94%)**. Checkpoints are usually decorative: the named colour would have crossed that cell anyway, so the rule constrains nothing. This is the mechanic where the hard-reject gate earns its cost most clearly — as a penalty rather than a reject, essentially every shipped checkpoint would have been ornamental. `MinWrongRoutes` carried over from §6.20 and rejected 0 here, but it is cheap and there is no reason a later range should be allowed to ship a board with nothing to search.
+
+**Round-trip checked before generating,** since Checkpoint reads the `pairId` column that Forbidden once failed to round-trip: on 50 built candidates, every checkpoint named a real pair, none was a dot, and every one lay on its named pair's path **in the solved board** — the §6.20 lesson applied by default now, not after the fact.
+
+**Result across levels 41–45:** checkpoints 5/5 load-bearing, 5/5 on their named pair's path in the winning solution, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5, wrong routes 15–87, scores 49.7–52.1. 129/129 tests, `totalLevelCount` = 45. Nothing needed a second run — the first Checkpoint generation shipped as-is, which is what the accumulated gates are for.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.

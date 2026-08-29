@@ -493,6 +493,67 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 41-45 (Checkpoint)")]
+        public static void GenerateLevels41To45()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 41;
+            const int endLevel = 45;
+            const int gridSize = 7;
+
+            System.Random rng = new System.Random(20260919); // a fresh seed for this level range
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel41To45(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 41-45", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" checkpoints=").Append(spec.CheckpointCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 41-45 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 36-40 (Bridge)")]
         public static void GenerateLevels36To40()
         {
@@ -726,6 +787,13 @@ namespace FreeFlow.GamePlay
             /// partition and fed into it, where each becomes two independent lane nodes. See
             /// ChooseBridgeCells and TryGeneratePathPartition's bridges parameter.</summary>
             public int BridgeCount;
+
+            /// <summary>How many Checkpoint cells to place on interior (non-dot) path cells, each
+            /// naming the colour that passes through it and requiring that it still does. Unlike
+            /// every other rule cell, a Checkpoint does not police entry -- anyone may cross it,
+            /// and the requirement is tested only when the pair is complete. See
+            /// PlaceCheckpointCells.</summary>
+            public int CheckpointCount;
 
             /// <summary>Minimum number of WRONG routes the board must admit -- pairings that
             /// connect every colour but fail to cover the board, so the player can complete all
@@ -1003,6 +1071,10 @@ namespace FreeFlow.GamePlay
                             continue;
                         }
                         if (spec.PermittedCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.AllowedForPairs))
+                        {
+                            continue;
+                        }
+                        if (spec.CheckpointCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Checkpoint))
                         {
                             continue;
                         }
@@ -1710,6 +1782,51 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Levels 41-45: Checkpoint introduced -- a cell one named colour is REQUIRED to pass
+        /// through. Levels 44-45 recombine it with Wall and Blocked.
+        ///
+        /// Checkpoint is the first rule that constrains a colour's route without touching any
+        /// cell's admission rules, so it is the one mechanic a player can violate without ever
+        /// making an illegal move: the board simply refuses to complete. That makes it worth
+        /// introducing on its own, and worth being strict about necessity -- a checkpoint on a cell
+        /// its colour would have crossed anyway is invisible.
+        ///
+        /// Same 7x7 / 6 colours / 5 blocked shape as the Forbidden and Permitted ranges (Blocked
+        /// returns to 5; only Bridge needed 4, for its four-neighbour requirement). MinWrongRoutes
+        /// carries over from the Bridge range -- see §6.20; it is cheap and there is no reason a
+        /// later range should be allowed to ship a board with nothing to search.
+        /// </summary>
+        private static GenerationSpec SpecForLevel41To45(int levelNumber, int gridSize)
+        {
+            bool combineOthers = levelNumber >= 44;
+
+            float t = (levelNumber - 41) / 4f;
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 6,
+                MaxColorCount = 6,
+                StraightnessBias = straightness,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 5,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
+                CheckpointCount = 1,
+                MinWrongRoutes = 3,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 40000
+            };
+        }
+
+        /// <summary>
         /// Levels 36-40: Bridge introduced -- one cell carrying two colours crossing at right
         /// angles, each running straight through. Levels 39-40 recombine it with Wall and Blocked.
         ///
@@ -1893,6 +2010,13 @@ namespace FreeFlow.GamePlay
                 PlacePermittedCells(segments, permittedExcluded, palette, spec.PermittedCount, rng);
             if (permitted.Count < spec.PermittedCount) { return false; } // not enough interior cells -- retry
 
+            HashSet<(int Row, int Col)> checkpointExcluded = new HashSet<(int, int)>(permittedExcluded);
+            for (int p = 0; p < permitted.Count; p++) { checkpointExcluded.Add((permitted[p].Row, permitted[p].Col)); }
+
+            List<(int Row, int Col, int CheckpointPairId)> checkpoints =
+                PlaceCheckpointCells(segments, checkpointExcluded, palette, spec.CheckpointCount, rng);
+            if (checkpoints.Count < spec.CheckpointCount) { return false; } // not enough interior cells -- retry
+
             PairColorType[,] colorGrid = new PairColorType[size, size];
             for (int s = 0; s < segments.Count; s++)
             {
@@ -1947,6 +2071,11 @@ namespace FreeFlow.GamePlay
             {
                 typeGrid[permitted[a].Row, permitted[a].Col] = BlockType.AllowedForPairs;
                 pairIdGrid[permitted[a].Row, permitted[a].Col] = permitted[a].AllowedPairId;
+            }
+            for (int k = 0; k < checkpoints.Count; k++)
+            {
+                typeGrid[checkpoints[k].Row, checkpoints[k].Col] = BlockType.Checkpoint;
+                pairIdGrid[checkpoints[k].Row, checkpoints[k].Col] = checkpoints[k].CheckpointPairId;
             }
 
             data = new LevelData
@@ -2124,7 +2253,40 @@ namespace FreeFlow.GamePlay
             List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
             List<PairColorType> palette, int count, System.Random rng)
         {
-            List<(int Row, int Col, int AllowedPairId)> result = new List<(int, int, int)>();
+            return PlaceOwnerNamedCells(paths, excludedCells, palette, count, rng);
+        }
+
+        /// <summary>
+        /// Chooses CheckpointCount interior path cells and names, on each, the colour whose path
+        /// runs through it -- the pair now REQUIRED to pass through this cell.
+        ///
+        /// Shares its body with <see cref="PlacePermittedCells"/> because the placement question is
+        /// the same one ("which colour owns this cell"), even though the two rules do opposite
+        /// things with the answer: a Permitted cell turns other colours away, while a Checkpoint
+        /// lets anyone through and is instead checked at completion time -- Block.CanEnter does not
+        /// mention Checkpoint at all, PuzzleSolver.CheckpointsSatisfied does.
+        ///
+        /// Naming the owner is not a preference here, it is the only option that can ever be
+        /// satisfied: the cell belongs to exactly one path in the intended solution, so requiring
+        /// any other colour to pass through it demands a second visit that full coverage forbids.
+        /// </summary>
+        private static List<(int Row, int Col, int CheckpointPairId)> PlaceCheckpointCells(
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
+            List<PairColorType> palette, int count, System.Random rng)
+        {
+            return PlaceOwnerNamedCells(paths, excludedCells, palette, count, rng);
+        }
+
+        /// <summary>
+        /// Picks <paramref name="count"/> interior (non-dot) path cells and pairs each with the
+        /// colour whose path runs through it. Shared by Permitted and Checkpoint, which differ in
+        /// what they do with that colour, not in how it is chosen -- see each caller's doc.
+        /// </summary>
+        private static List<(int Row, int Col, int PairId)> PlaceOwnerNamedCells(
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
+            List<PairColorType> palette, int count, System.Random rng)
+        {
+            List<(int Row, int Col, int PairId)> result = new List<(int, int, int)>();
             if (count <= 0 || paths.Count < 2) { return result; }
 
             List<(int Path, int Index)> candidates = InteriorPathCells(paths, excludedCells, rng);
