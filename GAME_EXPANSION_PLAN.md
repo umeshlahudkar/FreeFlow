@@ -2,7 +2,7 @@
 
 Status: **Living document — updated after every phase.** Originally a feasibility audit with no code changed; now also the running record of what's actually been built, what's still pending, and any issues found along the way. See the Progress Log immediately below for the at-a-glance status, and §6 for the detailed per-phase notes.
 
-**Campaign rescoped (superseding §12 of the original spec and Phase 7's "Worlds 1–11, 500+ levels" framing):** the user replaced the original 500+/11-world campaign design with a detailed **200-level** campaign spec — a 50-level Learning Phase teaching all 9 mechanics one at a time (Basic Flow → Blocked → Wall → One-Way → Arrow → Forbidden → Permitted → Bridge → Checkpoint → Shared Destination, levels 47–50 combining them), followed by a 150-level Mastery Phase that only recombines what's already been taught, scaling grid size (7×7→12×12), mechanic count per level (2–3 up to 5–7), and difficulty — never introducing anything new after level 50. See §6.6–6.10 for what's actually built against this new structure (25/200 so far) and what the remaining scope honestly looks like.
+**Campaign rescoped (superseding §12 of the original spec and Phase 7's "Worlds 1–11, 500+ levels" framing):** the user replaced the original 500+/11-world campaign design with a detailed **200-level** campaign spec — a 50-level Learning Phase teaching all 9 mechanics one at a time (Basic Flow → Blocked → Wall → One-Way → Arrow → Forbidden → Permitted → Bridge → Checkpoint → Shared Destination, levels 47–50 combining them), followed by a 150-level Mastery Phase that only recombines what's already been taught, scaling grid size (7×7→12×12), mechanic count per level (2–3 up to 5–7), and difficulty — never introducing anything new after level 50. See §6.6–6.22 for what's actually built against this new structure (**50/200 — the whole Learning Phase, all nine mechanics**) and §7 for where it stands and what is still open.
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
@@ -14,10 +14,10 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 | 1 — Full-board coverage as a real rule | ✅ Done | Win condition now requires full coverage, not just connected pairs |
 | 2 — The solver core | ✅ Done | `PuzzleSolver` built and tested; one real bug found and fixed (see §6) |
 | 3 — Solver-backed validator + uniqueness + duplicates | ✅ Done | `LevelValidator.ValidateSolvability`, multi-solution search, `LevelCanonicalizer`; all correct on first test run (see §6) |
-| 4 — Level generator (Editor tool) | 🟡 Partial | Solution built by `TryGeneratePathPartition` (grows every colour's path at once, Warnsdorff most-constrained-first) after the Hamiltonian-snake constructor was deleted for not scaling past 6x6 (§6.15); **generates Blocked cells, Wall barriers, One-Way cells, and Arrow cells**, all placement derived from the solution and necessity-gated; acceptance driven by path length + the full-coverage rule, NOT DifficultyAnalyzer's score (§6.14) — 5 more mechanics' generation logic still to build |
+| 4 — Level generator (Editor tool) | ✅ Done | Solution built by `TryGeneratePathPartition` (grows every colour's path at once, Warnsdorff most-constrained-first) after the Hamiltonian-snake constructor was deleted for not scaling past 6x6 (§6.15); **generates all nine mechanics** — seven derived from the finished solution, plus Bridge and Shared Destination built into the partition itself via node splitting (§6.20, §6.22); acceptance driven by path length, uniqueness, necessity and a wrong-route floor, NOT DifficultyAnalyzer's score (§6.14) |
 | 5 — Difficulty analyzer | ✅ Done | `DifficultyAnalyzer` built, tested, and wired into `LevelGenerator` as the actual acceptance gate — see §6 for the achievable-range finding this surfaced |
-| 6 — Required-mechanic validator | ✅ Done | `RequiredMechanicValidator` built and tested (a real mathematical correction to the spec's naive reading surfaced along the way, see §6) — wired into `LevelGenerator` for Blocked cells, Walls, One-Way, and Arrow (§6.6–6.10) |
-| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **30/200 levels built** (1–10 Basic+Blocked, 11–15 Wall, 16–20 One-Way, 21–25 Arrow, 26–30 Forbidden). Levels 1–10 keep the strict full-coverage rule as the tutorial; 11–30 relax it so wrong routes exist and mechanics can matter — 41/41 mechanic instances now load-bearing, every level uniquely solvable, boards 6×6–7×7 — see §6.6–6.18 |
+| 6 — Required-mechanic validator | ✅ Done | `RequiredMechanicValidator` built and tested (a real mathematical correction to the spec's naive reading surfaced along the way, see §6) — wired into `LevelGenerator` as a HARD REJECT (§6.18) for Blocked, Wall, One-Way, Arrow, Forbidden, Permitted, Checkpoint and Bridge. Shared Destination is deliberately exempt — it is dot identity, not a strippable rule, so there is no board without it to compare against (§6.22) |
+| 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **50/200 levels built — the entire Learning Phase, all nine mechanics taught** (1–10 Basic+Blocked, 11–15 Wall, 16–20 One-Way, 21–25 Arrow, 26–30 Forbidden, 31–35 Permitted, 36–40 Bridge, 41–45 Checkpoint, 46–50 Shared Destination). Levels 1–10 keep the strict full-coverage rule as the tutorial; 11+ relax it so wrong routes exist and mechanics can matter — every mechanic instance load-bearing, every level uniquely solvable, boards 6×6–7×7 — see §6.6–6.22. Remaining: levels 51–200 (Mastery), which recombines rather than introduces — see §7 |
 | 8 — Hint system | ⬜ Not started | |
 | 9 — Player skill system + save-data expansion | ⬜ Not started | |
 | 10 — Daily challenge | ⬜ Not started | |
@@ -100,6 +100,10 @@ Never trust the generation log alone — it reports what the generator believed,
 - **The progress bar's cancel flag is sticky.** All generate methods call `ClearProgressBar()` on entry for this reason; without it a cancelled run makes the *next* run abort instantly, reported as "CANCELLED by user" when nobody cancelled.
 - **Editing specs:** use targeted edits, not file-wide substitutions. A scripted replace silently dropped `RequireMechanicsNecessary` from the Arrow spec, and those levels shipped with the gate never running.
 - **`DifficultyAnalyzer.Score` is not a generation target.** It rewards packing in many short paths, so optimising it makes levels *feel* easier while measuring harder. Path length is the honest proxy.
+
+---
+
+> **Sections 1–5 are the original survey, written before any of this was built, and are kept as the record of what was decided and why.** They describe a codebase that no longer exists: §3 lists as "confirmed absent" the solver, the generator, the coverage rule, difficulty scoring, uniqueness and duplicate detection, and required-mechanic validation — all of which are now built — and it describes level gating that has since been removed entirely. **For what is actually true today, read §0 and §6.** Nothing in §1–§5 should be trusted as a statement about the current code.
 
 ## 1. Verdict
 
@@ -719,11 +723,26 @@ Responsive layout across aspect ratios (grid/board scaling already exists and sh
 **Phase 13 — Test suite hardening + final QA gate**
 Bulk-generate-and-validate regression tests (spec §42), no-level-ships-without-passing-pipeline gate (spec §37/45).
 
-## 7. Open questions before implementation starts
+## 7. Where the project actually stands
 
-- **Scope for a first milestone.** The full 500-level, 11-world spec is a large multi-month effort even with the solver reused everywhere. Worth agreeing a first slice (e.g., Phase 0–4 plus World 1 + World 2 content only) to validate the solver and generator actually work end-to-end before committing to all 11 worlds.
-- **Existing 7 levels**: keep as an early-World-1 subset, or regenerate everything from the new pipeline for consistency (including proper full-coverage solutions, which they were never authored to have)?
-- **Undo/redo**: spec doesn't ask for more than the current single-step-in-drag undo plus a Restart button, both of which already exist — confirm that's sufficient rather than a full command-stack undo.
-- **Art/UI scope**: the plan above is code/data-architecture; it doesn't include new art for world themes, daily-challenge screens, statistics screens, etc. — that's a separate (parallel) content task.
+**Levels 1–50 are built and verified; all nine mechanics are done.** `totalLevelCount` = 50. Every level from 11 up has exactly one winning solution with wrong routes to search; levels 1–10 keep the strict coverage rule as the tutorial tier (§6.18). 137 tests pass.
 
-Let me know which phase you'd like to start with, or if you want this broken down further (e.g., a detailed design for the solver's algorithm before any code is written).
+| Mechanic | Levels | Built in |
+|---|---|---|
+| Basic Flow + Blocked | 1–10 | §6.6, §6.11–6.13 |
+| Wall | 11–15 | §6.7 |
+| One-Way | 16–20 | §6.8 |
+| Arrow | 21–25 | §6.10 |
+| Forbidden | 26–30 | §6.18 |
+| Permitted | 31–35 | §6.19 |
+| Bridge | 36–40 | §6.20 |
+| Checkpoint | 41–45 | §6.21 |
+| Shared Destination | 46–50 | §6.22 |
+
+### Open questions, current
+
+- **Levels 51–200 (Mastery) is a different generation problem.** No new placement code is needed — it combines mechanics rather than introducing them. What is untested is *multi-mechanic necessity*: every range so far carried one headline mechanic plus Blocked and sometimes Wall, and the necessity gate was measured per range on that basis. Two or three headline mechanics on one board multiplies the necessity solves (two per instance) and their hit rates compound, so the numbers must be re-measured, not extrapolated — see §0's first gotcha.
+- **Board size beyond 7×7 needs solver work, not generator work.** The partition builder does 10×10 in 0.1 ms; verification is the ceiling (8×8 ≈ 8M steps, 1–3 s per candidate). Larger boards are the obvious difficulty lever for the Mastery tier, so this is likely the next real engineering task: solver pruning, not more specs.
+- **`DifficultyAnalyzer.Score` still is not a difficulty target** and all 50 levels score in a narrow 43–56 band regardless of how they actually play. Something better is needed before difficulty can be *ordered* rather than merely bounded — the level-select UI and daily-challenge selection both want a number that means something.
+- **Phases 8–13 are untouched** (hints, save-data versioning, daily challenge, campaign/world UI, mobile polish, QA gate). Hints are the natural next one: they read the stored per-level solution and need no new solving.
+- **Art/UI scope** remains a separate parallel content task; nothing in this plan covers world themes, statistics screens, or daily-challenge screens.
