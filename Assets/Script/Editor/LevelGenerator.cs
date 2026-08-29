@@ -493,6 +493,67 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 36-40 (Bridge)")]
+        public static void GenerateLevels36To40()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 36;
+            const int endLevel = 40;
+            const int gridSize = 7;
+
+            System.Random rng = new System.Random(20260912); // a fresh seed for this level range
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel36To40(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 36-40", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" bridges=").Append(spec.BridgeCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 36-40 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 31-35 (Permitted)")]
         public static void GenerateLevels31To35()
         {
@@ -657,6 +718,25 @@ namespace FreeFlow.GamePlay
             /// naming the colour that DOES pass through it -- the exact inverse of Forbidden, since
             /// a Permitted cell refuses every colour it does not name. See PlacePermittedCells.</summary>
             public int PermittedCount;
+
+            /// <summary>How many Bridge cells to place. Unlike every mechanic above, this one is
+            /// NOT placed onto a finished solution -- a Bridge carries two paths crossing at right
+            /// angles, and no amount of decorating a partition after the fact can create a second
+            /// path through a cell that already belongs to one. The cells are chosen BEFORE the
+            /// partition and fed into it, where each becomes two independent lane nodes. See
+            /// ChooseBridgeCells and TryGeneratePathPartition's bridges parameter.</summary>
+            public int BridgeCount;
+
+            /// <summary>Minimum number of WRONG routes the board must admit -- pairings that
+            /// connect every colour but fail to cover the board, so the player can complete all
+            /// the dots and still be refused. 0 disables the check.
+            ///
+            /// This is the honest measure of whether a level is a puzzle or a trace. A board whose
+            /// only pairing is the winning one has nothing to search: the player draws the single
+            /// line that exists. Levels 11-35 all landed at 3 or more without being asked to, but
+            /// two of the first Bridge levels came out at 1, so it is worth stating rather than
+            /// hoping for -- see §6.20.</summary>
+            public int MinWrongRoutes;
 
             /// <summary>If true, every placed mechanic above (any count > 0) must be verified
             /// load-bearing via RequiredMechanicValidator before a candidate is fully accepted --
@@ -857,6 +937,32 @@ namespace FreeFlow.GamePlay
                     // necessity checks. Level 21 then ran for ten minutes without finishing.
                     if (spec.Uniqueness == UniquenessPolicy.Require && !isUnique) { continue; }
 
+                    // The constructor guarantees two DIFFERENT colours cross each bridge, but that
+                    // guarantee covers the arrangement it built, not necessarily the one the player
+                    // must find: the dots it derives admit other solutions, and the board can turn
+                    // out to be uniquely solvable by one of those instead. A single colour running
+                    // through both lanes is legal (Block.CanAcceptEntry waves through a pair that
+                    // already owns the other axis), so nothing downstream rejects it -- it just
+                    // makes the crossing art a lie and teaches the mechanic wrong. Level 40 shipped
+                    // exactly that before this gate existed. Free: solveResult is already in hand,
+                    // so it sits ahead of the necessity checks that re-solve the board.
+                    if (spec.BridgeCount > 0 && !EveryBridgeCarriesTwoColours(solveResult, grid, rows, cols))
+                    {
+                        continue;
+                    }
+
+                    // Is there anything to search? Costs one partial-coverage solve, capped at the
+                    // floor+1 so it stops as soon as the answer is known rather than enumerating
+                    // every pairing. Only candidates that already passed solve/minPath/uniqueness
+                    // get this far -- roughly one attempt in 150 -- so the amortised cost is
+                    // negligible even though a single call is comparable to a whole attempt.
+                    if (spec.MinWrongRoutes > 0)
+                    {
+                        PuzzleSolver.SolveResult pairings = LevelValidator.ValidateSolvability(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(solverBudget, spec.MinWrongRoutes + 1, true));
+                        if (pairings.SolutionsFound - 1 < spec.MinWrongRoutes) { continue; }
+                    }
+
                     float uniquenessPenalty = isUnique ? 0f : spec.Uniqueness switch
                     {
                         UniquenessPolicy.Require => RequiredUniquenessPenalty,
@@ -897,6 +1003,15 @@ namespace FreeFlow.GamePlay
                             continue;
                         }
                         if (spec.PermittedCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.AllowedForPairs))
+                        {
+                            continue;
+                        }
+                        // A Bridge is the one mechanic whose necessity is answered by plain
+                        // solvability rather than by solution count: it GRANTS capacity, so
+                        // stripping it leaves the crossing with nowhere to go and the board
+                        // unsolvable outright. RequiredMechanicValidator.Classify handles that
+                        // case; nothing special is needed here beyond asking.
+                        if (spec.BridgeCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Bridge))
                         {
                             continue;
                         }
@@ -1054,12 +1169,57 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Whether every Bridge on the board is crossed by two DIFFERENT colours in the winning
+        /// solution, rather than by one colour using both of its lanes.
+        ///
+        /// Necessity does not cover this. A self-crossing bridge still passes
+        /// RequiredMechanicValidator, because stripping it removes the straight-through rule and
+        /// usually opens a second solution -- so it is genuinely load-bearing while still being the
+        /// wrong picture. This asks the separate question the art promises: two colours, meeting.
+        /// </summary>
+        private static bool EveryBridgeCarriesTwoColours(PuzzleSolver.SolveResult solveResult,
+            Block[,] grid, int rowCount, int colCount)
+        {
+            if (solveResult.Solutions == null) { return false; }
+
+            for (int r = 0; r < rowCount; r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    if (grid[r, c].BlockType != BlockType.Bridge) { continue; }
+
+                    int coloursThrough = 0;
+                    for (int s = 0; s < solveResult.Solutions.Count; s++)
+                    {
+                        List<(int Row, int Col)> cells = solveResult.Solutions[s].Cells;
+                        int visits = 0;
+                        for (int i = 0; i < cells.Count; i++)
+                        {
+                            if (cells[i].Row == r && cells[i].Col == c) { visits++; }
+                        }
+
+                        if (visits > 1) { return false; } // one colour taking both lanes
+                        if (visits == 1) { coloursThrough++; }
+                    }
+
+                    if (coloursThrough != 2) { return false; }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Spec's required-mechanic rule (§10/§27), applied to every cell of <paramref
         /// name="type"/> on the board: each one must be load-bearing, not decorative. One
-        /// BlockType-parameterized scan covers Blocked, One-Way, and (as more mechanics land)
-        /// Arrow/Forbidden/Allowed too, rather than a same-shaped copy per mechanic -- only Bridge
-        /// and Wall need their own version, since Bridge's necessity is still per-cell/per-type but
-        /// Wall is an edge property with no BlockType at all (see AllWallsAreNecessary).
+        /// BlockType-parameterized scan covers Blocked, One-Way, Arrow, Forbidden, Allowed and
+        /// Bridge alike, rather than a same-shaped copy per mechanic. Only Wall needs its own
+        /// version, being an edge property with no BlockType at all (see AllWallsAreNecessary).
+        ///
+        /// Bridge reaches the right answer through a different branch rather than a different
+        /// scan: it grants capacity instead of restricting it, so stripping it makes the board
+        /// UNSOLVABLE rather than merely multi-solution. RequiredMechanicValidator.Classify treats
+        /// that as Required, so the same call works unchanged.
         /// </summary>
         private static bool AllCellsOfTypeAreNecessary(Block[,] grid, int rowCount, int colCount, BlockType type)
         {
@@ -1550,6 +1710,50 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Levels 36-40: Bridge introduced -- one cell carrying two colours crossing at right
+        /// angles, each running straight through. Levels 39-40 recombine it with Wall and Blocked.
+        ///
+        /// Same 7x7 / 6 colours / 5 blocked shape as the two ranges before it, for the reason given
+        /// on SpecForLevel31To35. What differs is that BridgeCount is not a decoration count like
+        /// the others: it feeds the partition builder rather than a placement pass, so a board that
+        /// cannot seat a crossing fails during construction instead of being filtered afterwards
+        /// (see TryGeneratePathPartition).
+        ///
+        /// Blocked drops to 4 because a bridge needs all four of its neighbours usable, and five
+        /// blocked cells on a 7x7 leave few interior cells that qualify -- construction failures
+        /// were cheap but frequent enough to be worth one fewer hole.
+        /// </summary>
+        private static GenerationSpec SpecForLevel36To40(int levelNumber, int gridSize)
+        {
+            bool combineOthers = levelNumber >= 39;
+
+            float t = (levelNumber - 36) / 4f;
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 6,
+                MaxColorCount = 6,
+                StraightnessBias = straightness,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 4,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
+                BridgeCount = 1,
+                MinWrongRoutes = 3,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 40000
+            };
+        }
+
+        /// <summary>
         /// Levels 31-35: Permitted Cell introduced -- a cell only one named colour may enter, the
         /// mirror of Forbidden. Levels 34-35 combine it with Wall and Blocked, the same
         /// "introduce alone, then recombine with what was already taught" shape as every earlier
@@ -1603,11 +1807,16 @@ namespace FreeFlow.GamePlay
             bool[,] usable = PlaceBlockedCells(size, spec.BlockedCellCount, spec.BlockedCellsInteriorOnly, rng);
             int usableCount = (size * size) - spec.BlockedCellCount;
 
+            // Bridges are chosen BEFORE the partition, unlike every other mechanic: a crossing has
+            // to be built into the solution, not read off a finished one. See ChooseBridgeCells.
+            HashSet<(int Row, int Col)> bridges = ChooseBridgeCells(size, usable, spec.BridgeCount, rng);
+            if (bridges.Count < spec.BridgeCount) { return false; } // board can't seat them -- retry
+
             // Grows every colour's path at once rather than cutting one Hamiltonian path. Every
             // consumer below takes these per-path lists, which is what keeps the directional
             // mechanics honest -- see TryGeneratePathPartition.
             List<List<(int Row, int Col)>> segments =
-                TryGeneratePathPartition(size, usable, usableCount, colorCount, rng);
+                TryGeneratePathPartition(size, usable, usableCount, colorCount, bridges, rng);
             if (segments == null) { return false; }
 
             HashSet<(int Row, int Col)> dotCells = new HashSet<(int, int)>();
@@ -1644,14 +1853,20 @@ namespace FreeFlow.GamePlay
             List<(int Row, int Col, Direction Dir)> walls = PlaceWalls(usable, size, segments, spec.WallCount, rng);
             if (walls.Count < spec.WallCount) { return false; } // not enough non-path edges -- retry
 
-            // Endpoints are excluded by InteriorPathCells itself now, so nothing extra to pass.
+            // Endpoints are excluded by InteriorPathCells itself now, so bridges are the only thing
+            // left to pass: a bridge cell IS interior to both its paths and would otherwise be a
+            // legal pick, but BlockType is one per cell, so a One-Way here would overwrite the
+            // crossing. (This is also what keeps reversedByCell honest -- a bridge cell appears in
+            // two segments and gets two conflicting entries above, and this is why nobody reads them.)
+            HashSet<(int Row, int Col)> oneWayExcluded = new HashSet<(int, int)>(bridges);
+
             List<(int Row, int Col, Direction EntryDir)> oneWays =
-                PlaceOneWayCells(segments, null, reversedByCell, spec.OneWayCount, rng);
+                PlaceOneWayCells(segments, oneWayExcluded, reversedByCell, spec.OneWayCount, rng);
             if (oneWays.Count < spec.OneWayCount) { return false; } // not enough interior cells -- retry
 
             // Arrow must never land on a cell One-Way already claimed -- the two are mutually
             // exclusive BlockTypes, so a cell can't carry both. (Dots are already excluded.)
-            HashSet<(int Row, int Col)> arrowExcluded = new HashSet<(int, int)>();
+            HashSet<(int Row, int Col)> arrowExcluded = new HashSet<(int, int)>(oneWayExcluded);
             for (int o = 0; o < oneWays.Count; o++) { arrowExcluded.Add((oneWays[o].Row, oneWays[o].Col)); }
 
             List<(int Row, int Col, Direction ExitDir)> arrows =
@@ -1702,6 +1917,10 @@ namespace FreeFlow.GamePlay
                 {
                     typeGrid[r, c] = usable[r, c] ? BlockType.Normal : BlockType.Blocked;
                 }
+            }
+            foreach ((int Row, int Col) bridge in bridges)
+            {
+                typeGrid[bridge.Row, bridge.Col] = BlockType.Bridge;
             }
             for (int o = 0; o < oneWays.Count; o++)
             {
@@ -2124,12 +2343,6 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Chooses BlockedCellCount cells to exclude from the board, retrying until the
-        /// remaining usable cells form a single connected region -- a disconnected or
-        /// single-cell-island remainder (spec §15-17) could never admit one Hamiltonian path
-        /// covering it, so there is no point even trying the snake search against it.
-        /// </summary>
-        /// <summary>
         /// Partitions the usable board directly into <paramref name="pathCount"/> simple paths --
         /// one per colour, each path's two ends becoming that colour's dots.
         ///
@@ -2161,76 +2374,130 @@ namespace FreeFlow.GamePlay
         private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
             int usableCount, int pathCount, System.Random rng)
         {
-            if (pathCount < 1 || usableCount < pathCount * 2) { return null; }
+            return TryGeneratePathPartition(size, usable, usableCount, pathCount, null, rng);
+        }
 
-            List<(int Row, int Col)> freeCells = new List<(int, int)>();
+        /// <summary>
+        /// As above, but with <paramref name="bridges"/> carrying two paths each.
+        ///
+        /// <b>Why this cannot be a placement pass like every other mechanic.</b> One-Way, Arrow,
+        /// Forbidden and Permitted are all decorations applied to a finished partition: the
+        /// solution exists first, and the rule is read off it. A Bridge is not a restriction on a
+        /// cell -- it is extra capacity, two paths crossing at right angles. A partition gives
+        /// every cell to exactly one path, so there is no finished partition to read a crossing
+        /// off; the second path has to be there from the start.
+        ///
+        /// <b>Node splitting.</b> So a bridge cell enters the search as TWO independent nodes: a
+        /// horizontal lane adjacent only to the cells left and right of it, and a vertical lane
+        /// adjacent only to those above and below. Everything else is unchanged -- the same
+        /// Warnsdorff growth covers every node exactly once, and because the two lanes are separate
+        /// nodes, both get covered. Two consequences fall out for free rather than needing to be
+        /// enforced: a lane has exactly two neighbours, so a path through it is straight (which is
+        /// what <see cref="Block.CanExitFrom"/> demands of a bridge), and it can never wander onto
+        /// the other axis mid-cell.
+        ///
+        /// Two things the graph cannot express are checked afterwards instead:
+        ///   - <b>A lane must be interior to its path.</b> A path ENDING on a bridge would make
+        ///     that cell a pair dot, which LevelValidator rejects outright -- a dot is where a path
+        ///     starts, not a crossing.
+        ///   - <b>The two lanes must belong to DIFFERENT paths.</b> Nothing stops one colour taking
+        ///     both, but that is a path crossing itself, not two colours crossing, and the bridge
+        ///     would not be load-bearing.
+        /// </summary>
+        private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
+            int usableCount, int pathCount, HashSet<(int Row, int Col)> bridges, System.Random rng)
+        {
+            if (pathCount < 1) { return null; }
+
+            int bridgeCount = bridges == null ? 0 : bridges.Count;
+
+            // Node ids: every usable cell gets one, and every bridge cell gets a SECOND for its
+            // other lane. nodeOfCell holds the horizontal lane for a bridge, verticalNodeOfCell
+            // the other; for a normal cell the former is simply the cell and the latter is -1.
+            int[,] nodeOfCell = new int[size, size];
+            int[,] verticalNodeOfCell = new int[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { nodeOfCell[r, c] = -1; verticalNodeOfCell[r, c] = -1; }
+            }
+
+            List<(int Row, int Col)> cellOfNode = new List<(int, int)>();
+            List<bool> isLane = new List<bool>();
             for (int r = 0; r < size; r++)
             {
                 for (int c = 0; c < size; c++)
                 {
-                    if (usable[r, c]) { freeCells.Add((r, c)); }
+                    if (!usable[r, c]) { continue; }
+                    bool bridge = bridgeCount > 0 && bridges.Contains((r, c));
+
+                    nodeOfCell[r, c] = cellOfNode.Count;
+                    cellOfNode.Add((r, c));
+                    isLane.Add(bridge);
+
+                    if (!bridge) { continue; }
+                    verticalNodeOfCell[r, c] = cellOfNode.Count;
+                    cellOfNode.Add((r, c));
+                    isLane.Add(true);
                 }
             }
 
-            // taken[r,c]: -1 free, otherwise the index of the path occupying it.
-            int[,] taken = new int[size, size];
-            for (int r = 0; r < size; r++)
-            {
-                for (int c = 0; c < size; c++) { taken[r, c] = -1; }
-            }
+            int nodeCount = cellOfNode.Count;
+            if (nodeCount != usableCount + bridgeCount) { return null; }
+            if (nodeCount < pathCount * 2) { return null; }
 
-            // Seed one cell per path, all distinct.
-            for (int i = freeCells.Count - 1; i > 0; i--)
+            int[][] neighbours = BuildPartitionAdjacency(size, usable, bridges, nodeOfCell, verticalNodeOfCell,
+                cellOfNode, bridgeCount);
+
+            // taken[node]: -1 free, otherwise the index of the path occupying it.
+            int[] taken = new int[nodeCount];
+            for (int i = 0; i < nodeCount; i++) { taken[i] = -1; }
+
+            // Seed one node per path, all distinct.
+            List<int> freeNodes = new List<int>();
+            for (int i = 0; i < nodeCount; i++) { freeNodes.Add(i); }
+            for (int i = freeNodes.Count - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
-                (freeCells[i], freeCells[j]) = (freeCells[j], freeCells[i]);
+                (freeNodes[i], freeNodes[j]) = (freeNodes[j], freeNodes[i]);
             }
 
-            List<List<(int Row, int Col)>> paths = new List<List<(int, int)>>();
+            List<List<int>> nodePaths = new List<List<int>>();
             for (int i = 0; i < pathCount; i++)
             {
-                (int Row, int Col) seed = freeCells[i];
-                taken[seed.Row, seed.Col] = i;
-                paths.Add(new List<(int, int)> { seed });
+                int seed = freeNodes[i];
+                taken[seed] = i;
+                nodePaths.Add(new List<int> { seed });
             }
 
             int placed = pathCount;
-            while (placed < usableCount)
+            while (placed < nodeCount)
             {
                 int bestPath = -1;
                 bool bestAtFront = false;
-                (int Row, int Col) bestCell = (0, 0);
+                int bestNode = -1;
                 int bestFreeNeighbours = int.MaxValue;
                 int bestPathLength = int.MaxValue;
                 int tieCount = 0;
 
-                for (int p = 0; p < paths.Count; p++)
+                for (int p = 0; p < nodePaths.Count; p++)
                 {
-                    List<(int Row, int Col)> path = paths[p];
+                    List<int> path = nodePaths[p];
 
-                    // Both ends of a path can grow. A 1-cell path has the same cell for both;
+                    // Both ends of a path can grow. A 1-node path has the same node for both;
                     // considering it twice is harmless, just redundant.
                     for (int side = 0; side < 2; side++)
                     {
-                        (int Row, int Col) end = side == 0 ? path[0] : path[path.Count - 1];
+                        int end = side == 0 ? path[0] : path[path.Count - 1];
+                        int[] adjacency = neighbours[end];
 
-                        for (int d = 0; d < Directions.Length; d++)
+                        for (int d = 0; d < adjacency.Length; d++)
                         {
-                            int nr = end.Row, nc = end.Col;
-                            switch (Directions[d])
-                            {
-                                case Direction.Left: nc--; break;
-                                case Direction.Right: nc++; break;
-                                case Direction.Up: nr--; break;
-                                case Direction.Down: nr++; break;
-                            }
+                            int candidate = adjacency[d];
+                            if (taken[candidate] != -1) { continue; }
 
-                            if (nr < 0 || nr >= size || nc < 0 || nc >= size) { continue; }
-                            if (!usable[nr, nc] || taken[nr, nc] != -1) { continue; }
+                            int freeNeighbours = CountFreeNeighbours(neighbours, taken, candidate);
 
-                            int freeNeighbours = CountFreeNeighbours(size, usable, taken, nr, nc);
-
-                            // Most-constrained cell first; shortest path breaks ties; a random
+                            // Most-constrained node first; shortest path breaks ties; a random
                             // pick breaks the rest, so repeated runs explore different boards.
                             bool better = freeNeighbours < bestFreeNeighbours
                                 || (freeNeighbours == bestFreeNeighbours && path.Count < bestPathLength);
@@ -2246,39 +2513,162 @@ namespace FreeFlow.GamePlay
 
                             bestPath = p;
                             bestAtFront = side == 0;
-                            bestCell = (nr, nc);
+                            bestNode = candidate;
                             bestFreeNeighbours = freeNeighbours;
                             bestPathLength = path.Count;
                         }
                     }
                 }
 
-                // Nothing can grow but cells remain -- they are stranded. Cheap failure; the
+                // Nothing can grow but nodes remain -- they are stranded. Cheap failure; the
                 // caller retries with different seeds.
                 if (bestPath < 0) { return null; }
 
-                taken[bestCell.Row, bestCell.Col] = bestPath;
-                if (bestAtFront) { paths[bestPath].Insert(0, bestCell); }
-                else { paths[bestPath].Add(bestCell); }
+                taken[bestNode] = bestPath;
+                if (bestAtFront) { nodePaths[bestPath].Insert(0, bestNode); }
+                else { nodePaths[bestPath].Add(bestNode); }
                 placed++;
             }
 
-            for (int i = 0; i < paths.Count; i++)
+            for (int i = 0; i < nodePaths.Count; i++)
             {
-                if (paths[i].Count < 2) { return null; }
+                if (nodePaths[i].Count < 2) { return null; }
+
+                // A path ending on a bridge lane would make that cell a pair dot -- see the doc.
+                if (isLane[nodePaths[i][0]] || isLane[nodePaths[i][nodePaths[i].Count - 1]]) { return null; }
+            }
+
+            if (bridgeCount > 0)
+            {
+                foreach ((int Row, int Col) bridge in bridges)
+                {
+                    if (taken[nodeOfCell[bridge.Row, bridge.Col]]
+                        == taken[verticalNodeOfCell[bridge.Row, bridge.Col]])
+                    {
+                        return null; // one colour took both lanes -- not a crossing
+                    }
+                }
+            }
+
+            List<List<(int Row, int Col)>> paths = new List<List<(int, int)>>();
+            for (int i = 0; i < nodePaths.Count; i++)
+            {
+                List<(int Row, int Col)> cells = new List<(int, int)>(nodePaths[i].Count);
+                for (int j = 0; j < nodePaths[i].Count; j++) { cells.Add(cellOfNode[nodePaths[i][j]]); }
+                paths.Add(cells);
             }
 
             return paths;
         }
 
-        private static int CountFreeNeighbours(int size, bool[,] usable, int[,] taken, int row, int col)
+        /// <summary>
+        /// Adjacency for the partition graph. A step onto a bridge lands on whichever of its two
+        /// lanes matches the direction of travel, which is what keeps the lanes independent and
+        /// forces a crossing path to run straight through.
+        /// </summary>
+        private static int[][] BuildPartitionAdjacency(int size, bool[,] usable,
+            HashSet<(int Row, int Col)> bridges, int[,] nodeOfCell, int[,] verticalNodeOfCell,
+            List<(int Row, int Col)> cellOfNode, int bridgeCount)
+        {
+            int[][] neighbours = new int[cellOfNode.Count][];
+            List<int> scratch = new List<int>(4);
+
+            for (int node = 0; node < cellOfNode.Count; node++)
+            {
+                (int Row, int Col) cell = cellOfNode[node];
+                bool onBridge = bridgeCount > 0 && bridges.Contains(cell);
+                bool verticalLane = onBridge && verticalNodeOfCell[cell.Row, cell.Col] == node;
+
+                scratch.Clear();
+                for (int d = 0; d < Directions.Length; d++)
+                {
+                    int nr = cell.Row, nc = cell.Col;
+                    bool horizontalStep = Directions[d] == Direction.Left || Directions[d] == Direction.Right;
+                    switch (Directions[d])
+                    {
+                        case Direction.Left: nc--; break;
+                        case Direction.Right: nc++; break;
+                        case Direction.Up: nr--; break;
+                        case Direction.Down: nr++; break;
+                    }
+
+                    // A lane only connects along its own axis; that is the whole point of it.
+                    if (onBridge && horizontalStep == verticalLane) { continue; }
+                    if (nr < 0 || nr >= size || nc < 0 || nc >= size) { continue; }
+                    if (!usable[nr, nc]) { continue; }
+
+                    bool neighbourIsBridge = bridgeCount > 0 && bridges.Contains((nr, nc));
+                    scratch.Add(neighbourIsBridge && !horizontalStep
+                        ? verticalNodeOfCell[nr, nc]
+                        : nodeOfCell[nr, nc]);
+                }
+
+                neighbours[node] = scratch.ToArray();
+            }
+
+            return neighbours;
+        }
+
+        private static int CountFreeNeighbours(int[][] neighbours, int[] taken, int node)
         {
             int count = 0;
-            if (row > 0 && usable[row - 1, col] && taken[row - 1, col] == -1) { count++; }
-            if (row < size - 1 && usable[row + 1, col] && taken[row + 1, col] == -1) { count++; }
-            if (col > 0 && usable[row, col - 1] && taken[row, col - 1] == -1) { count++; }
-            if (col < size - 1 && usable[row, col + 1] && taken[row, col + 1] == -1) { count++; }
+            int[] adjacency = neighbours[node];
+            for (int i = 0; i < adjacency.Length; i++)
+            {
+                if (taken[adjacency[i]] == -1) { count++; }
+            }
             return count;
+        }
+
+        /// <summary>
+        /// Picks cells to carry a Bridge, before the partition runs -- see TryGeneratePathPartition
+        /// for why this one cannot be chosen afterwards like every other mechanic.
+        ///
+        /// A cell only qualifies if both of its lanes can actually be crossed, which
+        /// LevelValidator.ValidateBridgeCells enforces and would otherwise reject the finished
+        /// level over: it must be off the outer ring (an edge cell is missing two of the four
+        /// neighbours a crossing needs) and all four of those neighbours must be usable. Bridges
+        /// are also kept off each other's neighbours -- adjacent crossings are legal but read as
+        /// visual noise, and they make the two lanes of one bridge depend on the other's routing.
+        ///
+        /// Returns fewer than <paramref name="count"/> cells when the board cannot supply them;
+        /// the caller retries.
+        /// </summary>
+        private static HashSet<(int Row, int Col)> ChooseBridgeCells(int size, bool[,] usable, int count,
+            System.Random rng)
+        {
+            HashSet<(int Row, int Col)> chosen = new HashSet<(int, int)>();
+            if (count <= 0) { return chosen; }
+
+            List<(int Row, int Col)> candidates = new List<(int, int)>();
+            for (int r = 1; r < size - 1; r++)
+            {
+                for (int c = 1; c < size - 1; c++)
+                {
+                    if (!usable[r, c]) { continue; }
+                    if (!usable[r - 1, c] || !usable[r + 1, c] || !usable[r, c - 1] || !usable[r, c + 1]) { continue; }
+                    candidates.Add((r, c));
+                }
+            }
+
+            for (int i = candidates.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            }
+
+            for (int i = 0; i < candidates.Count && chosen.Count < count; i++)
+            {
+                (int Row, int Col) cell = candidates[i];
+                if (chosen.Contains((cell.Row - 1, cell.Col)) || chosen.Contains((cell.Row + 1, cell.Col))
+                    || chosen.Contains((cell.Row, cell.Col - 1)) || chosen.Contains((cell.Row, cell.Col + 1)))
+                {
+                    continue;
+                }
+                chosen.Add(cell);
+            }
+
+            return chosen;
         }
 
         /// <summary>

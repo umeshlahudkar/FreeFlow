@@ -42,6 +42,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 21-25 (Arrow) | 21–25 | 7×7 | 6 | Arrow (+Wall on 24–25) |
 | Generate Levels 26-30 (Forbidden) | 26–30 | 7×7 | 6 | Forbidden (+Wall on 29–30) |
 | Generate Levels 31-35 (Permitted) | 31–35 | 7×7 | 6 | Permitted (+Wall on 34–35) |
+| Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -72,7 +73,8 @@ Never trust the generation log alone — it reports what the generator believed,
 - **Coverage (1–10 only):** solve with `AllowPartialCoverage = true`; every pairing must cover all usable cells.
 - **Unique win:** `ValidateSolvability(..., MaxSolutionsToFind: 2)` → `SolutionsFound == 1 && SearchExhausted`.
 - **Mechanics load-bearing:** `RequiredMechanicValidator.CheckBlockTypeMechanicRequired` / `CheckWallRequired` → `Required` for every instance. Target is 100%.
-- **Wrong routes exist (11+):** solve with `AllowPartialCoverage = true`; expect tens to hundreds. A count of 1 means the board is a trace, not a puzzle.
+- **Wrong routes exist (11+):** solve with `AllowPartialCoverage = true`; expect tens to hundreds. A count of 1 means the board is a trace, not a puzzle. `MinWrongRoutes` enforces a floor during generation (Bridge range on; earlier ranges satisfy it already).
+- **Construction-time guarantees, re-checked against the SOLVED board.** If a mechanic's property is established while building (only Bridge so far), the dots it derives may admit a different unique solution that lacks it — see §6.20.
 - **No path ≤ 2 cells**, and **blocked cells off the outer ring**.
 
 ### Adding the next mechanic
@@ -86,7 +88,7 @@ Remaining: Bridge, Checkpoint, Shared Destination. The recipe each of the last f
 5. Add tests for the placement invariant (the "never bar its own colour" class of bug).
 6. **Measure a sample before a full run:** count rejections per gate and time per attempt. Do not reuse another range's numbers — see the gotchas.
 
-**Bridge is the hard one.** It needs an actual crossing constructed between two paths, which `TryGeneratePathPartition` does not currently produce.
+**Bridge broke step 2** — it was the one mechanic that could not be a placement pass. See §6.20; the recipe above holds for Checkpoint and Shared Destination, which are per-cell rules again.
 
 ### Gotchas that cost real time
 
@@ -633,6 +635,30 @@ So `PlacePermittedCells` names the cell's **owner** path, where `PlaceForbiddenC
 **Two things worth recording:**
 1. **A round-trip check caught nothing this time, but was still right to run.** Forbidden had a real bug where the pair id never survived into the built grid. So before generating, I confirmed on three candidates that each permit cell admits its own colour and refuses others through `Block.CanEnter` — the method gameplay actually calls. Cheap, and it is the failure this mechanic is most prone to.
 2. **`totalLevelCount` was 30, not the 33 I set during the prototype.** The prototype cleanup reverted it. It is a serialized field in `MainScene`, so it does not travel with the generator and is easy to leave stale — check it when a range ships.
+
+### 6.20 Levels 36–40 built (Bridge) — the mechanic that could not be a placement pass
+
+Every mechanic from Wall through Permitted is a decoration applied to a finished partition: build the solution, then read a rule off it. Bridge is not a restriction on a cell, it is **extra capacity** — two paths crossing at right angles. A partition gives every cell to exactly one path, so there is no finished solution to read a crossing off. The second path has to exist from the start, which meant changing the constructor rather than adding to it.
+
+**Node splitting.** A bridge cell enters the search as **two independent nodes**: a horizontal lane adjacent only to the cells left and right of it, and a vertical lane adjacent only to those above and below. Everything else is unchanged — the same Warnsdorff growth covers every node exactly once, and because the lanes are separate nodes, both get covered. Two properties fall out for free rather than needing enforcement: a lane has exactly two neighbours, so a path through it is **straight** (which `Block.CanExitFrom` demands), and it can never switch axes mid-cell.
+
+Two things the graph cannot express are checked after growth instead: a lane must be **interior** to its path (a path ending on a bridge would make it a pair dot, which `LevelValidator` rejects), and the two lanes must belong to **different paths**.
+
+**The refactor was proved non-destructive rather than assumed to be.** Five shipped ranges run through this constructor, so a behaviour change would have been invisible until levels stopped reproducing. The original grid-based algorithm was transcribed as a reference implementation and diffed against the new node-based one across **1000 boards** (five configurations × 200 seeds, including the 85 that legitimately fail): **byte-identical, failure cases included.** A test comparing `null` against an empty bridge set does *not* establish this — both run the new code — which is exactly the gap that made the reference diff worth doing.
+
+**The bug the checklist did not catch.** Verification showed L40 with `coloursCrossing=1`: its winning solution had **one colour running through both lanes**, self-crossing at (4,1). The constructor was not at fault — 78/78 partitions produced genuine two-colour crossings. The gap is subtler: *the constructor's guarantee covers the arrangement it built, not the one the player must find.* The dots it derives admit other solutions, and a board can turn out to be uniquely solvable by a different one. A self-crossing bridge is legal (`Block.CanAcceptEntry` waves through a pair that already owns the other axis) **and passes necessity** — stripping it removes the straight-through rule and opens a second solution, so it is genuinely load-bearing while still being the wrong picture. Necessity and "is this actually a crossing" are two different questions.
+
+Fixed with a new gate, `EveryBridgeCarriesTwoColours`, run against the winning solution. It is free — `solveResult` is already in hand — so it sits ahead of the necessity checks that re-solve the board.
+
+**Generalisable lesson:** when a mechanic's guarantee is established at construction time, verify it against the *solved* board, not the constructed one. Every mechanic so far was safe from this because its rule was read off the solution; Bridge is the first whose property could survive construction and then evaporate.
+
+**Measured before running** (600 attempts, seed 8642): 3.8 ms/attempt, 4 passes in 600 (~0.67%). Construction failure dominates rejections (486/600, 81%) — a board that cannot seat a crossing fails during construction instead of being filtered afterwards — but it fails fast, which is why the per-attempt cost is *lower* than Permitted's 8.4 ms. `bridgeNotNecessary` was 0: a capacity mechanic is essentially always load-bearing, unlike the restriction mechanics.
+
+Blocked drops to 4 (from 5) because a bridge needs all four neighbours usable, and five holes on a 7×7 leave few qualifying interior cells.
+
+**A second gate, for a problem that was never measured before.** Verification also showed L36 and L39 with **1 wrong route** each — the player draws the only line that exists, with nothing to search. Levels 11–35 had all landed at 3 or more without being asked to, so nothing had ever checked. `MinWrongRoutes` now states it: one partial-coverage solve capped at floor+1, rejecting ~7.5% of candidates at 4.43 ms, and only on candidates that already passed uniqueness (~1 attempt in 150), so roughly 0.03 ms/attempt amortised. Set to 3 for this range only — the earlier ranges already satisfy it, and regenerating verified levels to enforce a rule they already meet would be churn.
+
+**Result across levels 36–40:** bridges 5/5 load-bearing and 5/5 carrying two colours, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5–6, wrong routes **7–127** (was 1 on two of them), scores 47.9–49.4. 123/123 tests, `totalLevelCount` = 40.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.
