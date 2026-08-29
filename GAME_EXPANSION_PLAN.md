@@ -41,6 +41,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 16-20 (One-Way) | 16–20 | 6×6 | 4 | One-Way (+Wall on 19–20) |
 | Generate Levels 21-25 (Arrow) | 21–25 | 7×7 | 6 | Arrow (+Wall on 24–25) |
 | Generate Levels 26-30 (Forbidden) | 26–30 | 7×7 | 6 | Forbidden (+Wall on 29–30) |
+| Generate Levels 31-35 (Permitted) | 31–35 | 7×7 | 6 | Permitted (+Wall on 34–35) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -76,7 +77,7 @@ Never trust the generation log alone — it reports what the generator believed,
 
 ### Adding the next mechanic
 
-Remaining: Permitted, Bridge, Checkpoint, Shared Destination. The recipe each of the last four followed:
+Remaining: Bridge, Checkpoint, Shared Destination. The recipe each of the last five followed:
 
 1. Check `Block.cs` — the rules engine already implements all nine mechanics. This is generator work, not gameplay work.
 2. Write `Place<Mechanic>Cells(paths, excluded, …)` deriving the mechanic **from the intended solution** — One-Way/Arrow record the direction the solution travels; Forbidden names a colour that does *not* cross the cell. Use `InteriorPathCells` so dots are excluded structurally.
@@ -609,6 +610,29 @@ Generation also went from 8–40 minutes per range to **3 seconds**, and 7×7 �
 4. **Scripted bulk edits silently dropped a line.** `RequireMechanicsNecessary` vanished from the Arrow spec during a pattern substitution, so levels 21–25 shipped with decorative Arrows — the gate was never asked to run. An earlier bulk edit had also stripped the strict rule from levels 1–10 (caught and reverted). For a handful of lines, use targeted edits that can be read back, not file-wide substitutions.
 
 **Open, and it gates the remaining four mechanics:** `EditorUtility.DisplayCancelableProgressBar`'s cancel flag is sticky — a cancelled run leaves the next run aborting on its first poll, reported as "CANCELLED by user" when the user did nothing. All six generate methods now call `ClearProgressBar()` on entry as well as exit. Self-touching (§6.16) remains a deliberate non-issue.
+
+### 6.19 Levels 31–35 built (Permitted)
+
+Fifth mechanic, and the first one built entirely from the §0 runbook — which is the point of having written it. No new machinery was needed: `PlacePermittedCells` reuses `InteriorPathCells`, the necessity gate already handled any `BlockType`, and the menu item is a clone of the Forbidden one.
+
+**Permitted is Forbidden's exact inverse, and that is the whole risk.** They read the same two id columns, so the two are trivially easy to confuse:
+
+| | Names | Effect |
+|---|---|---|
+| `ForbiddenForPairs` | a colour that must stay away | refuses the colour it names |
+| `AllowedForPairs` | the colour whose path runs through it | refuses every colour it does **not** name |
+
+So `PlacePermittedCells` names the cell's **owner** path, where `PlaceForbiddenCells` names any **other** path. Get it backwards and the intended solution is barred from a cell it needs: every candidate becomes unsolvable and the generator silently produces nothing, with no clue why. `LevelGeneratorPermittedTests.AlwaysPermitsTheColourThatOwnsTheCell` pins that invariant, deliberately mirroring the first Forbidden test. A second test pins that a permit cell must name *someone* — one naming nobody is `Blocked` under another name.
+
+**Spec:** 7×7, 6 colours, 5 interior blocked, 1 permitted, walls on 34–35 only, `MinPathCells = 5`, `Uniqueness = Require`, `RequireEveryPairingCoversBoard = false`, `RequireMechanicsNecessary = true`.
+
+**Measured before running** (600 attempts, seed 4321), per the runbook's "do not reuse another range's numbers": 8.4 ms/attempt, 1 pass in 600 (~0.17%) — so 40 000 attempts had ample headroom. Rejections were dominated by `minPath` (346) and non-uniqueness (96); necessity rejected only 17, meaning a permit cell that lands on a contested route is usually load-bearing already.
+
+**Verified from the saved assets, not the generator's log:** permits 5/5 load-bearing, every level exactly one winning solution (search exhausted, not capped), 5/5 blocked cells interior on all five, shortest path 5 cells, wrong routes 7–399, scores 47.5–53.0. Walls on 34–35 form connected barriers (L34's two edges meet at lattice corner (6,1); L35's at (3,2)). 115/115 tests, `totalLevelCount` = 35.
+
+**Two things worth recording:**
+1. **A round-trip check caught nothing this time, but was still right to run.** Forbidden had a real bug where the pair id never survived into the built grid. So before generating, I confirmed on three candidates that each permit cell admits its own colour and refuses others through `Block.CanEnter` — the method gameplay actually calls. Cheap, and it is the failure this mechanic is most prone to.
+2. **`totalLevelCount` was 30, not the 33 I set during the prototype.** The prototype cleanup reverted it. It is a serialized field in `MainScene`, so it does not travel with the generator and is easy to leave stale — check it when a range ships.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.

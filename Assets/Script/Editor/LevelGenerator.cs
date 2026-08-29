@@ -493,6 +493,72 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 31-35 (Permitted)")]
+        public static void GenerateLevels31To35()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 31;
+            const int endLevel = 35;
+            const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
+
+            System.Random rng = new System.Random(20260905); // a fresh seed for this level range
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            // Clear before starting, not just after finishing. Unity's cancel flag is sticky: once
+            // DisplayCancelableProgressBar has reported a cancel it keeps reporting one until the
+            // bar is cleared, so a cancelled run left the next run to abort on its very first poll
+            // -- reported as "CANCELLED by user" when the user had done nothing. It looked
+            // intermittent only because recompiling between runs reset it via the domain reload.
+            EditorUtility.ClearProgressBar();
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel31To35(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 31-35", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" permitted=").Append(spec.PermittedCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 31-35 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
         /// <summary>
         /// Loads every already-generated level in [fromLevel,toLevel] (skipping any that don't
         /// exist yet) and adds its canonical key to <paramref name="seenCanonicalKeys"/>, so a new
@@ -586,6 +652,11 @@ namespace FreeFlow.GamePlay
             /// naming a colour that does NOT pass through it in the intended solution -- see
             /// PlaceForbiddenCells for why naming the cell's own colour would be self-defeating.</summary>
             public int ForbiddenCount;
+
+            /// <summary>How many Permitted cells to place on interior (non-dot) path cells, each
+            /// naming the colour that DOES pass through it -- the exact inverse of Forbidden, since
+            /// a Permitted cell refuses every colour it does not name. See PlacePermittedCells.</summary>
+            public int PermittedCount;
 
             /// <summary>If true, every placed mechanic above (any count > 0) must be verified
             /// load-bearing via RequiredMechanicValidator before a candidate is fully accepted --
@@ -822,6 +893,10 @@ namespace FreeFlow.GamePlay
                             continue;
                         }
                         if (spec.ForbiddenCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.ForbiddenForPair))
+                        {
+                            continue;
+                        }
+                        if (spec.PermittedCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.AllowedForPairs))
                         {
                             continue;
                         }
@@ -1474,6 +1549,47 @@ namespace FreeFlow.GamePlay
             };
         }
 
+        /// <summary>
+        /// Levels 31-35: Permitted Cell introduced -- a cell only one named colour may enter, the
+        /// mirror of Forbidden. Levels 34-35 combine it with Wall and Blocked, the same
+        /// "introduce alone, then recombine with what was already taught" shape as every earlier
+        /// mechanic range.
+        ///
+        /// Shape copied from the Forbidden range (7x7, 6 colours, 5 blocked) because the two are
+        /// the same kind of rule -- a per-cell colour permission with one instance per level -- and
+        /// that configuration is the one measured to work at 7x7. Six colours rather than four is
+        /// load-bearing, not cosmetic: four on a 7x7 costs ~127ms per candidate and produced zero
+        /// unique solutions, six costs ~9ms (see SpecForLevel21To25).
+        /// </summary>
+        private static GenerationSpec SpecForLevel31To35(int levelNumber, int gridSize)
+        {
+            bool combineOthers = levelNumber >= 34;
+
+            float t = (levelNumber - 31) / 4f;
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 6,
+                MaxColorCount = 6,
+                StraightnessBias = straightness,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 5,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
+                PermittedCount = 1,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 40000
+            };
+        }
+
         // ---------------------------------------------------------------------------------------
         // Candidate construction: grow every colour's path at once -> per-colour segments -> LevelData.
         // ---------------------------------------------------------------------------------------
@@ -1555,6 +1671,13 @@ namespace FreeFlow.GamePlay
                 PlaceForbiddenCells(segments, forbiddenExcluded, palette, spec.ForbiddenCount, rng);
             if (forbidden.Count < spec.ForbiddenCount) { return false; } // not enough interior cells -- retry
 
+            HashSet<(int Row, int Col)> permittedExcluded = new HashSet<(int, int)>(forbiddenExcluded);
+            for (int f = 0; f < forbidden.Count; f++) { permittedExcluded.Add((forbidden[f].Row, forbidden[f].Col)); }
+
+            List<(int Row, int Col, int AllowedPairId)> permitted =
+                PlacePermittedCells(segments, permittedExcluded, palette, spec.PermittedCount, rng);
+            if (permitted.Count < spec.PermittedCount) { return false; } // not enough interior cells -- retry
+
             PairColorType[,] colorGrid = new PairColorType[size, size];
             for (int s = 0; s < segments.Count; s++)
             {
@@ -1600,6 +1723,11 @@ namespace FreeFlow.GamePlay
             {
                 typeGrid[forbidden[f].Row, forbidden[f].Col] = BlockType.ForbiddenForPair;
                 pairIdGrid[forbidden[f].Row, forbidden[f].Col] = forbidden[f].ForbiddenPairId;
+            }
+            for (int a = 0; a < permitted.Count; a++)
+            {
+                typeGrid[permitted[a].Row, permitted[a].Col] = BlockType.AllowedForPairs;
+                pairIdGrid[permitted[a].Row, permitted[a].Col] = permitted[a].AllowedPairId;
             }
 
             data = new LevelData
@@ -1752,6 +1880,43 @@ namespace FreeFlow.GamePlay
                 int barredPath = (ownerPath + offset) % paths.Count;
 
                 result.Add((cell.Row, cell.Col, (int)palette[barredPath]));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Chooses PermittedCount interior path cells and names, on each, the one colour allowed
+        /// through it.
+        ///
+        /// The exact inverse of <see cref="PlaceForbiddenCells"/>, and the inversion is the whole
+        /// point: a Forbidden cell refuses the colour it NAMES, a Permitted cell refuses every
+        /// colour it does NOT. So Forbidden must name a colour that stays away from the cell, while
+        /// Permitted must name the colour whose path actually runs through it -- naming anything
+        /// else would bar the intended solution from a cell it needs, and every candidate would be
+        /// thrown out as unsolvable.
+        ///
+        /// Names exactly one colour, the owner, leaving `secondPairId` unset. Block supports a
+        /// second named colour, but naming two here only weakens the rule (two colours admitted
+        /// instead of one) and makes it less likely to be load-bearing. Naming NO colour would be
+        /// worse still: Block's own doc notes that a permit cell naming nobody is
+        /// <see cref="BlockType.Blocked"/> under a different name, which LevelValidator rejects.
+        /// </summary>
+        private static List<(int Row, int Col, int AllowedPairId)> PlacePermittedCells(
+            List<List<(int Row, int Col)>> paths, HashSet<(int Row, int Col)> excludedCells,
+            List<PairColorType> palette, int count, System.Random rng)
+        {
+            List<(int Row, int Col, int AllowedPairId)> result = new List<(int, int, int)>();
+            if (count <= 0 || paths.Count < 2) { return result; }
+
+            List<(int Path, int Index)> candidates = InteriorPathCells(paths, excludedCells, rng);
+
+            int take = Math.Min(count, candidates.Count);
+            for (int k = 0; k < take; k++)
+            {
+                int ownerPath = candidates[k].Path;
+                (int Row, int Col) cell = paths[ownerPath][candidates[k].Index];
+
+                result.Add((cell.Row, cell.Col, (int)palette[ownerPath]));
             }
             return result;
         }
