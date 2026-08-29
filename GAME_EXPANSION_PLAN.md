@@ -44,6 +44,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 31-35 (Permitted) | 31–35 | 7×7 | 6 | Permitted (+Wall on 34–35) |
 | Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
 | Generate Levels 41-45 (Checkpoint) | 41–45 | 7×7 | 6 | Checkpoint (+Wall on 44–45) |
+| Generate Levels 46-50 (Shared Destination) | 46–50 | 7×7 | 6 | Shared Destination (+Wall on 49–50) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -80,7 +81,7 @@ Never trust the generation log alone — it reports what the generator believed,
 
 ### Adding the next mechanic
 
-Remaining: Shared Destination. The recipe each of the last six followed:
+**All nine mechanics are now built.** The recipe each placement mechanic followed (Bridge and Shared Destination are the two exceptions — see §6.20 and §6.22):
 
 1. Check `Block.cs` — the rules engine already implements all nine mechanics. This is generator work, not gameplay work.
 2. Write `Place<Mechanic>Cells(paths, excluded, …)` deriving the mechanic **from the intended solution** — One-Way/Arrow record the direction the solution travels; Forbidden names a colour that does *not* cross the cell. Use `InteriorPathCells` so dots are excluded structurally.
@@ -683,6 +684,22 @@ The notable number is **necessity rejecting 16 of the 17 candidates that reached
 **Round-trip checked before generating,** since Checkpoint reads the `pairId` column that Forbidden once failed to round-trip: on 50 built candidates, every checkpoint named a real pair, none was a dot, and every one lay on its named pair's path **in the solved board** — the §6.20 lesson applied by default now, not after the fact.
 
 **Result across levels 41–45:** checkpoints 5/5 load-bearing, 5/5 on their named pair's path in the winning solution, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5, wrong routes 15–87, scores 49.7–52.1. 129/129 tests, `totalLevelCount` = 45. Nothing needed a second run — the first Checkpoint generation shipped as-is, which is what the accumulated gates are for.
+
+### 6.22 Levels 46–50 built (Shared Destination) — the ninth and last mechanic
+
+Two colours whose paths both end on the same cell. Like Bridge, this had to be built into the partition rather than laid over one — and for a sharper reason. Bridge needed a second path *through* a cell; here it is the **dots themselves** that change. A path's two ends become its colour's dots, so sharing a destination means two paths ending on one cell, and no rule applied to a finished partition can produce that.
+
+**Same node splitting as Bridge, aimed the opposite way.** A bridge's two nodes must be *interior* to their paths; a shared goal's must be *endpoints*. Rather than generating partitions and discarding the ones that miss — a bridge lane is naturally interior, but nothing makes a four-neighbour node naturally terminal — the two nodes are used as path **seeds**, and those paths are **anchored**: an anchored path may grow only from its tail, so the seed stays at index 0 and becomes a dot by construction. One extra line in the growth loop (`side = anchored[p] ? 1 : 0`) rather than a rejection loop.
+
+Two properties then come free. The two nodes are in different paths because each seeds its own. And the two colours arrive on **different edges**, because the cell each steps back through belongs to exactly one path — which matters because `LevelData` caps sharing at four colours for exactly that reason: a path ending in a cell claims the edge it arrived through, and a cell has four.
+
+**A real bug, found by the checklist before a line of generator code was written.** Runbook step 4 says to confirm any new `LevelData` column is read by `BoardGenerator` *and* by the generator's own `BuildBlockGrid`. `BoardGenerator` read `secondPairId`/`thirdPairId`/`fourthPairId`; **`BuildBlockGrid` did not.** A shared dot would have looked like an ordinary one-colour dot during offline validation, so the second colour would have appeared to have a single dot, and every candidate would have been validated against a board the game would never build. This is the third instance of that exact class (Forbidden's `pairId`, Bridge's construction-vs-solution gap, now this) — the checklist step exists because of the first, and it earned its keep here.
+
+**The one mechanic with no necessity check, correctly.** `RequiredMechanicValidator` asks "is the board different without this rule", but a shared destination is not a rule on a cell — it is the identity of a dot, and there is no board without it to compare against. Nor can it be decorative: both colours must reach that cell or the level is simply unfinished. The gate still runs for Blocked and Wall on this range.
+
+**Measured before running** (600 attempts, seed 7311): 10.2 ms/attempt, 5 passes in 600 (~0.83%). Round-trip checked on 50 built candidates first: every shared cell carried the second colour's id, and in the **solved** board both named colours ended there.
+
+**Result across levels 46–50:** shared goals 5/5 with exactly two paths ending on them and distinct arrival edges, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5–6, wrong routes 47–399, scores 47.7–55.5. 137/137 tests, `totalLevelCount` = 50. No regeneration needed.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.

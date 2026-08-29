@@ -493,6 +493,67 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 46-50 (Shared Destination)")]
+        public static void GenerateLevels46To50()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 46;
+            const int endLevel = 50;
+            const int gridSize = 7;
+
+            System.Random rng = new System.Random(20260926); // a fresh seed for this level range
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel46To50(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 46-50", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" sharedGoals=").Append(spec.SharedGoalCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 46-50 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 41-45 (Checkpoint)")]
         public static void GenerateLevels41To45()
         {
@@ -794,6 +855,16 @@ namespace FreeFlow.GamePlay
             /// and the requirement is tested only when the pair is complete. See
             /// PlaceCheckpointCells.</summary>
             public int CheckpointCount;
+
+            /// <summary>How many shared-destination cells to place: cells that are the second dot
+            /// of TWO colours at once, so both paths end there. Like BridgeCount and unlike every
+            /// placement count above, this feeds the partition builder -- a path's ends become its
+            /// dots, so sharing one has to be built in. See ChooseSharedGoalCells.
+            ///
+            /// Note this mechanic has no BlockType and so no necessity check: it is dot identity,
+            /// not a strippable rule, and RequiredMechanicValidator says as much. It cannot be
+            /// decorative either -- both colours must reach the cell or the level is unsolved.</summary>
+            public int SharedGoalCount;
 
             /// <summary>Minimum number of WRONG routes the board must admit -- pairings that
             /// connect every colour but fail to cover the board, so the player can complete all
@@ -1782,6 +1853,53 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Levels 46-50: Shared Destination introduced -- one cell that is the second dot of TWO
+        /// colours, so both of their paths end there. Levels 49-50 recombine it with Wall and
+        /// Blocked.
+        ///
+        /// The ninth and last mechanic, and the second (after Bridge) that had to be built into the
+        /// partition rather than laid over one -- see TryGeneratePathPartition's sharedGoals
+        /// overload.
+        ///
+        /// It is also the only mechanic with no necessity check, and that is correct rather than an
+        /// omission: RequiredMechanicValidator answers "is the board different without this rule",
+        /// but a shared destination is not a rule on a cell, it is the identity of a dot. There is
+        /// no board without it to compare against. Nor can it be decorative -- both colours have to
+        /// reach that cell or the level is simply unfinished.
+        ///
+        /// Same 7x7 / 6 colours / 5 blocked shape as the Checkpoint range.
+        /// </summary>
+        private static GenerationSpec SpecForLevel46To50(int levelNumber, int gridSize)
+        {
+            bool combineOthers = levelNumber >= 49;
+
+            float t = (levelNumber - 46) / 4f;
+            float straightness = Mathf.Lerp(0.5f, 0.3f, t);
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 6,
+                MaxColorCount = 6,
+                StraightnessBias = straightness,
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 5,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineOthers ? 2 : 0,
+                SharedGoalCount = 1,
+                MinWrongRoutes = 3,
+                MinPathCells = 5,
+                TargetAvgPathMin = 6.5f,
+                TargetAvgPathMax = 9.5f,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 40000
+            };
+        }
+
+        /// <summary>
         /// Levels 41-45: Checkpoint introduced -- a cell one named colour is REQUIRED to pass
         /// through. Levels 44-45 recombine it with Wall and Blocked.
         ///
@@ -1929,11 +2047,15 @@ namespace FreeFlow.GamePlay
             HashSet<(int Row, int Col)> bridges = ChooseBridgeCells(size, usable, spec.BridgeCount, rng);
             if (bridges.Count < spec.BridgeCount) { return false; } // board can't seat them -- retry
 
+            HashSet<(int Row, int Col)> sharedGoals =
+                ChooseSharedGoalCells(size, usable, bridges, spec.SharedGoalCount, rng);
+            if (sharedGoals.Count < spec.SharedGoalCount) { return false; } // board can't seat them -- retry
+
             // Grows every colour's path at once rather than cutting one Hamiltonian path. Every
             // consumer below takes these per-path lists, which is what keeps the directional
             // mechanics honest -- see TryGeneratePathPartition.
             List<List<(int Row, int Col)>> segments =
-                TryGeneratePathPartition(size, usable, usableCount, colorCount, bridges, rng);
+                TryGeneratePathPartition(size, usable, usableCount, colorCount, bridges, sharedGoals, rng);
             if (segments == null) { return false; }
 
             HashSet<(int Row, int Col)> dotCells = new HashSet<(int, int)>();
@@ -2017,12 +2139,29 @@ namespace FreeFlow.GamePlay
                 PlaceCheckpointCells(segments, checkpointExcluded, palette, spec.CheckpointCount, rng);
             if (checkpoints.Count < spec.CheckpointCount) { return false; } // not enough interior cells -- retry
 
+            // A shared destination is a dot for two colours, so it needs BOTH ids recorded: the
+            // first sharer in the ordinary colour/pairId columns, the second in secondPairId. The
+            // cell can only draw one colour, which is the first -- Block renders a shared goal as a
+            // cluster and reads the rest through IsDotFor, so the display colour is not the whole
+            // identity here the way it is on an ordinary dot.
             PairColorType[,] colorGrid = new PairColorType[size, size];
+            int[,] secondPairIdGrid = new int[size, size];
             for (int s = 0; s < segments.Count; s++)
             {
                 (int Row, int Col) start = segments[s][0];
                 (int Row, int Col) end = segments[s][segments[s].Count - 1];
-                colorGrid[start.Row, start.Col] = palette[s];
+
+                if (colorGrid[start.Row, start.Col] == PairColorType.None)
+                {
+                    colorGrid[start.Row, start.Col] = palette[s];
+                }
+                else
+                {
+                    // Only a shared goal is ever claimed twice; the partition gives every other
+                    // cell to one path, and anchoring puts both sharers' seeds at index 0.
+                    secondPairIdGrid[start.Row, start.Col] = (int)palette[s];
+                }
+
                 colorGrid[end.Row, end.Col] = palette[s];
             }
 
@@ -2093,6 +2232,7 @@ namespace FreeFlow.GamePlay
                 Direction[] entryRow = new Direction[size];
                 Direction[] exitRow = new Direction[size];
                 int[] pairIdRow = new int[size];
+                int[] secondPairIdRow = new int[size];
                 for (int c = 0; c < size; c++)
                 {
                     colorRow[c] = colorGrid[r, c];
@@ -2101,6 +2241,7 @@ namespace FreeFlow.GamePlay
                     entryRow[c] = requiredEntryGrid[r, c];
                     exitRow[c] = forcedExitGrid[r, c];
                     pairIdRow[c] = pairIdGrid[r, c];
+                    secondPairIdRow[c] = secondPairIdGrid[r, c];
                 }
                 data.gridRows[r] = new GridRow
                 {
@@ -2109,7 +2250,8 @@ namespace FreeFlow.GamePlay
                     blockType = typeRow,
                     wallMask = wallRow,
                     requiredEntryDirection = entryRow,
-                    forcedExitDirection = exitRow
+                    forcedExitDirection = exitRow,
+                    secondPairId = secondPairIdRow
                 };
             }
 
@@ -2569,9 +2711,43 @@ namespace FreeFlow.GamePlay
         private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
             int usableCount, int pathCount, HashSet<(int Row, int Col)> bridges, System.Random rng)
         {
+            return TryGeneratePathPartition(size, usable, usableCount, pathCount, bridges, null, rng);
+        }
+
+        /// <summary>
+        /// As above, plus <paramref name="sharedGoals"/>: cells where TWO colours' paths both end,
+        /// the shared-destination mechanic.
+        ///
+        /// The second construction-time mechanic, and for the same reason as Bridge -- it changes
+        /// the shape of the partition rather than decorating one. Here it is the DOTS that change:
+        /// a path's two ends become its colour's dots, so two colours sharing a destination means
+        /// two paths ending on one cell. No rule laid over a finished partition can produce that.
+        ///
+        /// Handled with the same node splitting, aimed differently. A shared cell becomes two nodes
+        /// as a bridge does, but where a bridge's lanes must be INTERIOR to their paths, a shared
+        /// goal's nodes must be ENDPOINTS of theirs. Rather than generating partitions and throwing
+        /// away the ones that miss (a bridge's lanes are naturally interior, but nothing makes a
+        /// 4-neighbour node naturally terminal), the two nodes are used as path SEEDS and their
+        /// paths are anchored: an anchored path may only grow from its tail, so the seed stays at
+        /// index 0 and ends up a dot by construction.
+        ///
+        /// Two properties then come for free. The two nodes are in different paths because each
+        /// seeds its own. And the paths arrive on different edges -- the cell each one steps back
+        /// through belongs to exactly one path -- which matters because LevelData's own doc caps
+        /// sharing at four colours for precisely that reason: a path ending in a cell claims the
+        /// edge it arrived through, and a cell has four.
+        /// </summary>
+        private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
+            int usableCount, int pathCount, HashSet<(int Row, int Col)> bridges,
+            HashSet<(int Row, int Col)> sharedGoals, System.Random rng)
+        {
             if (pathCount < 1) { return null; }
 
             int bridgeCount = bridges == null ? 0 : bridges.Count;
+            int sharedCount = sharedGoals == null ? 0 : sharedGoals.Count;
+
+            // Two colours per shared goal, and each needs its own path.
+            if (pathCount < sharedCount * 2) { return null; }
 
             // Node ids: every usable cell gets one, and every bridge cell gets a SECOND for its
             // other lane. nodeOfCell holds the horizontal lane for a bridge, verticalNodeOfCell
@@ -2585,30 +2761,35 @@ namespace FreeFlow.GamePlay
 
             List<(int Row, int Col)> cellOfNode = new List<(int, int)>();
             List<bool> isLane = new List<bool>();
+            List<int> goalNodes = new List<int>();
             for (int r = 0; r < size; r++)
             {
                 for (int c = 0; c < size; c++)
                 {
                     if (!usable[r, c]) { continue; }
                     bool bridge = bridgeCount > 0 && bridges.Contains((r, c));
+                    bool shared = sharedCount > 0 && sharedGoals.Contains((r, c));
+                    if (bridge && shared) { return null; } // a dot is not a crossing; see ChooseSharedGoalCells
 
                     nodeOfCell[r, c] = cellOfNode.Count;
+                    if (shared) { goalNodes.Add(cellOfNode.Count); }
                     cellOfNode.Add((r, c));
                     isLane.Add(bridge);
 
-                    if (!bridge) { continue; }
+                    if (!bridge && !shared) { continue; }
                     verticalNodeOfCell[r, c] = cellOfNode.Count;
+                    if (shared) { goalNodes.Add(cellOfNode.Count); }
                     cellOfNode.Add((r, c));
-                    isLane.Add(true);
+                    isLane.Add(bridge);
                 }
             }
 
             int nodeCount = cellOfNode.Count;
-            if (nodeCount != usableCount + bridgeCount) { return null; }
+            if (nodeCount != usableCount + bridgeCount + sharedCount) { return null; }
             if (nodeCount < pathCount * 2) { return null; }
 
-            int[][] neighbours = BuildPartitionAdjacency(size, usable, bridges, nodeOfCell, verticalNodeOfCell,
-                cellOfNode, bridgeCount);
+            int[][] neighbours = BuildPartitionAdjacency(size, usable, bridges, sharedGoals, nodeOfCell,
+                verticalNodeOfCell, cellOfNode, bridgeCount, sharedCount);
 
             // taken[node]: -1 free, otherwise the index of the path occupying it.
             int[] taken = new int[nodeCount];
@@ -2623,10 +2804,27 @@ namespace FreeFlow.GamePlay
                 (freeNodes[i], freeNodes[j]) = (freeNodes[j], freeNodes[i]);
             }
 
+            // Shared-goal nodes are seeded FIRST and their paths anchored, so each stays at index 0
+            // and ends up a dot. Nothing else can take them either, since seeding claims them before
+            // the first growth step -- which is what keeps a shared cell to exactly two colours.
             List<List<int>> nodePaths = new List<List<int>>();
+            bool[] anchored = new bool[pathCount];
+            HashSet<int> reserved = new HashSet<int>(goalNodes);
+            int nextFree = 0;
             for (int i = 0; i < pathCount; i++)
             {
-                int seed = freeNodes[i];
+                int seed;
+                if (i < goalNodes.Count)
+                {
+                    seed = goalNodes[i];
+                    anchored[i] = true;
+                }
+                else
+                {
+                    while (reserved.Contains(freeNodes[nextFree])) { nextFree++; }
+                    seed = freeNodes[nextFree++];
+                }
+
                 taken[seed] = i;
                 nodePaths.Add(new List<int> { seed });
             }
@@ -2647,7 +2845,11 @@ namespace FreeFlow.GamePlay
 
                     // Both ends of a path can grow. A 1-node path has the same node for both;
                     // considering it twice is harmless, just redundant.
-                    for (int side = 0; side < 2; side++)
+                    //
+                    // An anchored path is the exception: it grows from its tail only, which is what
+                    // pins its shared-goal seed at index 0 and makes that cell a dot rather than
+                    // somewhere the path merely passes through.
+                    for (int side = anchored[p] ? 1 : 0; side < 2; side++)
                     {
                         int end = side == 0 ? path[0] : path[path.Count - 1];
                         int[] adjacency = neighbours[end];
@@ -2712,6 +2914,16 @@ namespace FreeFlow.GamePlay
                 }
             }
 
+            // Anchoring should have kept every shared-goal seed at index 0, making it a dot. This
+            // re-states that as a check rather than trusting it: the cost is nothing, and a silent
+            // regression here produces boards whose shared cell is merely passed through, which
+            // nothing downstream would reject -- LevelValidator only ever sees the finished dots.
+            for (int i = 0; i < goalNodes.Count; i++)
+            {
+                int owner = taken[goalNodes[i]];
+                if (owner < 0 || nodePaths[owner][0] != goalNodes[i]) { return null; }
+            }
+
             List<List<(int Row, int Col)>> paths = new List<List<(int, int)>>();
             for (int i = 0; i < nodePaths.Count; i++)
             {
@@ -2729,11 +2941,12 @@ namespace FreeFlow.GamePlay
         /// forces a crossing path to run straight through.
         /// </summary>
         private static int[][] BuildPartitionAdjacency(int size, bool[,] usable,
-            HashSet<(int Row, int Col)> bridges, int[,] nodeOfCell, int[,] verticalNodeOfCell,
-            List<(int Row, int Col)> cellOfNode, int bridgeCount)
+            HashSet<(int Row, int Col)> bridges, HashSet<(int Row, int Col)> sharedGoals,
+            int[,] nodeOfCell, int[,] verticalNodeOfCell,
+            List<(int Row, int Col)> cellOfNode, int bridgeCount, int sharedCount)
         {
             int[][] neighbours = new int[cellOfNode.Count][];
-            List<int> scratch = new List<int>(4);
+            List<int> scratch = new List<int>(8);
 
             for (int node = 0; node < cellOfNode.Count; node++)
             {
@@ -2755,14 +2968,29 @@ namespace FreeFlow.GamePlay
                     }
 
                     // A lane only connects along its own axis; that is the whole point of it.
+                    // A shared goal's two nodes carry no such restriction -- either colour may
+                    // arrive from any side, and they end up on different edges because the cell
+                    // each steps back through belongs to exactly one path.
                     if (onBridge && horizontalStep == verticalLane) { continue; }
                     if (nr < 0 || nr >= size || nc < 0 || nc >= size) { continue; }
                     if (!usable[nr, nc]) { continue; }
 
                     bool neighbourIsBridge = bridgeCount > 0 && bridges.Contains((nr, nc));
-                    scratch.Add(neighbourIsBridge && !horizontalStep
-                        ? verticalNodeOfCell[nr, nc]
-                        : nodeOfCell[nr, nc]);
+                    if (neighbourIsBridge)
+                    {
+                        scratch.Add(horizontalStep ? nodeOfCell[nr, nc] : verticalNodeOfCell[nr, nc]);
+                        continue;
+                    }
+
+                    scratch.Add(nodeOfCell[nr, nc]);
+
+                    // Both of a shared goal's nodes are listed, keeping adjacency symmetric. They
+                    // are seeded before the first growth step and so are never free, which is why
+                    // listing both cannot let a third colour wander in.
+                    if (sharedCount > 0 && sharedGoals.Contains((nr, nc)))
+                    {
+                        scratch.Add(verticalNodeOfCell[nr, nc]);
+                    }
                 }
 
                 neighbours[node] = scratch.ToArray();
@@ -2809,6 +3037,62 @@ namespace FreeFlow.GamePlay
                 {
                     if (!usable[r, c]) { continue; }
                     if (!usable[r - 1, c] || !usable[r + 1, c] || !usable[r, c - 1] || !usable[r, c + 1]) { continue; }
+                    candidates.Add((r, c));
+                }
+            }
+
+            for (int i = candidates.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            }
+
+            for (int i = 0; i < candidates.Count && chosen.Count < count; i++)
+            {
+                (int Row, int Col) cell = candidates[i];
+                if (chosen.Contains((cell.Row - 1, cell.Col)) || chosen.Contains((cell.Row + 1, cell.Col))
+                    || chosen.Contains((cell.Row, cell.Col - 1)) || chosen.Contains((cell.Row, cell.Col + 1)))
+                {
+                    continue;
+                }
+                chosen.Add(cell);
+            }
+
+            return chosen;
+        }
+
+        /// <summary>
+        /// Picks cells to serve as shared destinations, before the partition runs -- see
+        /// TryGeneratePathPartition's sharedGoals overload for why this cannot come afterwards.
+        ///
+        /// A cell qualifies if it has at least two usable neighbours, since each colour ending here
+        /// arrives through its own edge. It must not already be a bridge: a bridge is a cell paths
+        /// pass THROUGH and a shared goal is one they END at, and a cell cannot be both.
+        ///
+        /// Kept off each other's neighbours for the same reason bridges are -- two adjacent shared
+        /// destinations read as one confusing cluster, and they compete for the same arrival edges.
+        /// </summary>
+        private static HashSet<(int Row, int Col)> ChooseSharedGoalCells(int size, bool[,] usable,
+            HashSet<(int Row, int Col)> bridges, int count, System.Random rng)
+        {
+            HashSet<(int Row, int Col)> chosen = new HashSet<(int, int)>();
+            if (count <= 0) { return chosen; }
+
+            List<(int Row, int Col)> candidates = new List<(int, int)>();
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++)
+                {
+                    if (!usable[r, c]) { continue; }
+                    if (bridges != null && bridges.Contains((r, c))) { continue; }
+
+                    int openSides = 0;
+                    if (r > 0 && usable[r - 1, c]) { openSides++; }
+                    if (r < size - 1 && usable[r + 1, c]) { openSides++; }
+                    if (c > 0 && usable[r, c - 1]) { openSides++; }
+                    if (c < size - 1 && usable[r, c + 1]) { openSides++; }
+                    if (openSides < 2) { continue; }
+
                     candidates.Add((r, c));
                 }
             }
@@ -2971,6 +3255,9 @@ namespace FreeFlow.GamePlay
                 Direction[] entryRow = data.gridRows[r].requiredEntryDirection;
                 Direction[] exitRow = data.gridRows[r].forcedExitDirection;
                 int[] pairIdRow = data.gridRows[r].pairId;
+                int[] secondPairIdRow = data.gridRows[r].secondPairId;
+                int[] thirdPairIdRow = data.gridRows[r].thirdPairId;
+                int[] fourthPairIdRow = data.gridRows[r].fourthPairId;
                 for (int c = 0; c < cols; c++)
                 {
                     PairColorType color = colorRow[c];
@@ -2993,6 +3280,19 @@ namespace FreeFlow.GamePlay
                         SetField(block, "isPairBlock", true);
                         SetField(block, "pairColorType", color);
                         SetField(block, "pairId", (int)color); // matches BoardGenerator's own color-fallback
+
+                        // The extra dot identities of a shared destination. BoardGenerator reads
+                        // all three at runtime, so this must too: without them a shared dot looks
+                        // like an ordinary one-colour dot here, the pairs sharing it appear to have
+                        // a single dot each, and every candidate is validated against a board that
+                        // is not the one the game will build. Same omission that once made
+                        // Forbidden's pairId a no-op offline -- see the class doc on BoardGenerator.
+                        int second = (secondPairIdRow != null && c < secondPairIdRow.Length) ? secondPairIdRow[c] : 0;
+                        int third = (thirdPairIdRow != null && c < thirdPairIdRow.Length) ? thirdPairIdRow[c] : 0;
+                        int fourth = (fourthPairIdRow != null && c < fourthPairIdRow.Length) ? fourthPairIdRow[c] : 0;
+                        if (second != 0) { SetField(block, "secondPairId", second); }
+                        if (third != 0) { SetField(block, "thirdPairId", third); }
+                        if (fourth != 0) { SetField(block, "fourthPairId", fourth); }
                     }
                     else
                     {
