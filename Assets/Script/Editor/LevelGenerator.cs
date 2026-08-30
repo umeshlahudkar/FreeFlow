@@ -1997,44 +1997,34 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Levels 51-55: the first Mastery range. 8x8, EIGHT colours, three mechanics recombined.
+        /// Levels 51-55: the first Mastery range. 8x8, eight colours, ONE mechanic, a heavily
+        /// shaped board.
         ///
-        /// <b>Rebuilt after playtest.</b> The first attempt used twelve colours, on the reasoning
-        /// that a bigger board plus more pairs is harder. It was not: twelve pairs across 58 cells
-        /// drives the average path to 4.8 cells, and the range played as easier than the 7x7 levels
-        /// before it. Reported plainly as "too many colours, path is shortest, too easy to solve",
-        /// and the path-length metric (§6.14) had predicted exactly that.
+        /// <b>Second rebuild, and the second playtest correction.</b> The first build used twelve
+        /// colours and played too easy (4.8-cell paths). The rebuild fixed the paths by stacking
+        /// three mechanics per level, and played *annoying* -- "too much of mechanics". Both were
+        /// the same error: reaching for a number to raise instead of asking what makes this genre
+        /// hard. Numberlink, which this is, has no mechanics at all; its difficulty is routing.
         ///
-        /// <b>Mechanics replace colours as the source of constraint.</b> The reason twelve colours
-        /// were used at all is that eight produced no uniquely solvable boards (0 of 60) -- long
-        /// paths mean many solutions. But that measurement had NO mechanics on the board. Adding
-        /// three restores uniqueness at eight colours (6 of 149), because ruling out alternatives is
-        /// precisely what a mechanic does. The same change makes them load-bearing: at twelve
-        /// colours the board was already over-constrained and no mechanic mattered (0 of 136 had all
-        /// three), while here two of three is reachable. Constraint has to come from somewhere; the
-        /// choice is whether it comes from pairs, which shortens paths and flattens difficulty, or
-        /// from mechanics, which does not.
+        /// <b>Constraint from board shape, not from rules.</b> A board needs constraint to have a
+        /// unique solution, but there are two places to get it and they are not equivalent to the
+        /// player. A rule cell is something to remember and check; a BLOCKED cell is a hole you
+        /// route around, costing nothing to hold in mind. Measured at 8x8 / 8 colours:
         ///
-        /// Average path is back to 7.3 cells -- level with the 7x7 ranges -- on a bigger board
-        /// carrying three mechanics instead of one. That is the difficulty step the phase is for.
+        ///   3 mechanics, 6 blocked : ~1 unique per 1000 attempts, path 7.3, wrong routes 13-399
+        ///   1 mechanic, 10 blocked : 95 unique per 908,           path 6.8, wrong routes ~131
+        ///   1 mechanic, 14 blocked : 452 unique per 3105,         path 6.3, wrong routes ~40
         ///
-        /// Necessity runs as K-of-M with K=2: with three interacting mechanics, demanding all three
-        /// be load-bearing individually is unsatisfiable for the reason §7 records, and the
-        /// collective guard still refuses boards whose failures matter to nothing.
+        /// One mechanic with more holes holds path length, produces MORE search than the
+        /// three-mechanic build, and generates a hundred times more easily. Fourteen holes
+        /// over-constrains -- wrong routes collapse to 40 and paths shorten -- so ten is the pick.
         ///
-        /// The trio rotates so the range recombines what was taught rather than drilling one thing.
+        /// The mechanic still rotates across the range, so Mastery revisits what was taught; it is
+        /// kept under the strict rule, since with one mechanic there is no redundancy to excuse.
         /// </summary>
         private static GenerationSpec SpecForLevel51To55(int levelNumber, int gridSize)
         {
             int slot = levelNumber - 51;
-            bool combineWall = levelNumber >= 54;
-
-            // Each level draws a different three of the five per-cell mechanics.
-            bool checkpoint = slot == 0 || slot == 2 || slot == 4;
-            bool forbidden  = slot == 0 || slot == 1 || slot == 3;
-            bool arrow      = slot == 0 || slot == 2 || slot == 3;
-            bool permitted  = slot == 1 || slot == 2 || slot == 4;
-            bool oneWay     = slot == 1 || slot == 3 || slot == 4;
 
             return new GenerationSpec
             {
@@ -2045,34 +2035,31 @@ namespace FreeFlow.GamePlay
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f,
                 Uniqueness = UniquenessPolicy.Require,
-                BlockedCellCount = 6,
+                // The difficulty lever for this range. Interior-only, so every one of them forces
+                // paths to bend around it rather than quietly shrinking the board at an edge.
+                BlockedCellCount = 10,
                 BlockedCellsInteriorOnly = true,
-                WallCount = combineWall ? 2 : 0,
-                CheckpointCount = checkpoint ? 1 : 0,
-                ForbiddenCount = forbidden ? 1 : 0,
-                ArrowCount = arrow ? 1 : 0,
-                PermittedCount = permitted ? 1 : 0,
-                OneWayCount = oneWay ? 1 : 0,
-                MinNecessaryMechanics = 2,
-                MinWrongRoutes = 3,
-                // 3, not 4. This is the floor on the SHORTEST pair, and its job is to kill trivial
-                // 2-cell pairs; at 4 it rejected half of all candidates before uniqueness was even
-                // tested and the range produced nothing. What the playtest was actually about is
-                // the AVERAGE path, which the band below holds at 7.3 cells -- one short pair among
-                // eight does not make a board feel small.
+                // No walls. They are a holdover from the 7x7 template and have no work left here:
+                // with ten holes already shaping the board, removing a wall almost never opens a
+                // second solution, so it fails the necessity gate as decoration -- measured at 63
+                // rejections out of 65 candidates that reached it, which also made the wall levels
+                // ungeneratable. A wall the player cannot tell is doing anything is exactly the
+                // clutter this rebuild is removing.
+                WallCount = 0,
+                CheckpointCount = slot == 0 ? 1 : 0,
+                ForbiddenCount  = slot == 1 ? 1 : 0,
+                ArrowCount      = slot == 2 ? 1 : 0,
+                PermittedCount  = slot == 3 ? 1 : 0,
+                OneWayCount     = slot == 4 ? 1 : 0,
+                MinNecessaryMechanics = 0,   // one mechanic: it must be load-bearing, no slack
+                // Raised from 3: this range measures ~131 wrong routes, so a floor of 3 would not
+                // be doing anything. The point of the range is search, so ask for it.
+                MinWrongRoutes = 10,
                 MinPathCells = 3,
-                TargetAvgPathMin = 6.0f,
-                TargetAvgPathMax = 9.5f,
+                TargetAvgPathMin = 5.5f,
+                TargetAvgPathMax = 9.0f,
                 RequireEveryPairingCoversBoard = false,
                 RequireMechanicsNecessary = true,
-                // Long paths cost 50-80 ms per candidate against ~7 ms at twelve colours -- the
-                // price of the difficulty. Passes run roughly 1 in 1000, and the search ends early
-                // once one lands in band, so this ceiling is a backstop rather than a target.
-                //
-                // 25000, not the 8000 first tried: level 54 exhausted that and produced nothing
-                // while its four neighbours succeeded, so the spec is satisfiable and the budget
-                // was simply short. A plain re-run cannot fix that -- the rng is seeded per range,
-                // so the same budget reproduces the same miss exactly.
                 MaxAttempts = 25000
             };
         }

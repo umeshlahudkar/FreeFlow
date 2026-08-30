@@ -45,7 +45,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
 | Generate Levels 41-45 (Checkpoint) | 41–45 | 7×7 | 6 | Checkpoint (+Wall on 44–45) |
 | Generate Levels 46-50 (Shared Destination) | 46–50 | 7×7 | 6 | Shared Destination (+Wall on 49–50) |
-| Generate Levels 51-55 (Mastery: 8x8) | 51–55 | **8×8** | 8 | **three per level**, recombined (+Wall on 54–55) |
+| Generate Levels 51-55 (Mastery: 8x8) | 51–55 | **8×8** | 8 | **one per level**, rotating; 10 blocked cells, no walls |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -838,6 +838,32 @@ Hooked into `OnPointerMoved` (live, covers drawing and retreating) and the win c
 **HUD:** the cells line gains `Checkpoints : 1/2` on levels that have them, hidden entirely on levels that do not rather than shown as `0/0`, which would read as a goal already failed. Checkpoints need their own count because they are the one rule the board cannot show as satisfied on its own — a filled cell looks identical whether the colour crossing it is the named one or not.
 
 **Multiple checkpoints per level** work throughout — verified end to end, not assumed: `PairSatisfiesCheckpoints`, `CollectCheckpoints`, the feedback pass and the counter all iterate. A spec with `CheckpointCount = 2` produces uniquely-solvable boards with both honoured. Levels 41–45 ship one each; that is a content choice, not a limit.
+
+### 6.25 The second playtest correction: mechanics are seasoning, not difficulty
+
+Levels 51–55 were rebuilt twice, and both rebuilds were the same mistake in different clothes.
+
+| Build | Lever pulled | Playtest verdict |
+|---|---|---|
+| 12 colours, 1 mechanic | more pairs | *"too many colours, path is shortest, too easy"* |
+| 8 colours, 3 mechanics | more rules | *"too much of mechanics, annoying to play"* |
+| **8 colours, 1 mechanic, 10 blocked** | **board shape** | — |
+
+The first two both came from reaching for a number to raise instead of asking what makes this genre hard. **Numberlink has no mechanics at all** (§6.15) — its difficulty is routing. Stacking three rule types is not depth, it is bookkeeping, and the player feels the difference immediately.
+
+**Constraint has to come from somewhere, but the sources are not equivalent to the player.** A board needs constraint to have a unique solution. A rule cell is something to remember and check on every move; a **blocked cell is a hole you route around**, costing nothing to hold in mind. Both constrain the search equally as far as the solver is concerned. Measured at 8×8 / 8 colours:
+
+| Configuration | Unique yield | Avg path | Avg wrong routes |
+|---|---|---|---|
+| 3 mechanics, 6 blocked | ~1 per 1000 | 7.3 | 13–399 |
+| **1 mechanic, 10 blocked** | **95 per 908** | **6.8** | **~131** |
+| 1 mechanic, 14 blocked | 452 per 3105 | 6.3 | ~40 (over-constrained) |
+
+One mechanic with more holes holds path length, produces **more** search than the three-mechanic build, and generates a hundred times more easily. Fourteen holes over-constrains — wrong routes collapse and paths shorten — so ten is the pick.
+
+**Walls dropped from the range.** With ten holes already shaping the board, removing a wall almost never opens a second solution, so walls failed the necessity gate as decoration: 63 rejections out of the 65 candidates that reached it, which is also what made the wall levels ungeneratable. A wall the player cannot tell is doing anything is precisely the clutter being removed.
+
+**The rule this leaves for the rest of Mastery:** scale difficulty with **board size and board shape**, and keep mechanics to one per level as flavour that rotates. The generator makes it easy to add rules and hard to notice they are not fun — every gate here measures whether a mechanic is *load-bearing*, and none of them measures whether it is *welcome*. Only playtest does.
 
 ### Open questions, current
 
