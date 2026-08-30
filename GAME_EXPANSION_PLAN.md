@@ -865,6 +865,29 @@ One mechanic with more holes holds path length, produces **more** search than th
 
 **The rule this leaves for the rest of Mastery:** scale difficulty with **board size and board shape**, and keep mechanics to one per level as flavour that rotates. The generator makes it easy to add rules and hard to notice they are not fun — every gate here measures whether a mechanic is *load-bearing*, and none of them measures whether it is *welcome*. Only playtest does.
 
+### 6.26 A real Flow Free board, measured on our own solver
+
+A screenshot of **Flow Free "8x8 Mania, level 1"** was encoded by hand (9 pairs, full 64-cell grid, no holes) and run through `PuzzleSolver`. Four findings, one of which contradicts an earlier decision.
+
+**1. It has exactly one full-coverage solution, search exhausted.** Our `Uniqueness = Require` policy matches what the market leader actually ships. That was an assumption until now.
+
+**2. It has ZERO wrong routes.** There is only one way to connect the nine pairs *even ignoring the coverage rule*. That is precisely the property §6.18 removed from levels 11+ on the grounds that a board with no wrong routes is "a trace, not a puzzle" — and here it is in a shipped commercial level.
+
+  Two caveats before over-correcting. This is **level 1 of the pack**, the easiest board in it, so few alternatives is expected. And the metric may simply be a poor proxy: it counts *complete alternative pairings*, but a human never sees pairings — they explore partial paths and make local mistakes the metric never counts. A board can have one valid pairing and still be hard to find. **"Wrong routes" measures search space for a solver, not for a person**, and it should not be treated as a difficulty guarantee on its own.
+
+**3. Their board shape differs from ours.** Flow Free uses a **full grid with no blocked cells** — 9 colours over 64 cells, average path 7.1. Levels 51–55 use 10 blocked cells and 8 colours over 54 cells, average path 6.8. Comparable density, different silhouette: they get constraint from pair count, we get it from holes.
+
+**4. The reason we get it from holes is cost, and it is severe.** On that full-grid board our solver takes:
+
+| | Time | Steps |
+|---|---|---|
+| Find one solution | 155 ms | 308,539 |
+| **Prove uniqueness** | **2951 ms** | **4,973,792** |
+
+Against ~7 ms per candidate on our 8×8-with-10-holes spec — roughly **400× more expensive**. Generation needs ~1000 candidates per level, so Flow-Free-shaped boards would take hours each with this solver. **Blocked cells are not only a design choice for us; they are what makes generation tractable.** Big Duck Games either has a far better solver, authors by hand, or accepts very long offline runs.
+
+**Consequence for the two-mode plan:** Classic mode is cheap at 8×8 *with holes* (8.1% unique, ~100 wrong routes, 6.8 paths) and impractical at full-grid without solver work. If matching Flow Free's clean full-board look matters, that is a solver-pruning project, not a spec change.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
