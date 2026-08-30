@@ -182,6 +182,16 @@ namespace FreeFlow.GamePlay
             /// declare solvable boards unsolvable and unique ones non-unique.
             /// </summary>
             public bool StrandPruningEnabled;
+
+            /// <summary>
+            /// Scratch for the connectivity prune: a component id per cell, and a stack for the
+            /// flood fill. Allocated once per solve rather than per move -- the prune runs on every
+            /// move of a search that takes millions of steps, so an allocation here would dominate
+            /// everything it saves.
+            /// </summary>
+            public int[,] Component;
+            public int[] FloodStack;
+            public int ComponentStamp;
         }
 
         public static SolveResult Solve(Block[,] grid, int rowCount, int colCount, SolverOptions options = default)
@@ -238,7 +248,10 @@ namespace FreeFlow.GamePlay
                 // partial coverage allowed, leaving a cell empty is legal and the prune would be
                 // wrong.
                 StrandPruningEnabled = !options.AllowPartialCoverage
-                    && !BoardHasSharedCapacityCells(grid, rowCount, colCount)
+                    && !BoardHasSharedCapacityCells(grid, rowCount, colCount),
+                Component = new int[rowCount, colCount],
+                FloodStack = new int[rowCount * colCount],
+                ComponentStamp = 0
             };
 
             bool exhausted = true;
@@ -348,7 +361,9 @@ namespace FreeFlow.GamePlay
 
                 // Cheapest possible rejection: if this move just sealed a neighbouring empty cell
                 // off, no continuation of it can cover the board, so do not recurse at all.
-                if (ctx.StrandPruningEnabled && StrandsAnEmptyNeighbour(ctx, state, neighbor, neighbor))
+                if (ctx.StrandPruningEnabled
+                    && (StrandsAnEmptyNeighbour(ctx, state, neighbor, neighbor)
+                        || !RemainingPairsStillConnectable(ctx, state, pairIndex, neighbor)))
                 {
                     state.Release(neighbor, pairId, dir);
                     continue;
@@ -371,6 +386,123 @@ namespace FreeFlow.GamePlay
         /// never the reverse, which is exactly what a safe prune needs -- it must never reject a
         /// branch that the real, fully-constrained search could still solve.
         /// </summary>
+        /// <summary>
+        /// Whether every pair that still has to be routed can still reach its own other dot
+        /// through cells that are free right now.
+        ///
+        /// <b>This is the prune that makes big boards possible.</b> Before it, the only reachability
+        /// test ran once per PAIR TRANSITION, so the search could fill dozens of cells -- and branch
+        /// on every one -- after the board had already been cut in two, discovering the problem only
+        /// when it eventually ran out of room. On a 9x9 the solver could not find even one solution
+        /// inside eight million steps. Checking after every move instead means a move that severs
+        /// the board is abandoned immediately.
+        ///
+        /// One flood fill labels the connected components of free cells, then each unrouted pair is
+        /// asked whether its two dots carry the same label. The current pair is asked whether its
+        /// head can still reach its target. O(cells) per move, which is worth it many times over
+        /// against the subtrees it removes.
+        ///
+        /// Sound in the same way the stranded-cell prune is: it only ever reports "these dots are
+        /// already disconnected", which no continuation could repair, since paths never free a cell
+        /// they have taken.
+        /// </summary>
+        private static bool RemainingPairsStillConnectable(SearchContext ctx, SolverState state,
+            int pairIndex, Block head)
+        {
+            int rows = state.Rows;
+            int cols = state.Cols;
+            int stamp = ++ctx.ComponentStamp;
+            int[,] component = ctx.Component;
+            int[] stack = ctx.FloodStack;
+
+            // Component ids are (stamp, id) packed as stamp * 64 + id so the scratch array never
+            // needs clearing between moves; anything not written this move reads as a stale stamp.
+            int nextId = 0;
+            int[,] label = component;
+
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    Block seed = state.Grid[i, j];
+                    if (seed == null || !state.IsUnoccupied(seed)) { continue; }
+                    if (label[i, j] / 64 == stamp) { continue; }
+
+                    int id = ++nextId;
+                    int top = 0;
+                    stack[top++] = i * cols + j;
+                    label[i, j] = stamp * 64 + id;
+
+                    while (top > 0)
+                    {
+                        int packed = stack[--top];
+                        int r = packed / cols, c = packed % cols;
+                        Block cell = state.Grid[r, c];
+
+                        for (int d = 0; d < Directions.Length; d++)
+                        {
+                            Direction dir = Directions[d];
+                            Block next = BoardTopology.Neighbor(state.Grid, rows, cols, cell, dir);
+                            if (next == null) { continue; }
+                            if (cell.HasWall(dir) || next.HasWall(BoardTopology.Opposite(dir))) { continue; }
+                            if (!state.IsUnoccupied(next)) { continue; }
+
+                            int nr = next.Row_ID, nc = next.Coloum_ID;
+                            if (label[nr, nc] / 64 == stamp) { continue; }
+                            label[nr, nc] = stamp * 64 + id;
+                            stack[top++] = nr * cols + nc;
+                        }
+                    }
+                }
+            }
+
+            // The pair being routed: its head must still touch a component holding its target,
+            // or be next to the target outright.
+            int currentPairId = ctx.PairIds[pairIndex];
+            Block target = ctx.Dots[currentPairId][1];
+            if (state.IsUnoccupied(target) && !TouchesComponentOf(ctx, state, head, target, stamp))
+            {
+                return false;
+            }
+
+            // Pairs not started yet: both their dots are still free, so they must share a label.
+            for (int k = pairIndex + 1; k < ctx.PairIds.Count; k++)
+            {
+                int pid = ctx.PairIds[k];
+                Block a = ctx.Dots[pid][0];
+                Block b = ctx.Dots[pid][1];
+                if (!state.IsUnoccupied(a) || !state.IsUnoccupied(b)) { continue; }
+
+                if (component[a.Row_ID, a.Coloum_ID] != component[b.Row_ID, b.Coloum_ID])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Whether <paramref name="from"/> has a free neighbour sharing
+        /// <paramref name="target"/>'s component, or is adjacent to the target itself.</summary>
+        private static bool TouchesComponentOf(SearchContext ctx, SolverState state, Block from,
+            Block target, int stamp)
+        {
+            int want = ctx.Component[target.Row_ID, target.Coloum_ID];
+
+            for (int d = 0; d < Directions.Length; d++)
+            {
+                Direction dir = Directions[d];
+                Block next = BoardTopology.Neighbor(state.Grid, state.Rows, state.Cols, from, dir);
+                if (next == null) { continue; }
+                if (from.HasWall(dir) || next.HasWall(BoardTopology.Opposite(dir))) { continue; }
+                if (next == target) { return true; }
+                if (!state.IsUnoccupied(next)) { continue; }
+                if (ctx.Component[next.Row_ID, next.Coloum_ID] == want) { return true; }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Whether any cell on the board can hold more than one path -- a Bridge, or a dot shared
         /// by several pairs. Their presence disables the stranded-cell prune; see

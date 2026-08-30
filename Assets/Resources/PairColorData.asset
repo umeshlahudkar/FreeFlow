@@ -37,3 +37,15 @@ MonoBehaviour:
     color: {r: 0.54509804, g: 0.76470588, b: 0.29019608, a: 1}
   - pairColorType: 12
     color: {r: 0, g: 0.58823529, b: 0.53333333, a: 1}
+  - pairColorType: 13
+    color: {r: 0.91, g: 0.12, b: 0.63, a: 1}
+  - pairColorType: 14
+    color: {r: 1, g: 0.76, b: 0.03, a: 1}
+  - pairColorType: 15
+    color: {r: 0.40, g: 0.93, b: 0.72, a: 1}
+  - pairColorType: 16
+    color: {r: 1, g: 0.45, b: 0.60, a: 1}
+  - pairColorType: 17
+    color: {r: 0.44, g: 0.53, b: 0.64, a: 1}
+  - pairColorType: 18
+    color: {r: 0.60, g: 0.64, b: 0.14, a: 1}

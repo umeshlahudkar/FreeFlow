@@ -2109,6 +2109,192 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Builds a board that is uniquely solvable by REFINEMENT rather than by filtering.
+        ///
+        /// <b>Why filtering could not reach a full 9x9.</b> Everything before this generated a
+        /// random partition, derived dots from its path ends, and asked whether the result happened
+        /// to be unique. On a board with holes that works -- the holes pin the routing down. On a
+        /// FULL grid there are too many ways to re-route, so a random board almost never is:
+        /// measured 0 unique boards in ~230 attempts at a full 8x8, and a single 9x9 attempt costs
+        /// 3.6 seconds. Filtering cannot find something that rare.
+        ///
+        /// <b>Use the ambiguity instead of discarding it.</b> If a solve returns two solutions they
+        /// must disagree about some cell. Split the intended path at that cell: one colour becomes
+        /// two, the cut becomes a pair of dots, and the routing there is pinned. The alternative
+        /// that caused the split cannot survive it, so ambiguity falls monotonically and the loop
+        /// terminates.
+        ///
+        /// Two properties fall out that filtering never had. The board lands on the FEWEST colours
+        /// that make it unique -- the same as the longest paths that stay unique, which is the
+        /// difficulty axis. And proving uniqueness gets cheaper at every step, since each split
+        /// shrinks the search space, so the expensive exhaustive proof only runs on a board that is
+        /// already constrained. Finding two solutions is cheap because the search stops at the
+        /// second; only the final "exactly one, exhausted" costs, and by then the board is tight.
+        /// </summary>
+        private static bool TryGenerateUniqueByRefinement(int size, bool[,] usable, int usableCount,
+            int startColorCount, int maxColorCount, int solverBudget, int minPathCells,
+            System.Random rng, out LevelData data, out int finalColorCount, out int splits)
+        {
+            data = default;
+            finalColorCount = 0;
+            splits = 0;
+
+            List<List<(int Row, int Col)>> paths =
+                TryGeneratePathPartition(size, usable, usableCount, startColorCount, rng);
+            if (paths == null) { return false; }
+
+            int maxSplits = maxColorCount - startColorCount;
+
+            for (int step = 0; step <= maxSplits; step++)
+            {
+                if (paths.Count > maxColorCount) { return false; }
+
+                LevelData candidate = BuildPlainLevelData(size, usable, paths, rng);
+                Block[,] grid = BuildBlockGrid(candidate, out int rows, out int cols);
+                try
+                {
+                    PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
+                        new PuzzleSolver.SolverOptions(solverBudget, 2));
+
+                    if (result.Status != PuzzleSolver.SolveStatus.Solved) { return false; }
+
+                    if (result.SolutionsFound == 1 && result.SearchExhausted)
+                    {
+                        // Checked only on the board that will actually ship: splitting shortens
+                        // paths, so testing earlier would reject boards still being refined.
+                        for (int i = 0; i < paths.Count; i++)
+                        {
+                            if (paths[i].Count < minPathCells) { return false; }
+                        }
+                        data = candidate;
+                        finalColorCount = paths.Count;
+                        return true;
+                    }
+
+                    if (result.AllSolutions == null || result.AllSolutions.Count < 2) { return false; }
+
+                    if (!TrySplitAtDivergence(paths, result.AllSolutions[0], result.AllSolutions[1], rng))
+                    {
+                        return false;
+                    }
+                    splits++;
+                }
+                finally { DestroyBlockGrid(grid); }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Finds a cell the two solutions disagree about and splits whichever intended path owns
+        /// it, turning one colour into two. Returns false when no split is possible -- the only
+        /// lever this algorithm has, so the caller treats that as a dead candidate.
+        /// </summary>
+        private static bool TrySplitAtDivergence(List<List<(int Row, int Col)>> paths,
+            List<PuzzleSolver.PairSolution> first, List<PuzzleSolver.PairSolution> second,
+            System.Random rng)
+        {
+            Dictionary<(int, int), int> ownerA = OwnershipMap(first);
+            Dictionary<(int, int), int> ownerB = OwnershipMap(second);
+
+            List<(int Row, int Col)> disputed = new List<(int, int)>();
+            foreach (KeyValuePair<(int, int), int> kv in ownerA)
+            {
+                if (ownerB.TryGetValue(kv.Key, out int other) && other != kv.Value)
+                {
+                    disputed.Add(kv.Key);
+                }
+            }
+            if (disputed.Count == 0) { return false; }
+
+            // Shuffled so repeated runs explore different cuts rather than always taking the first
+            // disagreement in scan order.
+            for (int i = disputed.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (disputed[i], disputed[j]) = (disputed[j], disputed[i]);
+            }
+
+            for (int d = 0; d < disputed.Count; d++)
+            {
+                for (int p = 0; p < paths.Count; p++)
+                {
+                    int at = paths[p].IndexOf(disputed[d]);
+                    // Both halves need two cells to carry two distinct dots, so the cut cannot sit
+                    // at either end or one cell in from it.
+                    if (at < 1 || at > paths[p].Count - 3) { continue; }
+
+                    List<(int Row, int Col)> tail = paths[p].GetRange(at + 1, paths[p].Count - at - 1);
+                    paths[p] = paths[p].GetRange(0, at + 1);
+                    paths.Add(tail);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static Dictionary<(int, int), int> OwnershipMap(List<PuzzleSolver.PairSolution> solution)
+        {
+            Dictionary<(int, int), int> map = new Dictionary<(int, int), int>();
+            for (int i = 0; i < solution.Count; i++)
+            {
+                List<(int Row, int Col)> cells = solution[i].Cells;
+                for (int c = 0; c < cells.Count; c++) { map[cells[c]] = solution[i].PairId; }
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// A LevelData carrying nothing but dots and, optionally, holes -- no rule cells, no walls.
+        /// This is what Classic is; see GameMode.
+        /// </summary>
+        private static LevelData BuildPlainLevelData(int size, bool[,] usable,
+            List<List<(int Row, int Col)>> paths, System.Random rng)
+        {
+            List<PairColorType> palette = PickDistinctColors(paths.Count, rng);
+
+            PairColorType[,] colorGrid = new PairColorType[size, size];
+            for (int p = 0; p < paths.Count; p++)
+            {
+                (int Row, int Col) a = paths[p][0];
+                (int Row, int Col) b = paths[p][paths[p].Count - 1];
+                colorGrid[a.Row, a.Col] = palette[p];
+                colorGrid[b.Row, b.Col] = palette[p];
+            }
+
+            LevelData data = new LevelData
+            {
+                gridSize = (GridSize)size,
+                pairCount = paths.Count,
+                gridRows = new GridRow[size]
+            };
+
+            for (int r = 0; r < size; r++)
+            {
+                PairColorType[] colorRow = new PairColorType[size];
+                BlockType[] typeRow = new BlockType[size];
+                for (int c = 0; c < size; c++)
+                {
+                    colorRow[c] = colorGrid[r, c];
+                    typeRow[c] = usable[r, c] ? BlockType.Normal : BlockType.Blocked;
+                }
+                data.gridRows[r] = new GridRow
+                {
+                    coloum = colorRow,
+                    pairId = new int[size],
+                    blockType = typeRow,
+                    wallMask = new int[size],
+                    requiredEntryDirection = new Direction[size],
+                    forcedExitDirection = new Direction[size],
+                    secondPairId = new int[size]
+                };
+            }
+
+            return data;
+        }
+
+        /// <summary>
         /// The Classic campaign, levels 11-100. Pure routing: no rule cells, no walls, ever.
         ///
         /// <b>Only three dials exist here</b> -- board size, colour count and hole count -- because
