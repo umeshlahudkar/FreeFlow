@@ -739,6 +739,18 @@ Bulk-generate-and-validate regression tests (spec §42), no-level-ships-without-
 | Checkpoint | 41–45 | §6.21 |
 | Shared Destination | 46–50 | §6.22 |
 
+### Known defect: an unmet Checkpoint is a silent dead end
+
+**Found by reasoning, not by play** — "can the level end if the checkpoint is occupied by another colour?"
+
+The answer is no, and the enforcement is correct: `IsPairSatisfied` ends with `PairSatisfiesCheckpoints`, so a pair whose checkpoint is not on its path never counts toward `GetPairCompleteCount`, the count stays under `CurrentLevelGoal`, and the win branch does not fire.
+
+The defect is what the player sees while that is happening: every cell filled, the HUD reading **`Cells : 49/49`**, every pair visibly joining its dots — and nothing happens, with no indication of why. It is §6.18's defect through a different door: the UI announcing the level is complete while the game refuses to end.
+
+**Every level from 41–45 contains at least one such state, by construction.** Necessity requires that removing the checkpoint opens a second solution, and that second solution must route the checkpoint's owner around it (otherwise it would satisfy the rule too, contradicting uniqueness). Measured on Level 41: strip the checkpoint and 3 full-coverage solutions appear, **2 of which are dead ends** — board full, every pair connected, the checkpoint at (3,5) held by pair 9 or pair 5 rather than its owner, pair 3.
+
+**Fix, not yet applied:** make the unmet rule visible. When the board is fully covered but a checkpoint is unsatisfied, mark that cell — `Block.PlayInvalidMoveFeedback` already exists — so the player learns which rule they missed instead of guessing. Worth checking whether Shared Destination and Bridge have the same silent-refusal shape before fixing only this one.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
