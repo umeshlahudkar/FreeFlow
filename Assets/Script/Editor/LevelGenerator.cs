@@ -44,6 +44,17 @@ namespace FreeFlow.GamePlay
     /// </summary>
     public static class LevelGenerator
     {
+        /// <summary>
+        /// Clears any progress bar left behind by a run that a domain reload killed mid-flight --
+        /// which is how every long generation ends if a script is touched or the editor regains
+        /// focus while one is going. Without this the bar can persist with nothing behind it.
+        /// </summary>
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void ClearStaleProgressBar()
+        {
+            EditorUtility.ClearProgressBar();
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 1-10 (Basic Flow + Blocked Cell)")]
         public static void GenerateLevels1To10()
         {
@@ -2030,88 +2041,313 @@ namespace FreeFlow.GamePlay
             };
         }
 
+        /// <summary>
+        /// Measures what the solver and the refinement generator can actually do on full grids.
+        ///
+        /// Reports progress through a cancellable bar and writes a Console line after EVERY board
+        /// rather than one summary at the end. Both matter: an earlier version logged only on
+        /// completion, so a run that had silently never started looked identical to one grinding
+        /// away, and twenty minutes were spent waiting on nothing.
+        /// </summary>
+        /// <summary>
+        /// End-to-end cost of producing one shippable Classic board per size, 5x5 through 10x10.
+        ///
+        /// <b>Uses a deliberately SHORT step budget.</b> Solve cost varies enormously between
+        /// instances rather than with board size -- measured, a 10x10 proved out in 14 s while a
+        /// 9x9 was still running after 104 s and twenty million steps. Since generation only needs
+        /// SOME good board rather than one specific board, abandoning an expensive instance is
+        /// nearly free: the budget cap makes SearchExhausted false, which is already treated as
+        /// "not proven unique" and rejected. Cheap boards are found instead, and the pathological
+        /// ones are never waited on.
+        /// </summary>
+        /// <summary>
+        /// Measures generation cost per board size, 5x5 through 10x10, with colour escalation.
+        ///
+        /// <b>Blocking, and deliberately so.</b> An earlier version drove this from
+        /// EditorApplication.update to keep the editor responsive. That failed for a reason worth
+        /// recording: Unity does not tick editor updates while its window is unfocused, so the job
+        /// simply stopped whenever attention moved elsewhere -- measured at 0.3% CPU, indefinitely.
+        /// A blocking loop that calls DisplayCancelableProgressBar often does show a live,
+        /// cancellable bar; that is exactly how the shipping generators report progress. The bar
+        /// updates on every attempt here.
+        ///
+        /// <b>Colour escalation.</b> Each size starts at the fewest colours worth attempting and
+        /// steps up after a budget of failures -- 9x9 tries 10, then 11, then 12, and so on to the
+        /// palette ceiling. Fewer colours is always the better puzzle, since it means longer paths,
+        /// but a board too loose to prove unique is worth abandoning quickly. Merge-down still pulls
+        /// the count back afterwards, so a higher START does not mean a higher result.
+        ///
+        /// Note a domain reload -- triggered by editing any script, or by Unity regaining focus and
+        /// refreshing -- kills a run in progress. Leave scripts alone while this is going.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Measure generation 5x5-10x10")]
+        public static void MeasureClassicGeneration()
+        {
+            int[] sizes = { 5, 6, 7, 8, 9, 10 };
+            const int targetPerSize = 3;
+            const int attemptsPerColourCount = 15;
+            const int budgetSteps = 2000000;
+
+            StringBuilder report = new StringBuilder();
+            bool cancelled = false;
+
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+            Debug.Log("MEASURE: starting (blocking; the bar updates every attempt).");
+
+            try
+            {
+                for (int i = 0; i < sizes.Length && !cancelled; i++)
+                {
+                    int size = sizes[i];
+                    int cells = size * size;
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(20261115 + size);
+                    int colourCount = Mathf.Max(3, cells / 8);
+                    int ceiling = Mathf.Min(MaxDistinctColors, cells / 3);
+                    int built = 0, colourSum = 0, best = 99, totalAttempts = 0, atThisCount = 0;
+                    System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+
+                    while (built < targetPerSize && colourCount <= ceiling)
+                    {
+                        if (EditorUtility.DisplayCancelableProgressBar(
+                                "Measuring generation  (" + (i + 1) + "/" + sizes.Length + ")",
+                                size + "x" + size + "  -  trying " + colourCount + " colours  -  attempt "
+                                    + (atThisCount + 1) + "/" + attemptsPerColourCount
+                                    + "  -  built " + built + "/" + targetPerSize
+                                    + "  -  " + (timer.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + built / (float)targetPerSize) / sizes.Length))
+                        { cancelled = true; break; }
+
+                        atThisCount++;
+                        totalAttempts++;
+
+                        if (TryGenerateUniqueByRefinement(size, usable, cells, colourCount,
+                                MaxDistinctColors, budgetSteps, 3, rng,
+                                out LevelData data, out int colours, out int splits))
+                        {
+                            built++;
+                            colourSum += colours;
+                            if (colours < best) { best = colours; }
+                        }
+
+                        if (atThisCount >= attemptsPerColourCount)
+                        {
+                            atThisCount = 0;
+                            colourCount++;
+                        }
+                    }
+                    timer.Stop();
+
+                    string line = "MEASURE " + size + "x" + size + " (" + cells + " cells): built="
+                        + built + "/" + totalAttempts + " attempts in "
+                        + (timer.ElapsedMilliseconds / 1000f).ToString("0.0") + "s";
+                    if (built > 0)
+                    {
+                        float avg = colourSum / (float)built;
+                        line += "   colours=" + avg.ToString("0.0") + " best=" + best
+                             + "   avgPath=" + (cells / avg).ToString("0.0")
+                             + "   " + (timer.ElapsedMilliseconds / (float)built / 1000f).ToString("0.0")
+                             + "s per level";
+                    }
+                    else { line += "   (none, escalated to " + colourCount + " colours)"; }
+
+                    Debug.Log(line);
+                    report.AppendLine(line);
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            Debug.Log("MEASURE complete" + (cancelled ? " (CANCELLED)" : "") + ".\n" + report);
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/PROBE generation cost 5x5-10x10")]
+        public static void ProbeGenerationCost()
+        {
+            EditorUtility.ClearProgressBar();
+
+            int[] sizes = { 5, 6, 7, 8, 9, 10 };
+            const int budgetSteps = 2000000;   // ~10 s worst case, vs the 20M that ran for minutes
+            StringBuilder report = new StringBuilder();
+            bool cancelled = false;
+
+            Debug.Log("PROBE2: generation cost, budget " + budgetSteps + " steps per proof.");
+
+            try
+            {
+                for (int i = 0; i < sizes.Length && !cancelled; i++)
+                {
+                    int size = sizes[i];
+                    int cells = size * size;
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(20261101 + size);
+                    int built = 0, colourSum = 0, best = 99, attempts = 0;
+                    System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+
+                    while (built < 3 && attempts < 400 && sw.ElapsedMilliseconds < 45000)
+                    {
+                        attempts++;
+                        if (EditorUtility.DisplayCancelableProgressBar("Generation cost probe",
+                                size + "x" + size + " -- attempt " + attempts + ", built " + built + "/3",
+                                (i + built / 3f) / sizes.Length))
+                        { cancelled = true; break; }
+
+                        // Start CONSTRAINED and merge down, rather than starting loose and
+                        // splitting up. The first uniqueness proof dominates cost, and it is
+                        // exponentially cheaper on a tight board: a 9x9 at 11 colours did not
+                        // finish in twenty million steps, while a 10x10 at 14 finished in two.
+                        // Merge-down then recovers the long paths, and its trials are individually
+                        // cheap, so paying there instead is the right trade.
+                        int startColours = Mathf.Max(3, cells / 6);
+                        if (TryGenerateUniqueByRefinement(size, usable, cells, startColours, 20,
+                                budgetSteps, 3, rng, out LevelData d, out int colours, out int splits))
+                        {
+                            built++;
+                            colourSum += colours;
+                            if (colours < best) { best = colours; }
+                        }
+                    }
+                    sw.Stop();
+
+                    string line = "PROBE2 " + size + "x" + size + " (" + cells + " cells): built=" + built
+                        + "/" + attempts + " attempts in " + (sw.ElapsedMilliseconds / 1000f).ToString("0.0") + "s";
+                    if (built > 0)
+                    {
+                        float avg = colourSum / (float)built;
+                        line += "   colours=" + avg.ToString("0.0") + " best=" + best
+                             + "   avgPath=" + (cells / avg).ToString("0.0")
+                             + "   " + (sw.ElapsedMilliseconds / (float)built / 1000f).ToString("0.0") + "s per level";
+                    }
+                    Debug.Log(line);
+                    report.AppendLine(line);
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            Debug.Log("PROBE2 complete" + (cancelled ? " (CANCELLED)" : "") + ".\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Classic/PROBE refine+merge on full grids")]
         public static void ProbeRefineMerge()
         {
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            int[] solveSizes = { 8, 9, 10, 11, 12 };
+            int[] buildSizes = { 7, 8, 9 };
+            int totalSteps = solveSizes.Length + buildSizes.Length;
+            int stepDone = 0;
+            bool cancelled = false;
+
             StringBuilder report = new StringBuilder();
+            Debug.Log("PROBE: starting -- one uniqueness proof per size, then refine+merge.");
 
-            // Part 1: raw cost of one uniqueness proof, which is what MRV was meant to move.
-            report.AppendLine("single uniqueness proof, full grid:");
-            foreach (int size in new int[] { 8, 9, 10, 11, 12 })
+            try
             {
-                bool[,] usable = new bool[size, size];
-                for (int r = 0; r < size; r++)
+                foreach (int size in solveSizes)
                 {
-                    for (int c = 0; c < size; c++) { usable[r, c] = true; }
-                }
+                    if (EditorUtility.DisplayCancelableProgressBar("Solver probe",
+                            "Uniqueness proof on a full " + size + "x" + size,
+                            stepDone / (float)totalSteps))
+                    { cancelled = true; break; }
 
-                System.Random rng = new System.Random(99);
-                int colours = Mathf.Max(4, (size * size) / 7);
-                List<List<(int Row, int Col)>> paths =
-                    TryGeneratePathPartition(size, usable, size * size, colours, rng);
-                if (paths == null) { report.Append("  ").Append(size).AppendLine("x: partition failed"); continue; }
-
-                LevelData data = BuildPlainLevelData(size, usable, paths, rng);
-                Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
-                try
-                {
-                    System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
-                    PuzzleSolver.SolveResult res = PuzzleSolver.Solve(grid, rows, cols,
-                        new PuzzleSolver.SolverOptions(20000000, 2));
-                    sw.Stop();
-                    report.Append("  ").Append(size).Append('x').Append(size)
-                          .Append(" / ").Append(colours).Append("c: ").Append(res.Status)
-                          .Append(" sols=").Append(res.SolutionsFound)
-                          .Append(" exhausted=").Append(res.SearchExhausted)
-                          .Append("  ").Append(sw.ElapsedMilliseconds).Append("ms, ")
-                          .Append(res.StepsTaken).AppendLine(" steps");
-                }
-                finally { DestroyBlockGrid(grid); }
-            }
-
-            // Part 2: end-to-end refine + merge-down, which is what actually ships levels.
-            report.AppendLine("refine-up then merge-down:");
-            foreach (int size in new int[] { 7, 8, 9 })
-            {
-                bool[,] usable = new bool[size, size];
-                for (int r = 0; r < size; r++)
-                {
-                    for (int c = 0; c < size; c++) { usable[r, c] = true; }
-                }
-
-                int cells = size * size;
-                System.Random rng = new System.Random(4242);
-                int built = 0, colourSum = 0, best = 99;
-                System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
-
-                for (int attempt = 0; attempt < 40 && built < 3 && sw.ElapsedMilliseconds < 90000; attempt++)
-                {
-                    int startColours = Mathf.Max(4, cells / 8);
-                    if (TryGenerateUniqueByRefinement(size, usable, cells, startColours, 18,
-                            SolverBudgetFor(size), 3, rng, out LevelData d, out int colours, out int splits))
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
                     {
-                        built++;
-                        colourSum += colours;
-                        if (colours < best) { best = colours; }
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(99);
+                    int colours = Mathf.Max(4, (size * size) / 7);
+                    List<List<(int Row, int Col)>> paths =
+                        TryGeneratePathPartition(size, usable, size * size, colours, rng);
+                    stepDone++;
+                    if (paths == null) { Debug.Log("PROBE " + size + "x" + size + ": partition failed"); continue; }
+
+                    LevelData data = BuildPlainLevelData(size, usable, paths, rng);
+                    Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                    try
+                    {
+                        System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                        PuzzleSolver.SolveResult res = PuzzleSolver.Solve(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(20000000, 2));
+                        sw.Stop();
+                        string line = "PROBE solve " + size + "x" + size + "/" + colours + "c: "
+                            + res.Status + " sols=" + res.SolutionsFound
+                            + " exhausted=" + res.SearchExhausted
+                            + "  " + sw.ElapsedMilliseconds + "ms, " + res.StepsTaken + " steps";
+                        Debug.Log(line);
+                        report.AppendLine(line);
+                    }
+                    finally { DestroyBlockGrid(grid); }
+                }
+
+                if (!cancelled)
+                {
+                    foreach (int size in buildSizes)
+                    {
+                        if (EditorUtility.DisplayCancelableProgressBar("Solver probe",
+                                "refine + merge-down on a full " + size + "x" + size,
+                                stepDone / (float)totalSteps))
+                        { cancelled = true; break; }
+
+                        bool[,] usable = new bool[size, size];
+                        for (int r = 0; r < size; r++)
+                        {
+                            for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                        }
+
+                        int cells = size * size;
+                        System.Random rng = new System.Random(4242);
+                        int built = 0, colourSum = 0, best = 99;
+                        System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+
+                        for (int attempt = 0; attempt < 30 && built < 3 && sw.ElapsedMilliseconds < 60000; attempt++)
+                        {
+                            if (EditorUtility.DisplayCancelableProgressBar("Solver probe",
+                                    size + "x" + size + " -- attempt " + (attempt + 1) + ", built " + built + "/3",
+                                    (stepDone + attempt / 30f) / totalSteps))
+                            { cancelled = true; break; }
+
+                            int startColours = Mathf.Max(4, cells / 8);
+                            if (TryGenerateUniqueByRefinement(size, usable, cells, startColours, 18,
+                                    SolverBudgetFor(size), 3, rng, out LevelData d, out int colours, out int splits))
+                            {
+                                built++;
+                                colourSum += colours;
+                                if (colours < best) { best = colours; }
+                            }
+                        }
+                        sw.Stop();
+                        stepDone++;
+
+                        string line = "PROBE build " + size + "x" + size + " (" + cells + " cells): built=" + built;
+                        if (built > 0)
+                        {
+                            float avg = colourSum / (float)built;
+                            line += "  colours=" + avg.ToString("0.0") + " best=" + best
+                                 + "  avgPath=" + (cells / avg).ToString("0.0")
+                                 + "  " + (sw.ElapsedMilliseconds / (float)built / 1000f).ToString("0.0") + "s each";
+                        }
+                        else { line += "  (none in " + (sw.ElapsedMilliseconds / 1000f).ToString("0") + "s)"; }
+                        Debug.Log(line);
+                        report.AppendLine(line);
+
+                        if (cancelled) { break; }
                     }
                 }
-                sw.Stop();
-
-                report.Append("  ").Append(size).Append('x').Append(size)
-                      .Append(" (").Append(cells).Append(" cells): built=").Append(built);
-                if (built > 0)
-                {
-                    float avg = colourSum / (float)built;
-                    report.Append("  colours=").Append(avg.ToString("0.0"))
-                          .Append(" best=").Append(best)
-                          .Append("  avgPath=").Append((cells / avg).ToString("0.0"))
-                          .Append("  ").Append((sw.ElapsedMilliseconds / (float)built / 1000f).ToString("0.0"))
-                          .Append("s each");
-                }
-                report.AppendLine();
             }
+            finally { EditorUtility.ClearProgressBar(); }
 
-            Debug.Log("LevelGenerator: PROBE complete.\n" + report);
+            Debug.Log("LevelGenerator: PROBE complete" + (cancelled ? " (CANCELLED)" : "") + ".\n" + report);
         }
 
         [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic 11-35 (6x6)")]
@@ -2227,6 +2463,11 @@ namespace FreeFlow.GamePlay
                 TryGeneratePathPartition(size, usable, usableCount, startColorCount, rng);
             if (paths == null) { return false; }
 
+            // Splitting adds a colour each time, so the palette is the real ceiling however
+            // generous the caller was.
+            maxColorCount = Math.Min(maxColorCount, MaxDistinctColors);
+            if (startColorCount > maxColorCount) { return false; }
+
             int maxSplits = maxColorCount - startColorCount;
 
             for (int step = 0; step <= maxSplits; step++)
@@ -2295,8 +2536,21 @@ namespace FreeFlow.GamePlay
         private static void MergeDownWhileUnique(int size, bool[,] usable,
             List<List<(int Row, int Col)>> paths, int solverBudget, int minPathCells, System.Random rng)
         {
+            // Merge trials get a FRACTION of the solver budget, and there is a hard ceiling on how
+            // many are run. Both matter, and for the same reason: every successful merge leaves the
+            // board less constrained, so each proof after it is more expensive than the last, and
+            // the final round -- the one that tries every remaining join and fails all of them --
+            // is the most expensive of all. Unbounded, that made a single 8x8 candidate cost 20-45
+            // seconds and the size produced nothing at all.
+            //
+            // Cutting a trial short is safe rather than merely cheap: an unproven merge is simply
+            // not taken, so the board keeps a colour it might have shed. The result is a slightly
+            // less aggressive merge, not a wrong one.
+            int trialBudget = Math.Max(120000, solverBudget / 8);
+            int trialsLeft = 60;
+
             bool progressed = true;
-            while (progressed && paths.Count > 2)
+            while (progressed && paths.Count > 2 && trialsLeft > 0)
             {
                 progressed = false;
 
@@ -2307,7 +2561,7 @@ namespace FreeFlow.GamePlay
                     (joins[i], joins[j]) = (joins[j], joins[i]);
                 }
 
-                for (int k = 0; k < joins.Count; k++)
+                for (int k = 0; k < joins.Count && trialsLeft > 0; k++)
                 {
                     var join = joins[k];
                     List<(int Row, int Col)> a = paths[join.A];
@@ -2328,7 +2582,8 @@ namespace FreeFlow.GamePlay
                     }
                     trial.Add(merged);
 
-                    if (!StillUniquelySolvable(size, usable, trial, solverBudget, rng)) { continue; }
+                    trialsLeft--;
+                    if (!StillUniquelySolvable(size, usable, trial, trialBudget, rng)) { continue; }
 
                     paths.Clear();
                     paths.AddRange(trial);
@@ -4001,10 +4256,29 @@ namespace FreeFlow.GamePlay
             (0, -1), (0, 1), (-1, 0), (1, 0) // Left, Right, Up, Down
         };
 
+        /// <summary>How many distinct pair colours the palette can supply. Anything that scales a
+        /// colour count with board area has to clamp to this -- see MaxDistinctColors' one-line
+        /// story in PickDistinctColors.</summary>
+        internal static int MaxDistinctColors
+        {
+            get { return Enum.GetValues(typeof(PairColorType)).Length - 1; } // less None
+        }
+
         private static List<PairColorType> PickDistinctColors(int count, System.Random rng)
         {
             List<PairColorType> pool = new List<PairColorType>((PairColorType[])Enum.GetValues(typeof(PairColorType)));
             pool.Remove(PairColorType.None);
+
+            // Asking for more colours than exist used to walk off the end of the pool with a bare
+            // IndexOutOfRange from deep inside a generation loop, which says nothing about the
+            // cause. Any caller scaling colour count with board area can hit this, so it names the
+            // problem instead.
+            if (count > pool.Count)
+            {
+                throw new InvalidOperationException("LevelGenerator: asked for " + count +
+                    " distinct colours but PairColorType defines only " + pool.Count +
+                    ". Add entries to PairColorType and PairColorData, or lower the colour count.");
+            }
 
             List<PairColorType> chosen = new List<PairColorType>();
             for (int i = 0; i < count; i++)

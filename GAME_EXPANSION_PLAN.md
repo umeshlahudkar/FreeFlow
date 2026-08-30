@@ -917,6 +917,41 @@ Removing mechanics removes every difficulty dial except **board size, colour cou
 
 The path dip at the 8×8 block is the board-size step doing its work: paths shorten when the board grows because the colour count rises with it (6 → 8 pairs), so the level gets harder along a different axis than the one path length measures. That is the same trade Flow Free's packs make, and it is the one thing in this progression that measurement cannot settle — whether 8 pairs on 8×8 at path 6.75 actually plays harder than 6 pairs on 7×7 at 7.08 is a playtest question.
 
+### 6.28 Making Classic work on full grids: solver work, and where the ceiling actually is
+
+Classic must carry no blocked cells (a hole is a mechanic, §6.27's correction), and hints need a unique solution. Both together mean generating **full-grid, mechanic-free, uniquely-solvable boards** — which the generator could not do above 6×6. Four changes fixed that, and one measurement says where it stops.
+
+**1. Filtering does not work on a full grid.** Generating random boards and keeping the unique ones found **0 in ~230 attempts** at 8×8. Holes had been doing the constraining; without them a board has too many ways to re-route.
+
+**2. Refinement replaced it.** When a solve returns two solutions they must disagree about some cell; split the intended path there and one colour becomes two, pinning the routing. Ambiguity falls monotonically. Each split also makes the next proof cheaper, so the expensive exhaustive check only runs on an already-constrained board.
+
+**3. Merge-down is what makes the puzzles good.** Splitting only ADDS colours and stops at the first unique board it stumbles into — on a 9×9 that was 18+ colours and sub-4.5-cell paths, which is the "too many colours, too easy" failure §6.25 already recorded. Merging rejoins paths whose ends touch and keeps any join that preserves uniqueness, walking to a locally minimal colour count — the same thing as locally maximal path length.
+
+**4. Two solver prunes and per-step MRV.** A stranded-cell check (an empty cell needs two ways out, or one if it is a dot), a per-move connectivity flood fill (every unrouted pair's dots must stay in one free component), and choosing the next pair by fewest remaining options rather than a fixed order. The connectivity prune is the decisive one: a full 9×9 went from *Inconclusive after 8M steps and 5.2 s* to *Solved in 2.4 s*. All three verified against the 145 shipped levels — 0 became unsolvable, 0 lost uniqueness — and they made those levels **1.9× faster** as a side effect.
+
+**Measured result, full grid, no mechanics, guaranteed unique:**
+
+| Board | Colours | Avg path | Time/level | 100 levels |
+|---|---|---|---|---|
+| 5×5 | 3.7 | 6.8 | 0.1 s | seconds |
+| 6×6 | 4.0 | **9.0** | 0.3 s | seconds |
+| 7×7 | 6.7 | 7.4 | 0.7 s | ~1 min |
+| 8×8 | 8.7 | 7.4 | 7.9 s | ~13 min |
+| 9×9 | 11.3 | 7.1 | 204 s | ~5.7 h |
+| 10×10 | — | — | **0 of 105 attempts** | — |
+
+8×8 at 8.7 colours matches Flow Free's own 8×8 (9 colours, path 7.1); 6×6 reaches **one pair per nine cells**, better than the commercial benchmark.
+
+**Cost grows 10–25× per board size.** That, not any single wall, is the real constraint.
+
+**Why 10×10 produced nothing, and it is probably not a wall.** A 10×10 at 14 colours was measured proving out in **1,974,169 steps against a 2,000,000 budget** — clearing by 1.3%. At that size most proofs land just past the cap, come back `Inconclusive`, and are rejected as "not proven unique". The generator is discarding boards that are likely fine. Raising the budget for 10×10 is the obvious next experiment; the cost is roughly linear in the budget, so ~4× the already-slow per-attempt time.
+
+**A claim to retract.** Earlier notes in this document said full-grid uniqueness needs roughly one pair per 4–5 cells. That was a property of greedy splitting, not of the problem — with merge-down, 6×6 reaches one pair per nine. Do not treat the old figure as a constraint.
+
+**Two process lessons that cost real time:**
+- `Get-Process Unity | Select-Object -First 1` picks an arbitrary one of several Unity processes. Sampling an idle leftover made healthy runs look dead and prompted an unnecessary rewrite of the job architecture. Sort by CPU.
+- A long `[MenuItem]` run dies to any domain reload — editing a script or the editor regaining focus is enough. `EditorApplication.update` is not the fix: Unity barely ticks it while unfocused. Blocking plus a frequently-updated `DisplayCancelableProgressBar` is what actually works, and is what the shipping generators already did.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
