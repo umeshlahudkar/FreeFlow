@@ -192,6 +192,13 @@ namespace FreeFlow.GamePlay
             public int[,] Component;
             public int[] FloodStack;
             public int ComponentStamp;
+
+            /// <summary>
+            /// Which pairs are already routed, indexed by position in <see cref="PairIds"/>.
+            /// Needed because pairs are no longer taken in a fixed order -- see
+            /// SelectMostConstrainedPair.
+            /// </summary>
+            public bool[] Routed;
         }
 
         public static SolveResult Solve(Block[,] grid, int rowCount, int colCount, SolverOptions options = default)
@@ -251,15 +258,20 @@ namespace FreeFlow.GamePlay
                     && !BoardHasSharedCapacityCells(grid, rowCount, colCount),
                 Component = new int[rowCount, colCount],
                 FloodStack = new int[rowCount * colCount],
-                ComponentStamp = 0
+                ComponentStamp = 0,
+                Routed = new bool[pairIds.Count]
             };
 
             bool exhausted = true;
             try
             {
-                Block firstStart = dots[pairIds[0]][0];
-                state.Occupy(firstStart, pairIds[0], Direction.None);
-                Search(ctx, state, 0, firstStart, Direction.None);
+                int firstPos = SelectMostConstrainedPair(ctx, state);
+                if (firstPos >= 0)
+                {
+                    Block firstStart = dots[pairIds[firstPos]][0];
+                    state.Occupy(firstStart, pairIds[firstPos], Direction.None);
+                    Search(ctx, state, firstPos, 0, firstStart, Direction.None);
+                }
             }
             catch (BudgetExceededException)
             {
@@ -287,12 +299,12 @@ namespace FreeFlow.GamePlay
         /// false unless the requested count has been reached, which is what makes ordinary
         /// backtracking keep hunting for a genuinely different arrangement (see the class doc).
         /// </summary>
-        private static bool Search(SearchContext ctx, SolverState state, int pairIndex, Block currentCell,
-            Direction entryDir)
+        private static bool Search(SearchContext ctx, SolverState state, int pairPos, int routedCount,
+            Block currentCell, Direction entryDir)
         {
             if (++ctx.Steps > ctx.MaxSteps) { throw new BudgetExceededException(); }
 
-            int pairId = ctx.PairIds[pairIndex];
+            int pairId = ctx.PairIds[pairPos];
             // The pair's target dot, fixed for the whole search -- always index 1, since every
             // caller (Solve, and the pair-transition below) starts a pair's search from index 0.
             // This must NOT be recomputed from currentCell as the path wanders: "the dot that
@@ -304,7 +316,7 @@ namespace FreeFlow.GamePlay
             {
                 if (!CheckpointsSatisfied(state, pairId, ctx.CheckpointsByPair)) { return false; }
 
-                if (pairIndex + 1 == ctx.PairIds.Count)
+                if (routedCount + 1 == ctx.PairIds.Count)
                 {
                     if (!ctx.AllowPartialCoverage && !state.IsFullyCovered()) { return false; }
 
@@ -312,7 +324,14 @@ namespace FreeFlow.GamePlay
                     return ctx.FoundSolutions.Count >= ctx.MaxSolutions;
                 }
 
-                int nextPairId = ctx.PairIds[pairIndex + 1];
+                // This pair is done; which one to take next is chosen HERE rather than fixed in
+                // advance, so the choice reflects the board as it now stands.
+                ctx.Routed[pairPos] = true;
+
+                int nextPos = SelectMostConstrainedPair(ctx, state);
+                if (nextPos < 0) { ctx.Routed[pairPos] = false; return false; }
+
+                int nextPairId = ctx.PairIds[nextPos];
                 Block nextStart = ctx.Dots[nextPairId][0];
                 Block nextEnd = OtherDot(ctx.Dots[nextPairId], nextStart);
 
@@ -321,12 +340,17 @@ namespace FreeFlow.GamePlay
                 // point recursing deeper just to discover that many steps later.
                 if (!IsOptimisticallyReachable(ctx, state, nextStart, nextEnd, nextPairId))
                 {
+                    ctx.Routed[pairPos] = false;
                     return false;
                 }
 
                 state.Occupy(nextStart, nextPairId, Direction.None);
-                bool stop = Search(ctx, state, pairIndex + 1, nextStart, Direction.None);
-                if (!stop) { state.Release(nextStart, nextPairId, Direction.None); }
+                bool stop = Search(ctx, state, nextPos, routedCount + 1, nextStart, Direction.None);
+                if (!stop)
+                {
+                    state.Release(nextStart, nextPairId, Direction.None);
+                    ctx.Routed[pairPos] = false;
+                }
                 return stop;
             }
 
@@ -363,13 +387,13 @@ namespace FreeFlow.GamePlay
                 // off, no continuation of it can cover the board, so do not recurse at all.
                 if (ctx.StrandPruningEnabled
                     && (StrandsAnEmptyNeighbour(ctx, state, neighbor, neighbor)
-                        || !RemainingPairsStillConnectable(ctx, state, pairIndex, neighbor)))
+                        || !RemainingPairsStillConnectable(ctx, state, pairPos, neighbor)))
                 {
                     state.Release(neighbor, pairId, dir);
                     continue;
                 }
 
-                bool stop = Search(ctx, state, pairIndex, neighbor, dir);
+                bool stop = Search(ctx, state, pairPos, routedCount, neighbor, dir);
                 if (stop) { return true; }
 
                 state.Release(neighbor, pairId, dir);
@@ -407,7 +431,7 @@ namespace FreeFlow.GamePlay
         /// they have taken.
         /// </summary>
         private static bool RemainingPairsStillConnectable(SearchContext ctx, SolverState state,
-            int pairIndex, Block head)
+            int pairPos, Block head)
         {
             int rows = state.Rows;
             int cols = state.Cols;
@@ -458,7 +482,7 @@ namespace FreeFlow.GamePlay
 
             // The pair being routed: its head must still touch a component holding its target,
             // or be next to the target outright.
-            int currentPairId = ctx.PairIds[pairIndex];
+            int currentPairId = ctx.PairIds[pairPos];
             Block target = ctx.Dots[currentPairId][1];
             if (state.IsUnoccupied(target) && !TouchesComponentOf(ctx, state, head, target, stamp))
             {
@@ -466,8 +490,11 @@ namespace FreeFlow.GamePlay
             }
 
             // Pairs not started yet: both their dots are still free, so they must share a label.
-            for (int k = pairIndex + 1; k < ctx.PairIds.Count; k++)
+            // Driven by the Routed flags rather than an index range, because pair order is chosen
+            // per step now and "everything after me" no longer means "everything unrouted".
+            for (int k = 0; k < ctx.PairIds.Count; k++)
             {
+                if (k == pairPos || ctx.Routed[k]) { continue; }
                 int pid = ctx.PairIds[k];
                 Block a = ctx.Dots[pid][0];
                 Block b = ctx.Dots[pid][1];
@@ -563,6 +590,71 @@ namespace FreeFlow.GamePlay
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Picks which unrouted pair to route next: the one with the FEWEST ways to start.
+        ///
+        /// <b>Minimum-remaining-values, decided per step rather than once.</b> Pairs used to be
+        /// ordered a single time, by the span between their dots, and that order held for the whole
+        /// search. But how constrained a pair is changes constantly as other paths fill the board:
+        /// a pair with four ways out at the start may have one left twenty moves later. Ordering up
+        /// front cannot see that, so the search would happily branch on a wide-open pair while a
+        /// nearly-forced one sat waiting -- and every wrong choice made on the wide-open pair had
+        /// to be discovered the expensive way.
+        ///
+        /// Taking the most constrained pair first inverts that: forced pairs get played out
+        /// immediately, and boards that cannot work fail near the root instead of deep in a
+        /// subtree. This is the standard win for this class of search, and it is what large boards
+        /// need most.
+        ///
+        /// Returns -1 when some unrouted pair has no way to start at all, which is a dead board and
+        /// worth reporting immediately rather than recursing to find out.
+        /// </summary>
+        private static int SelectMostConstrainedPair(SearchContext ctx, SolverState state)
+        {
+            int bestPos = -1;
+            int fewest = int.MaxValue;
+
+            for (int pos = 0; pos < ctx.PairIds.Count; pos++)
+            {
+                if (ctx.Routed[pos]) { continue; }
+
+                int pairId = ctx.PairIds[pos];
+                Block start = ctx.Dots[pairId][0];
+                int options = CountStartOptions(state, start, pairId);
+
+                // No way out of its own dot: nothing further on can rescue this board.
+                if (options == 0) { return -1; }
+
+                if (options < fewest)
+                {
+                    fewest = options;
+                    bestPos = pos;
+                    // One option is as constrained as a pair can be; nothing will beat it.
+                    if (fewest == 1) { break; }
+                }
+            }
+
+            return bestPos;
+        }
+
+        /// <summary>How many legal first moves <paramref name="pairId"/> has out of its start dot,
+        /// given the board as it stands.</summary>
+        private static int CountStartOptions(SolverState state, Block start, int pairId)
+        {
+            int options = 0;
+            for (int i = 0; i < Directions.Length; i++)
+            {
+                Direction dir = Directions[i];
+                Block neighbor = BoardTopology.Neighbor(state.Grid, state.Rows, state.Cols, start, dir);
+                if (neighbor == null) { continue; }
+                if (start.HasWall(dir) || neighbor.HasWall(BoardTopology.Opposite(dir))) { continue; }
+                if (!start.CanExitFrom(Direction.None, dir)) { continue; }
+                if (!state.CanEnter(neighbor, pairId, dir)) { continue; }
+                options++;
+            }
+            return options;
         }
 
         private static bool IsOptimisticallyReachable(SearchContext ctx, SolverState state, Block start, Block end,

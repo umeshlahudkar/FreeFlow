@@ -2030,6 +2030,90 @@ namespace FreeFlow.GamePlay
             };
         }
 
+        [MenuItem("FreeFlow/Level Generator/Classic/PROBE refine+merge on full grids")]
+        public static void ProbeRefineMerge()
+        {
+            StringBuilder report = new StringBuilder();
+
+            // Part 1: raw cost of one uniqueness proof, which is what MRV was meant to move.
+            report.AppendLine("single uniqueness proof, full grid:");
+            foreach (int size in new int[] { 8, 9, 10, 11, 12 })
+            {
+                bool[,] usable = new bool[size, size];
+                for (int r = 0; r < size; r++)
+                {
+                    for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                }
+
+                System.Random rng = new System.Random(99);
+                int colours = Mathf.Max(4, (size * size) / 7);
+                List<List<(int Row, int Col)>> paths =
+                    TryGeneratePathPartition(size, usable, size * size, colours, rng);
+                if (paths == null) { report.Append("  ").Append(size).AppendLine("x: partition failed"); continue; }
+
+                LevelData data = BuildPlainLevelData(size, usable, paths, rng);
+                Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                try
+                {
+                    System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                    PuzzleSolver.SolveResult res = PuzzleSolver.Solve(grid, rows, cols,
+                        new PuzzleSolver.SolverOptions(20000000, 2));
+                    sw.Stop();
+                    report.Append("  ").Append(size).Append('x').Append(size)
+                          .Append(" / ").Append(colours).Append("c: ").Append(res.Status)
+                          .Append(" sols=").Append(res.SolutionsFound)
+                          .Append(" exhausted=").Append(res.SearchExhausted)
+                          .Append("  ").Append(sw.ElapsedMilliseconds).Append("ms, ")
+                          .Append(res.StepsTaken).AppendLine(" steps");
+                }
+                finally { DestroyBlockGrid(grid); }
+            }
+
+            // Part 2: end-to-end refine + merge-down, which is what actually ships levels.
+            report.AppendLine("refine-up then merge-down:");
+            foreach (int size in new int[] { 7, 8, 9 })
+            {
+                bool[,] usable = new bool[size, size];
+                for (int r = 0; r < size; r++)
+                {
+                    for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                }
+
+                int cells = size * size;
+                System.Random rng = new System.Random(4242);
+                int built = 0, colourSum = 0, best = 99;
+                System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+
+                for (int attempt = 0; attempt < 40 && built < 3 && sw.ElapsedMilliseconds < 90000; attempt++)
+                {
+                    int startColours = Mathf.Max(4, cells / 8);
+                    if (TryGenerateUniqueByRefinement(size, usable, cells, startColours, 18,
+                            SolverBudgetFor(size), 3, rng, out LevelData d, out int colours, out int splits))
+                    {
+                        built++;
+                        colourSum += colours;
+                        if (colours < best) { best = colours; }
+                    }
+                }
+                sw.Stop();
+
+                report.Append("  ").Append(size).Append('x').Append(size)
+                      .Append(" (").Append(cells).Append(" cells): built=").Append(built);
+                if (built > 0)
+                {
+                    float avg = colourSum / (float)built;
+                    report.Append("  colours=").Append(avg.ToString("0.0"))
+                          .Append(" best=").Append(best)
+                          .Append("  avgPath=").Append((cells / avg).ToString("0.0"))
+                          .Append("  ").Append((sw.ElapsedMilliseconds / (float)built / 1000f).ToString("0.0"))
+                          .Append("s each");
+                }
+                report.AppendLine();
+            }
+
+            Debug.Log("LevelGenerator: PROBE complete.\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic 11-35 (6x6)")]
         public static void GenerateClassic11To35()
         {
@@ -2160,13 +2244,17 @@ namespace FreeFlow.GamePlay
 
                     if (result.SolutionsFound == 1 && result.SearchExhausted)
                     {
-                        // Checked only on the board that will actually ship: splitting shortens
-                        // paths, so testing earlier would reject boards still being refined.
+                        // Unique -- but refinement only ever ADDS colours, so this is the first
+                        // unique board found rather than a good one. Walk back down before
+                        // accepting it; see MergeDownWhileUnique.
+                        MergeDownWhileUnique(size, usable, paths, solverBudget, minPathCells, rng);
+
                         for (int i = 0; i < paths.Count; i++)
                         {
                             if (paths[i].Count < minPathCells) { return false; }
                         }
-                        data = candidate;
+
+                        data = BuildPlainLevelData(size, usable, paths, rng);
                         finalColorCount = paths.Count;
                         return true;
                     }
@@ -2183,6 +2271,119 @@ namespace FreeFlow.GamePlay
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Drives the colour count back DOWN once the board is unique, by joining paths whose ends
+        /// touch and keeping every join that leaves the board still uniquely solvable.
+        ///
+        /// <b>Why refinement alone is not enough.</b> Splitting only ever ADDS colours, and it stops
+        /// the moment uniqueness is reached, so it lands on the first unique board it stumbles into
+        /// rather than a good one. On a full 9x9 that was 18+ colours and paths under 4.5 cells --
+        /// and more colours means shorter paths means an easier level. Flow Free's own 8x8 boards
+        /// are unique at NINE colours with 7.1-cell paths, so such boards plainly exist; the split
+        /// loop simply has no way to move toward them.
+        ///
+        /// Merging is the inverse move. Two paths whose endpoints are adjacent can be joined into
+        /// one longer path, spending one fewer colour. The join is kept only if the board is still
+        /// uniquely solvable, so this walks downhill to a LOCALLY MINIMAL colour count -- which is
+        /// the same thing as locally maximal path length, the axis difficulty actually lives on.
+        ///
+        /// Affordable only because of the connectivity prune: each trial is a full uniqueness
+        /// proof, and those went from minutes to milliseconds on a constrained board.
+        /// </summary>
+        private static void MergeDownWhileUnique(int size, bool[,] usable,
+            List<List<(int Row, int Col)>> paths, int solverBudget, int minPathCells, System.Random rng)
+        {
+            bool progressed = true;
+            while (progressed && paths.Count > 2)
+            {
+                progressed = false;
+
+                List<(int A, int B, bool AFront, bool BFront)> joins = FindPossibleJoins(paths);
+                for (int i = joins.Count - 1; i > 0; i--)
+                {
+                    int j = rng.Next(i + 1);
+                    (joins[i], joins[j]) = (joins[j], joins[i]);
+                }
+
+                for (int k = 0; k < joins.Count; k++)
+                {
+                    var join = joins[k];
+                    List<(int Row, int Col)> a = paths[join.A];
+                    List<(int Row, int Col)> b = paths[join.B];
+
+                    List<(int Row, int Col)> merged = new List<(int, int)>(a.Count + b.Count);
+                    // Orient both so the touching ends meet in the middle of the new path.
+                    if (join.AFront) { for (int i = a.Count - 1; i >= 0; i--) { merged.Add(a[i]); } }
+                    else { merged.AddRange(a); }
+                    if (join.BFront) { merged.AddRange(b); }
+                    else { for (int i = b.Count - 1; i >= 0; i--) { merged.Add(b[i]); } }
+
+                    List<List<(int Row, int Col)>> trial = new List<List<(int, int)>>();
+                    for (int p = 0; p < paths.Count; p++)
+                    {
+                        if (p == join.A || p == join.B) { continue; }
+                        trial.Add(paths[p]);
+                    }
+                    trial.Add(merged);
+
+                    if (!StillUniquelySolvable(size, usable, trial, solverBudget, rng)) { continue; }
+
+                    paths.Clear();
+                    paths.AddRange(trial);
+                    progressed = true;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Every way two paths could be joined: an endpoint of one orthogonally touching an
+        /// endpoint of the other. Records which END of each, since the halves have to be oriented
+        /// so those ends meet.
+        /// </summary>
+        private static List<(int A, int B, bool AFront, bool BFront)> FindPossibleJoins(
+            List<List<(int Row, int Col)>> paths)
+        {
+            List<(int, int, bool, bool)> joins = new List<(int, int, bool, bool)>();
+
+            for (int i = 0; i < paths.Count; i++)
+            {
+                for (int j = i + 1; j < paths.Count; j++)
+                {
+                    for (int ea = 0; ea < 2; ea++)
+                    {
+                        (int Row, int Col) endA = ea == 0 ? paths[i][0] : paths[i][paths[i].Count - 1];
+                        for (int eb = 0; eb < 2; eb++)
+                        {
+                            (int Row, int Col) endB = eb == 0 ? paths[j][0] : paths[j][paths[j].Count - 1];
+                            int dr = Math.Abs(endA.Row - endB.Row);
+                            int dc = Math.Abs(endA.Col - endB.Col);
+                            if (dr + dc != 1) { continue; }
+                            joins.Add((i, j, ea == 0, eb == 0));
+                        }
+                    }
+                }
+            }
+
+            return joins;
+        }
+
+        private static bool StillUniquelySolvable(int size, bool[,] usable,
+            List<List<(int Row, int Col)>> paths, int solverBudget, System.Random rng)
+        {
+            LevelData data = BuildPlainLevelData(size, usable, paths, rng);
+            Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(solverBudget, 2));
+                return result.Status == PuzzleSolver.SolveStatus.Solved
+                    && result.SolutionsFound == 1
+                    && result.SearchExhausted;
+            }
+            finally { DestroyBlockGrid(grid); }
         }
 
         /// <summary>
