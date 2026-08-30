@@ -952,6 +952,40 @@ Classic must carry no blocked cells (a hole is a mechanic, §6.27's correction),
 - `Get-Process Unity | Select-Object -First 1` picks an arbitrary one of several Unity processes. Sampling an idle leftover made healthy runs look dead and prompted an unnecessary rewrite of the job architecture. Sort by CPU.
 - A long `[MenuItem]` run dies to any domain reload — editing a script or the editor regaining focus is enough. `EditorApplication.update` is not the fix: Unity barely ticks it while unfocused. Blocking plus a frequently-updated `DisplayCancelableProgressBar` is what actually works, and is what the shipping generators already did.
 
+### 6.29 The difficulty metric was wrong, and it took three playtests to see it
+
+Three separate level sets came back as *"too easy"* — the 12-colour 8×8 build, the three-mechanic rebuild, and finally a Classic campaign generated specifically to be hard. The cause was not any tuning value. **It was the acceptance test: the generator kept the FIRST uniquely solvable board it produced.**
+
+Uniqueness guarantees a puzzle has one answer. It says nothing about whether finding that answer takes any thought. Most uniquely-solvable boards fall out to pure local deduction with almost no branching — and those are exactly what "first valid board" selects for.
+
+**Measured against a real Flow Free board** (8×8 Mania level 1, hand-encoded from a screenshot):
+
+| | steps | decisions | dead ends | wrong routes |
+|---|---|---|---|---|
+| Our L100, the "hardest" | 754 | **188** | 6 | 199 |
+| Flow Free's FIRST level | 20004 | **4600** | 340 | **0** |
+
+Twenty-four times less thinking than the level they ship first.
+
+**Both metrics this document had been ramping are wrong:**
+
+- **Path length.** Our L100 had LONGER paths than L88 (8.2 vs 7.0) and demanded seven times FEWER decisions. §6.14 adopted path length as the honest proxy; it is not one. In places the "harder" ramp was making levels easier.
+- **Wrong routes.** §6.18 introduced these as the sign of a real puzzle, and §6.20 added a floor for them. The Flow Free board has **zero** alternative pairings and is hard anyway. Difficulty is not how many wrong answers exist; it is how much search finding the right one costs.
+
+**The right measure was already in `SolveResult`** — `DecisionPointCount`, `DeadEndCount`, `StepsTaken` — and had been since the solver was built. It was never selected on. The campaign now generates 12 valid boards per level, solves each, and keeps the one with the most decision points.
+
+**Result across the Classic 100:**
+
+| Block | Avg decisions |
+|---|---|
+| 5×5 (1–25) | 134 |
+| 6×6 (26–60) | 668 |
+| 7×7 (61–100) | **3722** |
+
+Range 24 to 20,447, average 1,756. Level 100 reaches **4,806 decisions — past Flow Free's 4,600, on a smaller board.** Generation cost rose from 57 s to 500 s for the campaign, which is the price of scoring twelve candidates instead of taking the first.
+
+**The lesson worth keeping:** every gate in this generator verifies that a level is *valid* — solvable, unique, fully covered, mechanics load-bearing. None of them measured whether it was *interesting*, and validity turns out to be nearly uncorrelated with difficulty. A generator will happily produce a thousand correct, trivial puzzles unless something explicitly selects for effort.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.

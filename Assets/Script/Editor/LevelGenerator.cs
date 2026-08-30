@@ -2101,6 +2101,9 @@ namespace FreeFlow.GamePlay
         {
             const string levelsFolder = "Assets/Resources/Levels/Classic";
             const int totalLevels = 100;
+            // How many valid boards to generate and score before keeping the hardest. Higher means
+            // harder levels and a longer run; 12 costs seconds per level at these sizes.
+            const int CandidatesPerLevel = 12;
 
             EnsureLevelFolder(levelsFolder);
             EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
@@ -2126,10 +2129,27 @@ namespace FreeFlow.GamePlay
                     }
 
                     LevelData chosen = default;
+                    string chosenKey = null;
                     int chosenColours = 0;
+                    int chosenDecisions = -1;
                     bool built = false;
+                    int candidatesSeen = 0;
 
-                    for (int attempt = 0; attempt < 600 && !built; attempt++)
+                    // Keep the HARDEST board found, not the first that works.
+                    //
+                    // Three playtests in a row reported "too easy", and the reason was the
+                    // acceptance test rather than any tuning value: it took the first uniquely
+                    // solvable board it produced. Measured against Flow Free's own 8x8, our
+                    // supposedly hardest level needed 188 solver decision points against their
+                    // 4600 -- twenty-four times less thinking, on the level they ship FIRST.
+                    //
+                    // Decision points are the honest measure here: places where the solver had a
+                    // real choice, which is where a player has to reason rather than follow a
+                    // forced line. Path length is not -- our longest-path level demanded seven
+                    // times FEWER decisions than a shorter-path one -- and neither is the count of
+                    // alternative pairings, since the Flow Free board has none at all and is still
+                    // hard.
+                    for (int attempt = 0; attempt < 600 && candidatesSeen < CandidatesPerLevel; attempt++)
                     {
                         if ((attempt % 5) == 0 && EditorUtility.DisplayCancelableProgressBar(
                                 "Classic campaign  (" + level + "/" + totalLevels + ")",
@@ -2157,12 +2177,31 @@ namespace FreeFlow.GamePlay
                         try { key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols); }
                         finally { DestroyBlockGrid(grid); }
 
-                        if (!seenCanonicalKeys.Add(key)) { continue; }
+                        if (seenCanonicalKeys.Contains(key)) { continue; }
 
-                        chosen = data;
-                        chosenColours = colours;
-                        built = true;
+                        // Re-solve to see how much searching this board actually demands.
+                        Block[,] scored = BuildBlockGrid(data, out int srows, out int scols);
+                        int decisions;
+                        try
+                        {
+                            PuzzleSolver.SolveResult effort = PuzzleSolver.Solve(scored, srows, scols,
+                                new PuzzleSolver.SolverOptions(8000000, 1));
+                            decisions = effort.DecisionPointCount;
+                        }
+                        finally { DestroyBlockGrid(scored); }
+
+                        candidatesSeen++;
+                        if (decisions > chosenDecisions)
+                        {
+                            chosen = data;
+                            chosenColours = colours;
+                            chosenDecisions = decisions;
+                            chosenKey = key;
+                            built = true;
+                        }
                     }
+
+                    if (built) { seenCanonicalKeys.Add(chosenKey); }
 
                     if (cancelled) { break; }
 
@@ -2178,6 +2217,7 @@ namespace FreeFlow.GamePlay
                     saved++;
                     report.Append("L").Append(level).Append(": ").Append(size).Append('x').Append(size)
                           .Append("  colours=").Append(chosenColours)
+                          .Append("  decisions=").Append(chosenDecisions)
                           .Append("  avgPath=").Append((cells / (float)chosenColours).ToString("0.0"))
                           .AppendLine();
                 }
