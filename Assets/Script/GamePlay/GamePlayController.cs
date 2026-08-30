@@ -64,6 +64,9 @@ namespace FreeFlow.GamePlay
 
         private int moves;
 
+        /// <summary>Unscaled time the current attempt began; see <see cref="BeginAttempt"/>.</summary>
+        private float attemptStartTime;
+
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
         // preview, and the block it's drawn on. The block has to be tracked too: the preview
         // lives on whichever cell was last when it was drawn, and a committed step moves
@@ -714,6 +717,50 @@ namespace FreeFlow.GamePlay
             selectedBlocks.RemoveAt(selectedBlocks.Count - 1);
         }
 
+        /// <summary>
+        /// Records that the current level has been started once more, and starts its clock.
+        /// Called from <see cref="ResetGameplay"/>, so a restart counts as a fresh attempt -- which
+        /// is the point: attempts-per-completion is the industry's own difficulty signal, and a
+        /// level nobody ever restarts is a level nobody found hard.
+        ///
+        /// Written straight to disk rather than held in memory, because the attempt that matters
+        /// most is the one the player abandons, and an abandoned session never reaches a save.
+        /// </summary>
+        private void BeginAttempt()
+        {
+            attemptStartTime = Time.unscaledTime;
+
+            if (UIController.Instance == null) { return; }
+            int currentLevel = UIController.Instance.CurrentLevel;
+            int totalLevelCount = UIController.Instance.TotalLevelCount;
+            if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
+
+            GameMode mode = UIController.Instance.CurrentMode;
+            SaveData data = SavingSystem.Instance.Load();
+
+            int[] attempts = EnsureLength(data.AttemptsFor(mode), totalLevelCount);
+            attempts[currentLevel - 1]++;
+            data.SetAttemptsFor(mode, attempts);
+
+            SavingSystem.Instance.Save(data);
+        }
+
+        private static int[] EnsureLength(int[] source, int length)
+        {
+            if (source != null && source.Length >= length) { return source; }
+            int[] resized = new int[length];
+            if (source != null) { System.Array.Copy(source, resized, source.Length); }
+            return resized;
+        }
+
+        private static float[] EnsureLength(float[] source, int length)
+        {
+            if (source != null && source.Length >= length) { return source; }
+            float[] resized = new float[length];
+            if (source != null) { System.Array.Copy(source, resized, source.Length); }
+            return resized;
+        }
+
         private void SaveLevelData()
         {
             SaveData data = SavingSystem.Instance.Load();
@@ -736,6 +783,13 @@ namespace FreeFlow.GamePlay
             }
 
             modeMoves[currentLevel - 1] = moves;
+
+            // Time on the attempt that actually finished. Pelánek's entire Sudoku evaluation
+            // regresses difficulty metrics against exactly this number, so it is what any future
+            // fitting of DifficultyModel's weights will need.
+            float[] modeSeconds = EnsureLength(data.SecondsFor(mode), totalLevelCount);
+            modeSeconds[currentLevel - 1] = Time.unscaledTime - attemptStartTime;
+            data.SetSecondsFor(mode, modeSeconds);
 
             if (currentLevel > data.CompletedLevelFor(mode))
             {
@@ -1709,6 +1763,7 @@ namespace FreeFlow.GamePlay
         public void ResetGameplay()
         {
             moves = 0;
+            BeginAttempt();
 
             gameState = GameState.Waiting;
 

@@ -2277,7 +2277,7 @@ namespace FreeFlow.GamePlay
         /// The hardest 6x6 by decision count scored 25 here against Flow Free's 81, which is why
         /// the search metrics and the playtests kept disagreeing.
         /// </summary>
-        private static float TangleScore(Block[,] grid, int rows, int cols, PuzzleSolver.SolveResult solved)
+        public static float TangleScore(Block[,] grid, int rows, int cols, PuzzleSolver.SolveResult solved)
         {
             if (solved.Solutions == null || solved.Solutions.Count == 0) { return 0f; }
 
@@ -2475,6 +2475,826 @@ namespace FreeFlow.GamePlay
                 + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
                 + (cancelled ? " (CANCELLED)" : "") + ".\n" + report
                 + "Flow Free 8x8 reference: tangle 81.");
+        }
+
+        /// <summary>
+        /// Rebuilds Classic 1-50 using the full difficulty model: structural gates as a filter,
+        /// then the four-metric blend as the ranking.
+        ///
+        /// <b>What is different from the tangle rebuild this replaces.</b> Tangle is still in the
+        /// blend, but it is now one term of four rather than the whole criterion, and -- more
+        /// importantly -- a board is REJECTED before it is ever ranked. Ranking was doing all the
+        /// work before, and ranking cannot fix a malformed board; it can only prefer one malformed
+        /// board over another. The first calibration run made that concrete: of ten shipped Classic
+        /// levels, five had a link touching itself and two had near-uniform path lengths, and one
+        /// of the self-touching boards scored ABOVE the Flow Free reference.
+        ///
+        /// <b>Two passes, because the model is not cheap.</b> Measuring every term costs roughly
+        /// (colours + 2) solves per board, which is far too much to spend on a candidate that a
+        /// free check would have thrown out. So:
+        ///   1. generate, solve for uniqueness (needed anyway), and run the structural gates, which
+        ///      read only the solution already in hand;
+        ///   2. shortlist the survivors by tangle -- also free, already computed -- and pay for the
+        ///      full model on the shortlist only.
+        /// The shortlist is deliberately wider than the block needs, so the expensive measure still
+        /// has room to disagree with the cheap one.
+        /// </summary>
+        /// <summary>
+        /// The 5x5 pack. Its shortlist and pool are the largest RELATIVE to board size, which looks
+        /// backwards until you look at what limits this size.
+        ///
+        /// The first build picked 100 levels from 500 scored -- 5x -- against 7x7's 20x, on the
+        /// assumption that 25 cells could not stretch further. It duplicated 70% of the time, but
+        /// that turned out not to be a fixed property: a fresh 2000-attempt probe duplicates at
+        /// ~50%, and the rate climbs as the pool fills. It is a coupon-collector curve against a
+        /// finite reachable set, not a wall -- the generator never stopped finding new boards, it
+        /// just found them more slowly, so the honest fix is to keep asking.
+        ///
+        /// Widening the colour sweep was tried first and measured WORSE: asking 3-7 yielded 92
+        /// distinct sound boards per 2000 attempts against 3-5's 122, because high-colour attempts
+        /// mostly fail to generate at all. That lever is closed; more attempts is the one that works.
+        ///
+        /// If the pool cannot be filled, the gather loop simply exits on its attempt cap and the
+        /// pack is built from what it found -- thinner selection, never fewer levels.
+        /// </summary>
+        /// <summary>
+        /// How many sound 8x8 boards each colour count actually yields, and how much they cost.
+        ///
+        /// Run as an editor job rather than an inline snippet because the interesting attempts are
+        /// the slow ones: at low colour counts nearly every attempt dies instantly in the partition
+        /// builder, and the rare one that gets through can spend a long time proving uniqueness.
+        /// Short-timeout tooling sees only the instant failures and times out on the informative
+        /// cases -- which is how "8x8 needs 10-12 colours" got recorded off samples of ten and
+        /// twelve attempts at a yield rate near 5%. That was not a measurement.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/PROBE 8x8 colour counts")]
+        public static void ProbeEightByEightColours()
+        {
+            ProbeColourCounts(8, new int[] { 7, 8, 9, 10 }, 1500);
+        }
+
+        /// <summary>
+        /// 9x9, probed before anything long is started. Its costs are not an extrapolation of 8x8's:
+        /// §6.31 measured 9x9 at 1243 ms average solve against 7x7's 9 ms, so the attempt count and
+        /// colour range that suit 8x8 may be hopeless here. Fewer attempts because each is dearer --
+        /// enough to see a rate, not enough to be a run.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/PROBE 9x9 colour counts")]
+        public static void ProbeNineByNineColours()
+        {
+            ProbeColourCounts(9, new int[] { 9, 10, 11, 12 }, 400);
+        }
+
+        private static void ProbeColourCounts(int size, int[] asks, int attemptsPer)
+        {
+            int cells = size * size;
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            EditorUtility.ClearProgressBar();
+            bool cancelled = false;
+
+            try
+            {
+                for (int i = 0; i < asks.Length && !cancelled; i++)
+                {
+                    int ask = asks[i];
+                    System.Random rng = new System.Random(90210 + ask);
+                    int generated = 0, sound = 0;
+                    float pathSum = 0f;
+                    Dictionary<int, int> finalColours = new Dictionary<int, int>();
+                    System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+
+                    for (int a = 0; a < attemptsPer; a++)
+                    {
+                        if ((a % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Probing " + size + "x" + size + " colour counts",
+                                "ask " + ask + " colours  -  " + a + "/" + attemptsPer
+                                    + "  -  " + sound + " sound"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + a / (float)attemptsPer) / asks.Length))
+                        { cancelled = true; break; }
+
+                        if (!TryGenerateUniqueByRefinement(size, usable, cells, ask,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out LevelData data, out int finalCount, out int splits, ask))
+                        {
+                            continue;
+                        }
+                        generated++;
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        try
+                        {
+                            PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                                new PuzzleSolver.SolverOptions(8000000, 2));
+                            bool unique = solved.Status == PuzzleSolver.SolveStatus.Solved
+                                && solved.SolutionsFound == 1 && solved.SearchExhausted;
+
+                            int usableCells = 0;
+                            for (int r = 0; r < rows; r++)
+                            {
+                                for (int c = 0; c < cols; c++)
+                                {
+                                    if (grid[r, c] != null && grid[r, c].BlockType != BlockType.Blocked)
+                                    {
+                                        usableCells++;
+                                    }
+                                }
+                            }
+
+                            StructuralGates.Report rep = StructuralGates.Evaluate(solved, usableCells);
+                            if (!unique || !rep.Passed) { continue; }
+
+                            sound++;
+                            pathSum += rep.MeanPath;
+                            int k = solved.Solutions.Count;
+                            finalColours[k] = finalColours.ContainsKey(k) ? finalColours[k] + 1 : 1;
+                        }
+                        finally { DestroyBlockGrid(grid); }
+                    }
+                    timer.Stop();
+
+                    report.Append("  ask ").Append(ask).Append(": generated ").Append(generated)
+                          .Append(", sound ").Append(sound);
+                    if (sound > 0)
+                    {
+                        report.Append("   meanPath ").Append((pathSum / sound).ToString("0.0"))
+                              .Append("   ").Append((timer.ElapsedMilliseconds / (float)sound).ToString("0"))
+                              .Append(" ms/sound   final:");
+                        List<int> keys = new List<int>(finalColours.Keys);
+                        keys.Sort();
+                        for (int k = 0; k < keys.Count; k++)
+                        {
+                            report.Append(' ').Append(keys[k]).Append('x').Append(finalColours[keys[k]]);
+                        }
+                    }
+                    report.Append("   (").Append((timer.ElapsedMilliseconds / 1000f).ToString("0"))
+                          .AppendLine("s)");
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            Debug.Log(size + "x" + size + " colour probe, " + attemptsPer + " attempts each, "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ":\n" + report
+                + "  reference -- Flow Free 8x8: 9 colours, meanPath 7.1, 13 assumptions\n"
+                + "  shipped packs: 7x7 path 8.7 / 7.1 assumptions, 8x8 path 7.4 / 7.8 assumptions");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/Build 5x5 pack (100)")]
+        public static void BuildPack5x5() { BuildSizePack(5, 100, 12, 1500); }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/Build 6x6 pack (100)")]
+        public static void BuildPack6x6() { BuildSizePack(6, 100, 10, 1100); }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/Build 7x7 pack (100)")]
+        public static void BuildPack7x7() { BuildSizePack(7, 100, 20, 2100); }
+
+        /// <summary>
+        /// The 8x8 pack, which is NOT a harder 7x7 and should not be expected to be.
+        ///
+        /// It needs its own colour target because the ratio the other packs use produces nothing
+        /// here: cells/12 asks for 5 colours on 64 cells, and 162 attempts at 5-7 yielded zero
+        /// boards. 8x8 only generates at 10-12. That is the puzzle's own arithmetic -- more cells
+        /// need more colours before uniqueness can be proved -- and more colours means shorter
+        /// paths: mean 6.0 here against the 7x7 pack's 8.7.
+        ///
+        /// <b>The "8x8 needs 10-12 colours" claim was wrong, and wrongly arrived at.</b> It came
+        /// from samples of ten and twelve attempts at a yield rate near 5%, where zero results is
+        /// the EXPECTED outcome even when the colour count works perfectly well. Probed properly at
+        /// 1500 attempts each:
+        ///
+        /// | ask | sound / 1500 | mean path | ms per sound board |
+        /// |---|---|---|---|
+        /// | 7 | 51 | 8.9 | 6772 |
+        /// | 8 | 71 | 7.9 | 1916 |
+        /// | 9 | 54 | 7.1 | 877 |
+        /// | 10 | 83 | 6.4 | 251 |
+        ///
+        /// Seven, eight and nine all yield perfectly well -- they are just far dearer per board,
+        /// which is exactly what a ten-attempt sample cannot see: it observes only the instant
+        /// partition failures and never reaches the informative case. Nine colours also reproduces
+        /// Flow Free's own 8x8 exactly, 9 colours at mean path 7.1.
+        ///
+        /// So this pack asks for 7-9 rather than 10-12: fewer colours to track AND longer paths,
+        /// which is better on both counts. The first build at 10-12 gave mean path 5.6 and 4.9
+        /// assumptions, below the 7x7 pack's 8.7 and 7.1 -- the worst of both worlds.
+        ///
+        /// Costs were measured per stage first (197 ms to gather a board, 26 ms stage one, 1909 ms
+        /// stage two) after three run estimates in a row went wrong by omitting whichever stage was
+        /// not front of mind.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/Build 8x8 pack (100)")]
+        public static void BuildPack8x8() { BuildSizePack(8, 100, 12, 1200, 9); }
+
+        /// <summary>
+        /// Builds one self-contained PACK of <paramref name="count"/> levels at a single board size,
+        /// into <c>Assets/Resources/Levels/Classic/{size}x{size}</c>.
+        ///
+        /// <b>Packs are chosen, not progressed through.</b> The player picks a board size and plays
+        /// that pack from 1, so each pack ramps on its own from the easiest board the size can
+        /// produce to the hardest -- there is no cross-pack ordering to preserve, and every pack
+        /// starts gently on purpose.
+        ///
+        /// <b>Selection is STRATIFIED, not top-N</b>, and that is the difference between a ramp and
+        /// a plateau. Taking the hardest 100 of 2000 gives a hundred hard levels with almost no
+        /// gradient between them; the earlier 18-level blocks could get away with it because they
+        /// were a slice appended to a campaign, not a hundred-level arc. See
+        /// <see cref="SelectStratified"/>.
+        ///
+        /// <b>Scoring is two-stage</b>, because relaxation is 98% of the model's cost (55 ms per
+        /// 7x7 board without it, 2243 ms with) while carrying only 23% of its weight. Stage one
+        /// ranks every candidate cheaply; stage two pays the full price for a wide slice spanning
+        /// the whole range, so the final ramp is still picked with complete information. For a
+        /// 100-level 7x7 pack that is 13 minutes rather than 75.
+        ///
+        /// <paramref name="shortlistPerLevel"/> is per size for a measured reason: the 5x5 board has
+        /// a hard material ceiling. 4000 attempts yielded 226 canonically distinct boards, on a
+        /// curve already flattening (74 / 140 / 187 / 226 across the run), so a 20x shortlist there
+        /// is not merely slow, it may not exist. 100 distinct is comfortable; 2000 is not.
+        /// </summary>
+        /// <param name="cellsPerColour">
+        /// Overrides <see cref="CellsPerColourTarget"/> for this pack. It exists because the ratio
+        /// that works for 5x5-7x7 produces NOTHING at 8x8: cells/12 asks for 5 colours on 64 cells,
+        /// and 162 attempts at 5-7 colours yielded zero boards. 8x8 only generates at 10-12, which
+        /// is a property of the puzzle rather than a tuning choice -- more cells need more colours
+        /// to keep uniqueness provable, and that shortens every path.
+        /// </param>
+        /// <summary>
+        /// Fraction of wall-clock time a long generation run is allowed to spend working. The rest
+        /// is spent asleep, so a multi-hour job does not pin a core flat out and cook the machine
+        /// into thermal throttling -- which slows the run down anyway, on top of everything else it
+        /// risks. 0.6 stretches a run by about two thirds and keeps the editor responsive.
+        /// </summary>
+        private const float GenerationDutyCycle = 0.6f;
+
+        /// <summary>
+        /// Holds a target duty cycle by sleeping in proportion to work actually done, rather than
+        /// sleeping a fixed amount every N iterations. That distinction matters here because the
+        /// cost of one attempt varies enormously -- an 8x8 partition failure returns in under a
+        /// millisecond while proving uniqueness on a 7-colour board can take seven seconds -- so a
+        /// per-iteration sleep would throttle the cheap work hard and the expensive work not at all.
+        /// </summary>
+        private sealed class CpuThrottle
+        {
+            private readonly float duty;
+            private readonly System.Diagnostics.Stopwatch since = System.Diagnostics.Stopwatch.StartNew();
+
+            public CpuThrottle(float dutyCycle) { duty = Mathf.Clamp(dutyCycle, 0.05f, 1f); }
+
+            public void Tick()
+            {
+                if (duty >= 1f) { return; }
+
+                long worked = since.ElapsedMilliseconds;
+                if (worked < 100) { return; }        // only rest after a meaningful slice of work
+
+                int rest = (int)(worked * (1f / duty - 1f));
+
+                // Paid off in slices rather than truncated to one. The first version slept
+                // Min(rest, 250) and moved on, which silently defeated the whole mechanism on
+                // exactly the work that needed it: a single 7-colour 8x8 attempt costs ~6.8s, owes
+                // ~4.5s of rest, and got 250ms -- so a run intended to hold 60% duty measured at
+                // 92% of a core. The cap belongs on each SLEEP, so the progress bar keeps
+                // repainting and Cancel stays responsive, not on the debt.
+                while (rest > 0)
+                {
+                    int slice = Mathf.Min(rest, 250);
+                    System.Threading.Thread.Sleep(slice);
+                    rest -= slice;
+                }
+                since.Restart();
+            }
+        }
+
+        private static void BuildSizePack(int size, int count, int shortlistPerLevel, int poolTarget,
+            int cellsPerColour = CellsPerColourTarget)
+        {
+            string levelsFolder = "Assets/Resources/Levels/Classic/" + size + "x" + size;
+            int cells = size * size;
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            HashSet<string> seen = new HashSet<string>();
+            System.Random rng = new System.Random(20260901 + size);
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            bool cancelled = false;
+
+            List<LevelData> survivors = new List<LevelData>();
+            CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
+            int generated = 0, rejectedStructure = 0, duplicates = 0, notUnique = 0, badSolution = 0;
+            int shortlistTarget = count * shortlistPerLevel;
+
+            try
+            {
+                // --- gather: unique, structurally sound, canonically distinct ------------------
+                for (int attempt = 0; attempt < 200000 && survivors.Count < poolTarget; attempt++)
+                {
+                    throttle.Tick();
+
+                    if ((attempt % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the " + size + "x" + size + " pack  -  gathering",
+                            "kept " + survivors.Count + "/" + poolTarget
+                                + "  -  " + rejectedStructure + " unsound, " + duplicates + " dupes"
+                                + (notUnique > 0 ? ", " + notUnique + " NOT UNIQUE" : string.Empty)
+                                + (badSolution > 0 ? ", " + badSolution + " BAD SOLUTION" : string.Empty)
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.5f * survivors.Count / poolTarget))
+                    { cancelled = true; break; }
+
+                    int colours = Mathf.Max(3, cells / cellsPerColour)
+                                + (attempt % ColourSweepWidth);
+                    if (colours > MaxDistinctColors) { continue; }
+
+                    if (!TryGenerateUniqueByRefinement(size, usable, cells, colours,
+                            MaxDistinctColors, 2000000, 3, rng,
+                            out LevelData data, out int finalColours, out int splits, colours))
+                    {
+                        continue;
+                    }
+                    generated++;
+
+                    Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                    bool keep;
+                    try
+                    {
+                        string key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                        if (!seen.Add(key)) { duplicates++; continue; }
+
+                        // Two solutions requested, not one, so this RE-PROVES uniqueness rather
+                        // than merely finding a solution to measure. Refinement already proved it
+                        // for this exact LevelData, so on paper the check is redundant -- but §6.20
+                        // is the counter-example: the Bridge constructor guaranteed two colours
+                        // crossed, and the dots DERIVED from it admitted a different unique
+                        // solution. The lesson recorded then was to verify construction-time
+                        // guarantees against the solved board, and a hundred-level pack is not the
+                        // place to trust an argument over a measurement.
+                        PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(8000000, 2));
+
+                        bool unique = solved.Status == PuzzleSolver.SolveStatus.Solved
+                            && solved.SolutionsFound == 1
+                            && solved.SearchExhausted;
+                        if (!unique) { notUnique++; }
+
+                        // The stored answer has to BE the answer. Cheap here, and the failure it
+                        // guards is silent: a level whose solutionPairId disagrees with the solver
+                        // would give wrong hints forever without anything else noticing.
+                        if (unique && !StoredSolutionMatchesSolver(data, solved, rows, cols))
+                        {
+                            badSolution++;
+                            unique = false;
+                        }
+
+                        int usableCells = 0;
+                        for (int r = 0; r < rows; r++)
+                        {
+                            for (int c = 0; c < cols; c++)
+                            {
+                                if (grid[r, c] != null && grid[r, c].BlockType != BlockType.Blocked)
+                                {
+                                    usableCells++;
+                                }
+                            }
+                        }
+                        keep = unique && StructuralGates.Evaluate(solved, usableCells).Passed;
+                    }
+                    finally { DestroyBlockGrid(grid); }
+
+                    if (!keep) { rejectedStructure++; continue; }
+                    survivors.Add(data);
+                }
+
+                if (survivors.Count < count)
+                {
+                    Debug.LogError("Pack " + size + "x" + size + ": only " + survivors.Count
+                        + " distinct sound boards for " + count + " levels. Generated " + generated
+                        + ", " + duplicates + " duplicates, " + rejectedStructure + " unsound."
+                        + (duplicates > generated / 2
+                            ? "  Duplicates dominate -- this size may be near its material ceiling."
+                            : string.Empty));
+                    return;
+                }
+
+                // --- stage one: cheap score on everything -------------------------------------
+                List<(float Score, LevelData Data)> stageOne = new List<(float, LevelData)>();
+                int stageOneCount = Mathf.Min(survivors.Count, shortlistTarget);
+
+                for (int i = 0; i < stageOneCount && !cancelled; i++)
+                {
+                    throttle.Tick();
+
+                    if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the " + size + "x" + size + " pack  -  stage 1 (cheap)",
+                            i + "/" + stageOneCount
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.5f + 0.25f * i / stageOneCount))
+                    { cancelled = true; break; }
+
+                    DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i], 14, 2000000, false);
+                    if (p.Valid && p.WellFormed) { stageOne.Add((p.Score, survivors[i])); }
+                }
+
+                if (stageOne.Count < count)
+                {
+                    Debug.LogError("Pack " + size + "x" + size + ": only " + stageOne.Count
+                        + " well-formed after stage one, needed " + count + ".");
+                    return;
+                }
+
+                // --- stage two: full model on a wide slice ACROSS the range --------------------
+                // Deliberately stratified rather than top-N: the finalists have to span the whole
+                // range, because the easy end of the ramp is being chosen here too.
+                List<(float Score, LevelData Data)> finalists =
+                    SelectStratified(stageOne, Mathf.Min(stageOne.Count, count * 3));
+
+                List<(float Score, LevelData Data)> scored = new List<(float, LevelData)>();
+                for (int i = 0; i < finalists.Count && !cancelled; i++)
+                {
+                    throttle.Tick();
+
+                    if ((i % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the " + size + "x" + size + " pack  -  stage 2 (full model)",
+                            i + "/" + finalists.Count
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.75f + 0.25f * i / finalists.Count))
+                    { cancelled = true; break; }
+
+                    DifficultyModel.Profile p = DifficultyModel.Measure(finalists[i].Data);
+                    if (p.Valid && p.WellFormed) { scored.Add((p.Score, finalists[i].Data)); }
+                }
+
+                if (scored.Count < count)
+                {
+                    Debug.LogError("Pack " + size + "x" + size + ": only " + scored.Count
+                        + " survived stage two, needed " + count + ".");
+                    return;
+                }
+
+                List<(float Score, LevelData Data)> chosen = SelectStratified(scored, count);
+
+                for (int i = 0; i < chosen.Count; i++)
+                {
+                    SaveLevelAsset(levelsFolder, i + 1, chosen[i].Data, chosen[i].Score);
+                }
+
+                total.Stop();
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+
+                Debug.Log("Pack " + size + "x" + size + ": " + chosen.Count + " levels written to "
+                    + levelsFolder + " in " + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                    + (cancelled ? " (CANCELLED)" : "") + ".\n"
+                    + "  generated " + generated + ", " + duplicates + " duplicates, "
+                    + rejectedStructure + " unsound, " + notUnique + " not unique, " + badSolution + " bad solution, "
+                    + survivors.Count + " distinct kept\n"
+                    + "  stage 1 scored " + stageOneCount + " -> " + stageOne.Count + " well-formed\n"
+                    + "  stage 2 scored " + finalists.Count + " -> " + scored.Count + " well-formed\n"
+                    + "  ramp: level 1 scores " + chosen[0].Score.ToString("0")
+                    + ", level " + chosen.Count + " scores " + chosen[chosen.Count - 1].Score.ToString("0"));
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+        }
+
+        /// <summary>
+        /// Whether the solution recorded in <c>GridRow.solutionPairId</c> is the same one the solver
+        /// finds. Only meaningful on a board already proved unique -- with two solutions there is no
+        /// "the" answer to agree with, which is precisely why hints need uniqueness.
+        /// </summary>
+        private static bool StoredSolutionMatchesSolver(LevelData data,
+            PuzzleSolver.SolveResult solved, int rows, int cols)
+        {
+            if (solved.Solutions == null) { return false; }
+
+            int[,] fromSolver = new int[rows, cols];
+            for (int i = 0; i < solved.Solutions.Count; i++)
+            {
+                List<(int Row, int Col)> cells = solved.Solutions[i].Cells;
+                for (int j = 0; j < cells.Count; j++)
+                {
+                    fromSolver[cells[j].Row, cells[j].Col] = solved.Solutions[i].PairId;
+                }
+            }
+
+            for (int r = 0; r < rows; r++)
+            {
+                int[] stored = data.gridRows[r].solutionPairId;
+                if (stored == null) { return false; }
+
+                for (int c = 0; c < cols; c++)
+                {
+                    if (stored[c] != fromSolver[r, c]) { return false; }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Picks <paramref name="count"/> boards spread evenly across the SCORE RANGE, ascending.
+        ///
+        /// <b>Why not just take the hardest N.</b> Top-N is right for a short block appended to a
+        /// campaign and wrong for a pack the player enters at level 1: the hardest hundred of two
+        /// thousand are all bunched at the top of the range, so the pack opens hard and barely
+        /// climbs. Stratifying spends the material on a gradient instead.
+        ///
+        /// <b>Even across the RANGE, not across the population.</b> Taking every twentieth board by
+        /// rank would follow the distribution -- and since scores cluster in the middle, that yields
+        /// a pack where most levels feel alike and the ends are sparse. Walking the range asks for a
+        /// board at each target difficulty and takes the nearest one still unused, so the ramp is
+        /// even in the thing the player actually feels.
+        ///
+        /// Nearest-unused is greedy and can drift where the pool is thin, which is honest: a gap in
+        /// the material shows up as a flat stretch rather than being papered over.
+        /// </summary>
+        private static List<(float Score, LevelData Data)> SelectStratified(
+            List<(float Score, LevelData Data)> scored, int count)
+        {
+            List<(float Score, LevelData Data)> sorted =
+                new List<(float, LevelData)>(scored);
+            sorted.Sort((x, y) => x.Score.CompareTo(y.Score));
+
+            if (count >= sorted.Count) { return sorted; }
+            if (count <= 1) { return new List<(float, LevelData)> { sorted[sorted.Count - 1] }; }
+
+            float lo = sorted[0].Score;
+            float hi = sorted[sorted.Count - 1].Score;
+
+            bool[] used = new bool[sorted.Count];
+            List<(float Score, LevelData Data)> picked = new List<(float, LevelData)>(count);
+
+            for (int i = 0; i < count; i++)
+            {
+                float target = lo + (hi - lo) * i / (count - 1);
+
+                int best = -1;
+                float bestGap = float.MaxValue;
+                for (int j = 0; j < sorted.Count; j++)
+                {
+                    if (used[j]) { continue; }
+                    float gap = Mathf.Abs(sorted[j].Score - target);
+                    if (gap < bestGap) { bestGap = gap; best = j; }
+                }
+
+                used[best] = true;
+                picked.Add(sorted[best]);
+            }
+
+            picked.Sort((x, y) => x.Score.CompareTo(y.Score));
+            return picked;
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Rebuild levels 1-50 on the difficulty model")]
+        public static void RebuildClassicOnDifficultyModel()
+        {
+            // size, firstLevel, lastLevel, poolTarget
+            RebuildClassicBlocks(new int[,]
+            {
+                { 5,  1, 15, 200 },
+                { 6, 16, 32, 200 },
+                { 7, 33, 50, 150 },
+            }, "Classic 1-50");
+        }
+
+        /// <summary>
+        /// The 7x7 block on its own, so one block can be redone without discarding the others.
+        ///
+        /// This exists because the first full run was cancelled an hour in, part-way through 7x7,
+        /// with levels 1-32 already built and passing every gate. Re-running everything to fix the
+        /// last block would have thrown that away.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Rebuild 7x7 block only (33-50)")]
+        public static void RebuildClassicSevenBlock()
+        {
+            RebuildClassicBlocks(new int[,] { { 7, 33, 50, 450 } }, "Classic 33-50 (7x7)");
+        }
+
+        /// <summary>
+        /// The 5x5 and 6x6 blocks, brought up to the calibration that play confirmed on 7x7.
+        ///
+        /// These two were built before §6.35 and before the self-touch fix, from pools that were
+        /// 88-96% rejected -- so their shortlists had almost nothing to choose between, and the
+        /// campaign dipped in the middle: 6x6 topped out at 65 against the 5x5's 68, then jumped to
+        /// 74 at level 33.
+        ///
+        /// The pool targets are sized from a measurement rather than a guess, which is the lesson
+        /// from getting it wrong twice: generation is cheap, the SCORING pass sets the clock. At
+        /// 16ms and 19ms per board for 5x5, and 120ms and 209ms for 6x6, the two blocks together
+        /// come to about two minutes -- against thirty-nine for 7x7, whose solves are far dearer.
+        /// The pools are deliberately only a little above `needed x ShortlistPerLevel`, because a
+        /// candidate the shortlist will never reach is a candidate generated for nothing.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Rebuild 5x5 and 6x6 blocks (1-32)")]
+        public static void RebuildClassicSmallBlocks()
+        {
+            RebuildClassicBlocks(new int[,]
+            {
+                { 5,  1, 15, 320 },
+                { 6, 16, 32, 360 },
+            }, "Classic 1-32 (5x5, 6x6)");
+        }
+
+        /// <summary>
+        /// How many candidates get the full difficulty model per level kept.
+        ///
+        /// Was 3, which meant keeping a third of everything looked at -- easy tail included. The
+        /// measured consequence: across the 18 levels of the 7x7 block, ten sat at 7-8 assumptions
+        /// while the top two reached 13-14, so most of the block was the easy half. The reference
+        /// Flow Free board needs 13.
+        ///
+        /// 3 was chosen when a candidate was expensive. It is not any more -- refusing self-touching
+        /// growth took 7x7 acceptance from "never finished in an hour" to 203 boards in 122s -- so
+        /// the ratio can buy selection pressure instead of throughput.
+        /// </summary>
+        private const int ShortlistPerLevel = 20;
+
+        /// <summary>
+        /// Colours to aim for, as a divisor of the cell count, and how far the sweep ranges above it.
+        ///
+        /// Fewer colours means longer paths, and the 7x7 block's own numbers say that is the single
+        /// clean correlate of difficulty we have: colours 10 -> 5 tracked score 53 -> 78, monotonic,
+        /// with nothing else in the table behaving as tidily. The sweep used to start at cells/9 and
+        /// range six wide (5-10 at 7x7), so most candidates were born easy.
+        ///
+        /// cells/12 with a spread of 3 asks for 4-6 at 7x7. Four may well be unreachable -- at five
+        /// colours a 7x7 is already one pair per 9.8 cells, MORE stretched than Flow Free's 7.1 --
+        /// but an attempt that fails to prove uniqueness is cheap, and refinement splits upward from
+        /// the target anyway, so aiming low costs little and biases the whole pool down.
+        /// </summary>
+        private const int CellsPerColourTarget = 12;
+        private const int ColourSweepWidth = 3;
+
+        private static void RebuildClassicBlocks(int[,] blocks, string label)
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            int blockCount = blocks.GetLength(0);
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+
+            HashSet<string> seen = new HashSet<string>();
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            bool cancelled = false;
+
+            try
+            {
+                for (int b = 0; b < blockCount && !cancelled; b++)
+                {
+                    int size = blocks[b, 0];
+                    int firstLevel = blocks[b, 1];
+                    int lastLevel = blocks[b, 2];
+                    int poolTarget = blocks[b, 3];
+                    int needed = lastLevel - firstLevel + 1;
+                    int cells = size * size;
+
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(20261225 + size);
+                    List<(float Tangle, LevelData Data)> survivors = new List<(float, LevelData)>();
+                    int generated = 0, rejectedStructure = 0;
+
+                    for (int attempt = 0; attempt < 14000 && survivors.Count < poolTarget; attempt++)
+                    {
+                        if ((attempt % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Rebuilding " + label + "  (block " + (b + 1) + "/" + blockCount + ")",
+                                size + "x" + size + "  -  kept " + survivors.Count + "/" + poolTarget
+                                    + "  -  " + rejectedStructure + " rejected on structure"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (b + survivors.Count / (float)poolTarget) / blockCount))
+                        { cancelled = true; break; }
+
+                        int colours = Mathf.Max(3, cells / CellsPerColourTarget)
+                                    + (attempt % ColourSweepWidth);
+                        if (colours > MaxDistinctColors) { continue; }
+
+                        if (!TryGenerateUniqueByRefinement(size, usable, cells, colours,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out LevelData data, out int finalColours, out int splits, colours))
+                        {
+                            continue;
+                        }
+                        generated++;
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        string key;
+                        float tangle;
+                        bool structurallySound;
+                        try
+                        {
+                            key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                            if (seen.Contains(key)) { continue; }
+
+                            PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                                new PuzzleSolver.SolverOptions(8000000, 1));
+
+                            int usableCells = 0;
+                            for (int r = 0; r < rows; r++)
+                            {
+                                for (int c = 0; c < cols; c++)
+                                {
+                                    if (grid[r, c] != null && grid[r, c].BlockType != BlockType.Blocked)
+                                    {
+                                        usableCells++;
+                                    }
+                                }
+                            }
+
+                            structurallySound = StructuralGates.Evaluate(solved, usableCells).Passed;
+                            tangle = TangleScore(grid, rows, cols, solved);
+                        }
+                        finally { DestroyBlockGrid(grid); }
+
+                        seen.Add(key);
+                        if (!structurallySound) { rejectedStructure++; continue; }
+                        survivors.Add((tangle, data));
+                    }
+
+                    if (survivors.Count < needed)
+                    {
+                        Debug.LogError("Block " + size + "x" + size + ": only " + survivors.Count
+                            + " structurally sound candidates for " + needed + " levels; block skipped."
+                            + "  (" + generated + " generated, " + rejectedStructure + " rejected)");
+                        continue;
+                    }
+
+                    // Pass 2: pay for the full model on a shortlist, not on the whole pool.
+                    survivors.Sort((x, y) => y.Tangle.CompareTo(x.Tangle));
+                    int shortlistSize = Mathf.Min(survivors.Count, needed * ShortlistPerLevel);
+
+                    List<(float Score, LevelData Data, string Detail)> scored =
+                        new List<(float, LevelData, string)>();
+
+                    for (int i = 0; i < shortlistSize && !cancelled; i++)
+                    {
+                        if ((i % 2) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Scoring the shortlist  (block " + (b + 1) + "/" + blockCount + ")",
+                                size + "x" + size + "  -  " + i + "/" + shortlistSize
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (b + i / (float)shortlistSize) / blockCount))
+                        { cancelled = true; break; }
+
+                        DifficultyModel.Profile profile = DifficultyModel.Measure(survivors[i].Data);
+                        if (!profile.Valid || !profile.WellFormed) { continue; }
+                        scored.Add((profile.Score, survivors[i].Data, profile.ToString()));
+                    }
+
+                    if (scored.Count < needed)
+                    {
+                        Debug.LogError("Block " + size + "x" + size + ": only " + scored.Count
+                            + " well-formed candidates survived scoring, needed " + needed
+                            + "; block skipped.");
+                        continue;
+                    }
+
+                    scored.Sort((x, y) => y.Score.CompareTo(x.Score));       // hardest first
+                    List<(float Score, LevelData Data, string Detail)> chosen = scored.GetRange(0, needed);
+                    chosen.Sort((x, y) => x.Score.CompareTo(y.Score));       // then ramp upward
+
+                    for (int i = 0; i < chosen.Count; i++)
+                    {
+                        SaveLevelAsset(levelsFolder, firstLevel + i, chosen[i].Data, chosen[i].Score);
+                    }
+
+                    report.Append(size).Append('x').Append(size)
+                          .Append("  levels ").Append(firstLevel).Append('-').Append(lastLevel)
+                          .Append(":  score ").Append(chosen[0].Score.ToString("0"))
+                          .Append("..").Append(chosen[chosen.Count - 1].Score.ToString("0"))
+                          .Append("   generated ").Append(generated)
+                          .Append(", rejected ").Append(rejectedStructure).Append(" on structure")
+                          .Append(", scored ").Append(shortlistSize)
+                          .Append(", well-formed ").Append(scored.Count)
+                          .AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log(label + " rebuilt on the difficulty model in "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ".\n" + report
+                + "Flow Free 8x8 reference: score 67, tangle 81, 13 assumptions, dependency 1.33.");
         }
 
         [MenuItem("FreeFlow/Level Generator/Classic/Write 3 calibration levels (58,59,60)")]
@@ -3354,6 +4174,12 @@ namespace FreeFlow.GamePlay
                     }
                     trial.Add(merged);
 
+                    // Growth refuses to lay a path alongside itself, but a MERGE can still create
+                    // one: two paths that never touched themselves become a single path whose two
+                    // halves run past each other. Checked before the solver call, because it costs
+                    // nothing next to a uniqueness proof.
+                    if (PathTouchesItself(merged)) { trialsLeft--; continue; }
+
                     trialsLeft--;
                     if (!StillUniquelySolvable(size, usable, trial, trialBudget, rng)) { continue; }
 
@@ -3363,6 +4189,34 @@ namespace FreeFlow.GamePlay
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Whether any two cells of one path are adjacent without being consecutive along it --
+        /// the link running alongside itself, which the genre forbids and which invalidates the
+        /// corner dual law that <see cref="HumanSolver"/> leans on.
+        /// </summary>
+        private static bool PathTouchesItself(List<(int Row, int Col)> path)
+        {
+            Dictionary<int, int> indexAt = new Dictionary<int, int>(path.Count);
+            for (int i = 0; i < path.Count; i++)
+            {
+                indexAt[path[i].Row * 1024 + path[i].Col] = i;
+            }
+
+            for (int i = 0; i < path.Count; i++)
+            {
+                // Right and down only; looking at all four would find each pair twice.
+                if (Touches(indexAt, path[i].Row, path[i].Col + 1, i)) { return true; }
+                if (Touches(indexAt, path[i].Row + 1, path[i].Col, i)) { return true; }
+            }
+            return false;
+        }
+
+        private static bool Touches(Dictionary<int, int> indexAt, int row, int col, int fromIndex)
+        {
+            if (!indexAt.TryGetValue(row * 1024 + col, out int other)) { return false; }
+            return Math.Abs(other - fromIndex) > 1;
         }
 
         /// <summary>
@@ -3483,12 +4337,28 @@ namespace FreeFlow.GamePlay
             List<PairColorType> palette = PickDistinctColors(paths.Count, rng);
 
             PairColorType[,] colorGrid = new PairColorType[size, size];
+
+            // The partition IS the solution, and this is the one place that still has it -- every
+            // caller downstream sees only the derived dots. Recording it here costs nothing and
+            // saves the game from searching for an answer the generator already knew.
+            //
+            // The stored id is the COLOUR cast to an int, because that is what BuildBlockGrid gives
+            // a cell as its pair id; the LevelData pairId column is not read for the primary
+            // identity. Getting this wrong is not hypothetical -- RelaxationMetrics read the pairId
+            // column, found nothing, and silently reported zero for every board.
+            int[,] solutionGrid = new int[size, size];
+
             for (int p = 0; p < paths.Count; p++)
             {
                 (int Row, int Col) a = paths[p][0];
                 (int Row, int Col) b = paths[p][paths[p].Count - 1];
                 colorGrid[a.Row, a.Col] = palette[p];
                 colorGrid[b.Row, b.Col] = palette[p];
+
+                for (int i = 0; i < paths[p].Count; i++)
+                {
+                    solutionGrid[paths[p][i].Row, paths[p][i].Col] = (int)palette[p];
+                }
             }
 
             LevelData data = new LevelData
@@ -3502,10 +4372,12 @@ namespace FreeFlow.GamePlay
             {
                 PairColorType[] colorRow = new PairColorType[size];
                 BlockType[] typeRow = new BlockType[size];
+                int[] solutionRow = new int[size];
                 for (int c = 0; c < size; c++)
                 {
                     colorRow[c] = colorGrid[r, c];
                     typeRow[c] = usable[r, c] ? BlockType.Normal : BlockType.Blocked;
+                    solutionRow[c] = solutionGrid[r, c];
                 }
                 data.gridRows[r] = new GridRow
                 {
@@ -3515,7 +4387,8 @@ namespace FreeFlow.GamePlay
                     wallMask = new int[size],
                     requiredEntryDirection = new Direction[size],
                     forcedExitDirection = new Direction[size],
-                    secondPairId = new int[size]
+                    secondPairId = new int[size],
+                    solutionPairId = solutionRow
                 };
             }
 
@@ -4669,6 +5542,9 @@ namespace FreeFlow.GamePlay
                             int candidate = adjacency[d];
                             if (taken[candidate] != -1) { continue; }
 
+                            // Never step somewhere that would put this path alongside itself.
+                            if (TouchesOwnPath(neighbours, taken, candidate, p, end)) { continue; }
+
                             int freeNeighbours = CountFreeNeighbours(neighbours, taken, candidate);
 
                             // Most-constrained node first; shortest path breaks ties; a random
@@ -4807,6 +5683,36 @@ namespace FreeFlow.GamePlay
             }
 
             return neighbours;
+        }
+
+        /// <summary>
+        /// Whether growing <paramref name="pathIndex"/> into <paramref name="candidate"/> would put
+        /// the path next to a cell of its own that it is not actually connected to.
+        ///
+        /// <b>Why this is a growth rule and not a filter.</b> "No link touches itself" is half of
+        /// the genre's definition of a well-formed Numberlink -- and we were not enforcing it
+        /// anywhere. Adding it as a post-hoc gate revealed the scale of the problem rather than
+        /// solving it: of the boards this builder produced, <b>88% of 5x5s and 96% of 6x6s were
+        /// thrown away for self-touching</b>, and the 7x7 block could not finish inside an hour
+        /// because almost everything it made was discarded.
+        ///
+        /// Generating garbage and filtering it is the wrong shape. Refusing the step costs one
+        /// adjacency scan per candidate, and the candidate was about to be scored anyway.
+        ///
+        /// <paramref name="growingEnd"/> is exempt for the obvious reason: it is the cell we are
+        /// growing FROM, so being adjacent to it is the connection itself, not a touch.
+        /// </summary>
+        private static bool TouchesOwnPath(int[][] neighbours, int[] taken, int candidate,
+            int pathIndex, int growingEnd)
+        {
+            int[] adjacency = neighbours[candidate];
+            for (int i = 0; i < adjacency.Length; i++)
+            {
+                int node = adjacency[i];
+                if (node == growingEnd) { continue; }
+                if (taken[node] == pathIndex) { return true; }
+            }
+            return false;
         }
 
         private static int CountFreeNeighbours(int[][] neighbours, int[] taken, int node)
@@ -5070,7 +5976,7 @@ namespace FreeFlow.GamePlay
         // generator has no dependency on test code.
         // ---------------------------------------------------------------------------------------
 
-        private static Block[,] BuildBlockGrid(LevelData data, out int rows, out int cols)
+        public static Block[,] BuildBlockGrid(LevelData data, out int rows, out int cols)
         {
             rows = (int)data.gridSize;
             cols = (int)data.gridSize;
@@ -5141,7 +6047,7 @@ namespace FreeFlow.GamePlay
             return grid;
         }
 
-        private static void DestroyBlockGrid(Block[,] grid)
+        public static void DestroyBlockGrid(Block[,] grid)
         {
             if (grid == null) { return; }
             foreach (Block block in grid)
@@ -5161,14 +6067,25 @@ namespace FreeFlow.GamePlay
         // ---------------------------------------------------------------------------------------
 
         /// <summary>Creates Resources/Levels/&lt;Mode&gt; if it is not there yet.</summary>
+        /// <summary>
+        /// Creates <paramref name="folder"/> and any missing parents.
+        ///
+        /// The first version hardcoded "Assets/Resources/Levels" as the parent and created only the
+        /// last segment, which silently produced the WRONG folder for anything nested: asking for
+        /// Levels/Classic/5x5 made Levels/5x5. Per-size packs are two deep, so it walks the path.
+        /// </summary>
         private static void EnsureLevelFolder(string folder)
         {
             if (AssetDatabase.IsValidFolder(folder)) { return; }
-            if (!AssetDatabase.IsValidFolder("Assets/Resources/Levels"))
+
+            string[] parts = folder.Split('/');
+            string path = parts[0];                       // "Assets"
+            for (int i = 1; i < parts.Length; i++)
             {
-                AssetDatabase.CreateFolder("Assets/Resources", "Levels");
+                string next = path + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next)) { AssetDatabase.CreateFolder(path, parts[i]); }
+                path = next;
             }
-            AssetDatabase.CreateFolder("Assets/Resources/Levels", folder.Substring(folder.LastIndexOf('/') + 1));
         }
 
         private static void SaveLevelAsset(string folder, int levelNumber, LevelData data, float difficultyScore)

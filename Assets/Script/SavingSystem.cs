@@ -66,6 +66,29 @@ public struct SaveData
     public int advancedCompletedLevel;
     public int[] advancedCompletedLevelMoves;
 
+    // Play telemetry, per level, per mode.
+    //
+    // Every shipped system in the genre rates difficulty from play rather than from a model of it.
+    // King train bots to IMITATE players specifically so they can predict a level's difficulty
+    // before release; Lichess does not model puzzle difficulty at all, and instead scores each
+    // attempt as a Glicko2 game between the player and the puzzle, with a rating that stabilises
+    // after 20-30 attempts. Offline metrics are everywhere a PRE-FILTER, and play data sets the
+    // final order. We have spent five rounds arguing about proxies without ever recording the one
+    // signal that would settle it.
+    //
+    // Attempts is the headline number: the published benchmark for a tuned mobile puzzle curve is
+    // about 3.2 attempts per completion once onboarding is past, so a level sitting at 1.0 is not
+    // pulling its weight and one at 8 is a wall. Seconds is the tiebreaker, and is what Pelánek's
+    // whole Sudoku evaluation regresses against.
+    //
+    // Both are added fields, so JsonUtility fills them with null on an existing save and nothing
+    // resets -- the same reason Classic kept the original field names above.
+    public int[] completedLevelAttempts;
+    public float[] completedLevelSeconds;
+
+    public int[] advancedCompletedLevelAttempts;
+    public float[] advancedCompletedLevelSeconds;
+
     public AudioData audioData;
 
     /// <summary>Highest level finished in <paramref name="mode"/>.</summary>
@@ -90,6 +113,30 @@ public struct SaveData
     {
         if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelMoves = value; }
         else { completedlevelMoves = value; }
+    }
+
+    /// <summary>How many times each level has been STARTED, completed or not. Null until played.</summary>
+    public int[] AttemptsFor(FreeFlow.Enums.GameMode mode)
+    {
+        return mode == FreeFlow.Enums.GameMode.Advanced ? advancedCompletedLevelAttempts : completedLevelAttempts;
+    }
+
+    public void SetAttemptsFor(FreeFlow.Enums.GameMode mode, int[] value)
+    {
+        if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelAttempts = value; }
+        else { completedLevelAttempts = value; }
+    }
+
+    /// <summary>Wall-clock seconds of the attempt that COMPLETED each level. Null until played.</summary>
+    public float[] SecondsFor(FreeFlow.Enums.GameMode mode)
+    {
+        return mode == FreeFlow.Enums.GameMode.Advanced ? advancedCompletedLevelSeconds : completedLevelSeconds;
+    }
+
+    public void SetSecondsFor(FreeFlow.Enums.GameMode mode, float[] value)
+    {
+        if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelSeconds = value; }
+        else { completedLevelSeconds = value; }
     }
 }
 

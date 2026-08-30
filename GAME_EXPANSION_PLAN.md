@@ -793,7 +793,11 @@ Bulk-generate-and-validate regression tests (spec §42), no-level-ships-without-
 
 ## 7. Where the project actually stands
 
-**Levels 1–50 are built and verified; all nine mechanics are done.** `totalLevelCount` = 50. Every level from 11 up has exactly one winning solution with wrong routes to search; levels 1–10 keep the strict coverage rule as the tutorial tier (§6.18). 137 tests pass.
+**Classic levels 1–50 are built, verified, and — for the 7×7 block — confirmed challenging in play.** 154 tests pass.
+
+The table below describes the ADVANCED campaign's mechanics, which is where levels 1–50 of that mode live. Classic is the default mode and carries no mechanics at all (§6.27); its 50 levels were rebuilt from scratch in §6.34–6.35 and every one of them is uniquely solvable, structurally well-formed, and has at least one deduction available from the opening position. Difficulty, the problem that survived six rounds of playtesting, was closed in §6.35 — the calibration that did it is recorded there.
+
+Two things this section does not yet cover: Advanced mode is unreachable in play, because `SetMode()` exists but nothing calls it; and the 5×5 and 6×6 Classic blocks have not had the §6.35 treatment, so the campaign dips in the middle.
 
 | Mechanic | Levels | Built in |
 |---|---|---|
@@ -1055,9 +1059,414 @@ Difficulty then rates as: **hardest technique required**, plus **number of times
 
 This is a real piece of work, not a scoring tweak, and it is the only approach in the literature with a validated correlation to human experience.
 
+### 6.32 Deeper research: the four things the field does that we do not
+
+§6.31 established that search effort is the wrong signal. This is the follow-up — reading the primary sources properly rather than the summaries — and it turns up four concrete, implementable things, one of which is a Numberlink-specific deduction rule we have simply never used.
+
+**Pelánek's full correlation table, with our own metrics placed in it.** Every metric he evaluated, against human solving time on two independent portals:
+
+| Family | Metric | Fed-Sudoku | Sudoku.org | Ours? |
+|---|---|---|---|---|
+| Algorithm | Backtracking | 0.16 | 0.25 | **this is what §6.29's metrics were** |
+| Algorithm | Harmony search | 0.18 | 0.22 | — |
+| Static | Number of givens | 0.25 | 0.27 | ~ colour count |
+| Algorithm | Simulated annealing | 0.38 | 0.39 | — |
+| Relaxation | Solution count | 0.40 | 0.46 | not measured |
+| Relaxation | **Fixedness** | 0.56 | 0.61 | **not measured** |
+| Model | **Dependency** | 0.67 | 0.69 | **not measured** |
+| Model | Refutation sum | 0.68 | 0.83 | ~ `HumanSolver.Assumptions` |
+| Model | Serate LM | 0.78 | 0.86 | — |
+| Combined | RD (refutation + dependency) | 0.74 | 0.88 | — |
+| Combined | SFRD (4-metric linear) | 0.84 | **0.95** | — |
+
+Two things fall out. First, backtracking metrics score **0.16–0.25** — our five failed metrics were not merely imperfect, they were the worst-performing family in the literature, and play was right to reject them all. Second, **no single metric reaches 0.95; the four-metric linear combination does.** We have been looking for one number. The field's answer is a weighted blend of four, drawn from *different* families — which is also why our tangle score plateaued: it is one static structural measure doing a job that needs several.
+
+**Dependency is the biggest gap, and it is cheap.** Pelánek's definition: at each solving step, count *how many different places the technique could be applied*, then average over the first 20–30 steps. Ten applicable cells means the solver can start anywhere and the puzzle carries itself; two means every step must be found. **On its own it hits r = 0.67–0.69** — better than everything except refutation.
+
+This is about ten lines on top of `HumanSolver`, which already enumerates every firing site each round and currently just takes the first. It also explains the failed metrics directly: a board with many simultaneous forced moves has *high* solver-decision counts (lots of branching later) and *low* dependency (trivial to start), and we were ranking exactly the wrong way round.
+
+**Constraint relaxation is the one that generalises — and it may matter more here than the technique model.** The paper is explicit that its propagation model is easy for Sudoku because Sudoku's rules are simple, and that formulating techniques for other puzzles is the hard part. Their portable alternative: **relax constraints and watch what happens.**
+
+- **Solution count under relaxation** — drop a constraint, count how many solutions appear.
+- **Fixedness** — across the relaxed variants, how many cells keep the same value. Cells that stay fixed were over-determined; a board of mostly-fixed cells is easy.
+
+The headline result: **on Nurikabe, relaxation reaches r = 0.9 and beats their own constraint-propagation model at r = 0.8.** Nurikabe is a region/connectivity puzzle, structurally far closer to Flow than Sudoku is. That is a direct argument that relaxation may outperform `HumanSolver` on our puzzle, and it costs no new solver: **remove one dot pair, re-solve, count solutions and count cells whose colour did not change.** Our uniqueness solver already does all of that.
+
+**The corner dual heuristic — a real Numberlink deduction we have never implemented.** From thomasahle/numberlink, the reference generator/solver for this exact puzzle:
+
+> if a square is filled out with a corner, the square inside the turn will either have to be a source or be a corner of the same orientation as well.
+
+Anything else forces the link to touch itself. Take the inductive closure and **every corner must lie on a "spike" rooted at a dot** — the solver uses this to represent any solution as one signed integer pair per dot, and it is why it solves 40×40 boards casually.
+
+The human form of the same rule, from the Numberlink primer: you may keep drawing 90° turns from a corner until you hit a number, and a corner chain that runs into nothing is a proven contradiction — the primer says a path that causes it is 100% certainly wrong.
+
+**This applies to us because we enforce no-self-touching** (§6.31 verified our boards satisfy it). It is a propagation rule of a strength `HumanSolver` currently has nothing like — its three rules are all local degree-counting, whereas this one propagates diagonally across the whole board from a single placed turn.
+
+**The rest of the human technique list**, from the Numberlink primer and Puzzolve's strategy guide — these are what an experienced player actually does, and the tier order is roughly the difficulty scale we want:
+
+1. **Corner doctrine** — a dot in a corner has two directions, so start there. Edge dots next.
+2. **Corner chains / corner dual** — as above.
+3. **Pinch points** — cells every route to a dot must pass through; a single route is a forced move.
+4. **Orphan test** — zero free neighbours is dead, one free neighbour will orphan if taken. (`HumanSolver` has this; it is our `ForcedByDegree`.)
+5. **Parity** — detours cost cells in pairs, so a path's length has fixed parity and routes of the wrong parity are eliminated without tracing them.
+6. **Cell budget** — cells ÷ pairs is the average path length; a path that overspends starves the others.
+7. **Corridor priority** — when two paths want one narrow passage, the more constrained one takes it.
+8. **Assumption** — only after all of the above.
+
+We implement 4, partially 3, and none of 1, 2, 5, 6, 7. That is why `HumanSolver` reports `Hardest = Assumption` on every board including Flow Free's: with three weak rules, everything looks like it needs a guess.
+
+**This also resolves the contradiction in the last measurement.** Nikoli and Pelánek both hold that a puzzle needing backtracking is *badly formed*, yet our solver says the Flow Free board needs 13 assumptions. Both cannot describe the same thing. The resolution is that our technique library is too poor to be evidence about the board — a real player solves that board by deduction, using rules 1, 2, 5 and 7 that we have not written. The 13 is a measure of our solver's ignorance as much as of the board.
+
+**What a commercial Numberlink publisher actually ships.** PuzzleMadness generate by laying random links (up to six turns each), filling isolated regions, then merging adjacent links — recognisably our refinement-and-merge-down pipeline. What is different is that they **do not rate difficulty at all**; they gate on structure:
+
+- unique solution, verified by their own solver;
+- **every link at least 3 cells — a single 2-cell link restarts the whole board;**
+- a deliberate spread of link lengths, both short and long;
+- **total link length between 85% and 115% of the grid's cell count.**
+
+They also say the rules were arrived at by building, playing, and adding a constraint for each thing they disliked. Our current pipeline has no minimum path length and no length-distribution requirement, and short 2-cell links are exactly the "free" pairs that make a board collapse.
+
+**Nikoli names the failure mode of computer generation, and it is not the one we assumed.** Their objection is specific: computer-generated puzzles often have no straightforward starting point and demand advanced deductions immediately. Ours has the opposite defect and the same root cause — **8 of our 50 Classic levels need zero assumptions**, i.e. they are all starting point and no middle. Neither is a difficulty-tuning problem; both are the generator being indifferent to the *shape* of the solve.
+
+**How the industry settles it in the end: telemetry.** King rate Candy Crush levels with bots trained to **imitate** human play rather than to play well, specifically to predict difficulty before release at a cadence of ~15 levels a week. Lichess do not model difficulty at all — each attempt is scored as a **Glicko2 game between the player and the puzzle**, and a rating stabilises after 20–30 attempts. Mobile puzzle benchmarks put a tuned difficulty curve at roughly **3.2 attempts per completion** after the onboarding stretch.
+
+The lesson is not that offline metrics are useless — King build one precisely so they can ship weekly — but that **every shipped system treats the offline metric as a pre-filter and lets play data set the final order.** We have no attempt telemetry at all, and adding move-count and time-to-solve per level is a small change that would let us re-rank the campaign from real play instead of arguing about proxies.
+
+**Concrete conclusions.**
+
+1. **Add dependency to `HumanSolver`** — count applicable firing sites per round, mean over the first 20–30. Cheapest change, second-best single metric in the literature.
+2. **Implement the corner dual rule.** It is the strongest Numberlink-specific deduction known, we satisfy its precondition, and it is likely to be what collapses Flow Free's 13 assumptions and exposes the real gap.
+3. **Build the relaxation metrics** — drop-one-pair solution count and fixedness. Needs no new solver, and on the puzzle most like ours it *beat* the technique model.
+4. **Adopt PuzzleMadness's structural gates** — minimum 3-cell paths, length spread, total-length band. Cheap, and it kills the degenerate boards outright.
+5. **Combine, do not choose.** 0.95 came from four metrics blended, not one; our search for a single number was the wrong shape of answer.
+6. **Add per-level attempt telemetry** so the final ordering comes from play, as it does everywhere else in the industry.
+
+**Sources.** [Pelánek, *Difficulty Rating of Sudoku Puzzles: An Overview and Evaluation*](https://arxiv.org/abs/1403.7373) · [thomasahle/numberlink](https://github.com/thomasahle/numberlink) · [A Numberlink Solving Primer, Melon's Puzzles](https://mellowmelon.wordpress.com/2010/07/24/numberlink-primer/) · [Puzzolve, Connect strategies](https://puzzolve.com/intel/connect-strategies) · [PuzzleMadness, How we make Numberlink puzzles](https://puzzlemadness.co.uk/howwemakenumberlink/) · [Nikoli, Why hand made](https://www.nikoli.co.jp/en/puzzles/sudoku/why_hand_made/) · [How TensorFlow makes Candy Crush virtual players](https://www.computerweekly.com/news/252456896/How-TensorFlow-makes-Candy-Crush-virtual-players) · [lichess.org open database](https://database.lichess.org/) · [Kristensen et al., *Difficulty Modelling in Mobile Puzzle Games*](https://arxiv.org/pdf/2401.17436)
+
+### 6.33 The research, implemented — and the defect it immediately found
+
+All six conclusions from §6.32 are built. The headline is not any one of them: it is that the first thing the new instruments did was **fail more than two thirds of the levels we have already shipped**.
+
+| Classic 1–50, audited | Count |
+|---|---|
+| Fully well-formed | **13 / 50** |
+| A link touching itself | **26 / 50** |
+| Path lengths too uniform | 8 / 50 |
+| No opening deduction at all | 21 / 50 |
+
+#### The corner dual law, and the generator bug it exposed
+
+`HumanSolver` gained the corner dual rule (§6.32): where a path turns using edges *u* and *v*, the square diagonally inside the turn must be a dot or turn the same way. The proof is short — that square is adjacent to both of the turn's neighbours, each of which already spends both its connections, so linking to either would make the path touch itself; only *u* and *v* remain, and an interior cell needs exactly two.
+
+**The law depends entirely on no link touching itself, and our generator never enforced that.** §6.31 recorded that we already satisfied the convention. That was wrong, and wrong in the way §0's first gotcha warns about: it was checked on three levels, read 0, 1 and 0, and generalised from a sample that *contained a violation*.
+
+The rule found this by itself. Turning it on made five of ten sampled levels report UNSOLVED, and the correlation with self-touching was exact:
+
+| | self-touches | corner-dual solver |
+|---|---|---|
+| L5, L10, L20, L30, L50 | 0 | solved |
+| L25, L35, L40, L43, L45 | 1, 2, 1, 3, 1 | **UNSOLVED** |
+
+Ten for ten. Across all 50, **26 levels self-touch.** So the corner dual is two things at once: our strongest deduction technique, and a defect detector we did not have. It is now gated on `StructuralGates.Report.SelfTouches == 0` — a self-touching board is rated without it rather than declared impossible.
+
+Two soundness bugs were fixed getting there. The first version banned a colour from a *cell*; the law only forbids one *link*, and the over-restriction cut real moves out of the search — bans are now keyed by edge. And the relaxation metric read `LevelData.pairId`, which `BuildBlockGrid` does not use for the primary identity (it derives it from the colour), so it found no colours, removed none, and reported a confident zero for every board.
+
+#### Dependency, and Nikoli's failure mode showing up in our own levels
+
+`Rating.Dependency` counts how many places a technique could fire per round, averaged over the opening rounds — low is hard. Measured:
+
+| | assumptions | dependency | deduction rounds |
+|---|---|---|---|
+| Flow Free 8×8 | 13 | **1.33** | 4 |
+| Our L5 (5×5) | 0 | 3.00 | 23 |
+| Our L30 (6×6) | 0 | 2.40 | 31 |
+| Our L20 (6×6) | 4 | 2.75 | 17 |
+| Our L43 (7×7) | 17 | **0.00** | 1 |
+
+Flow Free's opening is narrow but real: 1.33 openings per round for four rounds before it needs a guess. Our easy boards are wide open — three simultaneous deductions, every round, for twenty-three rounds.
+
+But **21 of our 50 levels measure dependency 0 over a single round**, which is not the hard end of the scale — it is Nikoli's specific complaint about generated puzzles, that they *"have no straightforward starting point, requiring advanced logical deductions immediately"*. Not one deduction is available from the opening position, so the player's first move can only be a guess. The blend would have *rewarded* that, since zero openings is the maximum of the dependency term. It is now a **well-formedness gate, not a score**.
+
+**Caveat, stated plainly:** "no opening move" is measured with a three-technique solver. A human has parity, cell budget and corridor priority, none of which are implemented, so some of those 21 boards do have an opening a person would find. The 26 self-touches are objective; this 21 is an upper bound.
+
+#### What was built
+
+- **`HumanSolver`** — the corner dual rule (with edge-keyed bans and the self-touch precondition), and `Dependency` sampled at depth 0 before any rule fires.
+- **`RelaxationMetrics`** — deletes one colour, re-solves, reports **fixedness** (cells keeping their colour) and **solution growth**. Six of nine Flow Free colours cannot be removed at all without making coverage impossible.
+- **`StructuralGates`** — PuzzleMadness's rules (min 3-cell links, length spread) plus the genre's own no-self-touch requirement. The 85–115% total-length rule is satisfied by construction, since we demand exactly 100% coverage.
+- **`DifficultyModel`** — the four-metric blend, weighted by each measure's reported correlation.
+- **`SaveData`** — per-level `completedLevelAttempts` and `completedLevelSeconds`, per mode. Attempts are written on every level start, not on completion, because the attempt that matters most is the one the player abandons.
+- **`Rebuild levels 1-50 on the difficulty model`** — gates as a filter, blend as the ranking, in two passes so the expensive model is only paid for on a shortlist.
+
+#### Calibration, and the two blend bugs the data found
+
+| | score | assumptions | dependency | fixedness | tangle | structure |
+|---|---|---|---|---|---|---|
+| **Flow Free 8×8** | **67** | 13 | 1.33 | 0.99 | 81 | pass |
+| L50 (7×7) | 46 | 1 | 0.00 | 0.98 | 90 | pass |
+| L20 (6×6) | 65 | 4 | 2.75 | — | 79 | pass |
+| L45 (7×7) | 94 → 62 | 15 | 1.00 | — | 84 | **1 self-touch** |
+
+L45 originally scored **94, well above the Flow Free reference, while being malformed.** Two real bugs behind it. Removing *any* colour from L45 makes coverage impossible, so every relaxed variant was unsolvable and fixedness came back 0 — meaning "not measured", which the blend read as "nothing stayed fixed" and scored as maximally hard. The term is now dropped and the weights renormalised when there is no measurement. And its self-touch was invisible to a model that only ranked.
+
+**The general lesson, and it is the one that cost five playtests: ranking cannot fix a malformed board, it can only prefer one malformed board over another.** `WellFormed` filters; `Score` ranks; the filter runs first.
+
+#### Honest limits
+
+- **The weights are not fitted.** Pelánek fitted his on thousands of hours of solving times. Ours are the reported correlations used as a prior. That is why `completedLevelSeconds` now exists — until there is enough of it, the score ranks within a board size and should not be compared across sizes.
+- **The technique library is still three rules deep.** Parity, cell budget and corridor priority are all missing, and every one of them missing inflates the assumption count. Flow Free's 13 is partly a measure of our own ignorance.
+- **Levels 1–50 have not been rebuilt.** The menu item exists and the audit says they need it; the rebuild is a long run and has not been made yet.
+
+### 6.34 Classic 1-50 rebuilt — and the fix that made it possible
+
+| Classic 1–50 | Before | After |
+|---|---|---|
+| Well-formed | 13 / 50 | **50 / 50** |
+| Uniquely solvable | 50 / 50 | 50 / 50 |
+| A link touching itself | 26 / 50 | **0 / 50** |
+| No opening deduction | 21 / 50 | **0 / 50** |
+
+Stored scores: 5×5 45–68, 6×6 47–65, 7×7 53–78, against the Flow Free reference at 67.
+
+**The first attempt failed, and the failure was informative.** Run as one job, it spent 40 minutes on the 5×5 and 6×6 blocks and was cancelled an hour into 7×7 without finishing it. The report said why:
+
+```
+5x5  levels 1-15:  generated 3829, rejected 3379 on structure
+6x6  levels 16-32: generated 3372, rejected 3239 on structure
+```
+
+**88% of 5×5s and 96% of 6×6s were thrown away for self-touching.** The gates were working; the generator was producing almost nothing that could pass them. The instinct to raise the pool budget and retry would have been wrong — the cost was not the budget, it was generating garbage and filtering it.
+
+**The fix is one rule in the growth loop.** `TryGeneratePathPartition` grows by Warnsdorff, always stepping into the most enclosed free cell — which is exactly the rule that makes a path curl back alongside itself. It now refuses a step into any cell adjacent to a cell of its own path other than the one it is growing from. `MergeDownWhileUnique` needed the same guard for a different reason: two paths that each avoided touching themselves can be joined into one that does, and that check is free next to the uniqueness proof it precedes.
+
+Measured immediately after, on 120 attempts per size:
+
+| | acceptance before | after |
+|---|---|---|
+| 6×6 | 4% | **75%** |
+| 7×7 | (never finished) | **100%** |
+
+The 7×7 block then rebuilt in **122 seconds**, having generated 203 boards and rejected 53. The same work that could not finish in an hour.
+
+**Two process notes worth keeping.**
+
+The rebuild was split into per-block menu items *before* re-running, so the 7×7 block could be redone without discarding levels 1–32, which had already been built and had already passed every gate. Re-running everything to fix the last block would have thrown away work that was known good.
+
+And a scripted edit intended for the new rebuild landed on the older tangle rebuild instead, because it matched the first occurrence in the file and the older method appears earlier. It failed to compile, which is the good case; the general hazard is a text replacement that matches in more than one place and silently picks the wrong one.
+
+**Still outstanding.** The 5×5 and 6×6 blocks were built with the OLD generator, from pools that were 88–96% rejected — so the shortlist had very little to choose between, and it shows: the 6×6 block tops out at 65, below the 5×5's 68, so the campaign dips in the middle. Rebuilding those two blocks now costs a few minutes and should give a cleaner ramp.
+
+### 6.35 Turning the difficulty up: selection pressure and colour count
+
+Play on the rebuilt 7x7 block came back "looks fine, can we make it more challenging". The block's own numbers said where the problem was, and it was not the ceiling:
+
+| levels | colours | mean path | assumptions |
+|---|---|---|---|
+| 33-42 | 10 -> 6 | 4.9-8.2 | **7-8** |
+| 43-48 | 7 -> 6 | 7.0-8.2 | 11-12 |
+| 49-50 | 5 | 9.8 | 13-14 |
+
+L50 already matched the Flow Free reference at 13 assumptions, on a smaller board. **Ten of the eighteen levels sat at 7-8.** Most of what was played was the easy half, so the floor was the problem.
+
+**Two changes, both pointed at that.**
+
+1. **Selection pressure, 3x -> 20x.** The shortlist was `needed * 3`, so a third of everything looked at was kept, tail included. That ratio was chosen when a candidate was expensive; refusing self-touching growth (§6.34) made candidates cheap, so the ratio can buy selectivity instead of throughput.
+2. **Colour target `cells/9` -> `cells/12`, sweep width 6 -> 3.** The block's own data was unambiguous: colours 10 -> 5 tracked score 53 -> 78, monotonic, and nothing else in the table behaved as tidily. The old sweep asked for 5-10 at 7x7, so most candidates were born easy. Probed first rather than assumed -- 4 colours turned out to be reachable at 7x7 (2 of 26 sound boards), at a mean path of 12.3.
+
+**Result:**
+
+| | before | after | Flow Free 8x8 |
+|---|---|---|---|
+| Assumptions (mean) | 9.6 | **11.8** | 13 |
+| Levels needing >= 13 | 2/18 | **9/18** | -- |
+| Mean path | 7.2 | **10.2** | 7.1 |
+| Dependency (lower = harder) | 1.41 | **1.11** | 1.33 |
+| Colours | 5-10 | **4-6** | 9 on 64 cells |
+| Score | 53-78 | **74-87** | 67 |
+
+All 18 still well-formed and uniquely solvable.
+
+**A ceiling nobody intended, found in the after-measurement.** `DifficultyModel.Measure` defaults to `maxAssumptions = 14`. A board needing 15 comes back unsolved, fails `WellFormed`, and is thrown away -- so the selection actively rejects the hardest boards the generator produces. Nine of the eighteen shipped levels sit at exactly 14, pressed against that wall. Raising the cap costs only solve time and is the obvious next lever.
+
+**And a repeated estimation error worth naming.** The run was predicted at ~10 minutes and took 39. Both times the pool was sized from generation cost while the scoring pass -- 360 full model evaluations, each costing roughly one solve per colour plus a deduction pass -- is the expensive half. Size the run by the shortlist, not the pool.
+
+#### Confirmed in play — the difficulty problem is closed for 7×7
+
+Play on the rebuilt block came back **"now it is working"**. That is the first time in seven rounds of playtesting that difficulty has been confirmed right, and it retires the longest-running open problem in this document.
+
+**Every earlier attempt was rejected by the same instrument that finally accepted this one — play.** For the record, what failed and why:
+
+| Round | Lever tried | Verdict |
+|---|---|---|
+| §6.14 | Path length | Retracted — longer paths had *fewer* decisions |
+| §6.23 | Stacking mechanics | "too annoying while playing" |
+| §6.29 | Solver decision points | Beat Flow Free's 4600 and still played easy |
+| §6.29 | Alternative pairings, forced-move collapse | Flow Free's board has zero of the first, and is *less* deducible on the second |
+| §6.30 | Tangle | "feels tangled" then "still feel easy" |
+| §6.34 | Structural gates | Fixed *validity*, not difficulty — 50/50 well-formed, still "looks fine" |
+| **§6.35** | **Selection pressure + colour count** | **Confirmed** |
+
+The pattern across the failures is consistent and worth keeping: **each one optimised a single number, and five of the six were measuring search effort** — the family that Pelánek's evaluation puts at the bottom of the table, r = 0.16–0.25 against human solving time. What finally worked was not a better single metric. It was a filter for well-formedness, a four-family blend for ranking, and then pressure applied to the two levers the blend said actually mattered.
+
+#### The calibration that worked — reuse these numbers
+
+This is the point of recording it. These settings produced a block that a person confirmed as challenging, so they are the baseline for the 5×5 and 6×6 blocks, for Advanced, and for any move to 8×8:
+
+| Generator setting | Value |
+|---|---|
+| `ShortlistPerLevel` | **20** (score 20 candidates per level kept) |
+| `CellsPerColourTarget` | **12** (aim at cells ÷ 12 colours) |
+| `ColourSweepWidth` | **3** (so 4–6 colours at 7×7) |
+| Gates | `StructuralGates.Passed` **and** dependency > 0 **and** uniquely solvable |
+| Ranking | `DifficultyModel.Score`, kept descending then re-sorted ascending for the ramp |
+
+And the measured profile of a block that plays right, on 49 cells:
+
+| Measure | Confirmed-good value | Flow Free 8×8 |
+|---|---|---|
+| Assumptions, mean | **11.8** | 13 |
+| Levels needing ≥ 13 | **9 / 18** | — |
+| Mean path length | **10.2** | 7.1 |
+| Dependency (lower = harder) | **1.11** | 1.33 |
+| Colours | **4–6** | 9 on 64 cells |
+| Score | **74–87** | 67 |
+
+Note that the confirmed-good board is *longer-pathed and narrower-opening than the Flow Free reference*, on a smaller grid — it reaches comparable depth by stretching fewer colours further rather than by having more cells. That is the shape to preserve when moving to 8×8: more cells should buy **more colours at the same path length**, not shorter paths.
+
+### 6.36 The whole campaign on one calibration
+
+The 5×5 and 6×6 blocks rebuilt with the settings play confirmed on 7×7 (§6.35), unchanged. **109 seconds** for both, against 39 minutes for 7×7 alone — and this time the estimate was right, because the run was sized from a measurement of the scoring pass rather than from generation cost:
+
+| | measured per board | shortlist | projected | actual |
+|---|---|---|---|---|
+| 5×5 | 16 ms generate, 19 ms score | 300 | 0.2 min | — |
+| 6×6 | 120 ms generate, 209 ms score | 340 | 1.9 min | — |
+| both | | | **~2 min** | **1.8 min** |
+
+**The campaign, end to end:**
+
+| block | levels | score | assumptions | mean path | dependency |
+|---|---|---|---|---|---|
+| 5×5 | 1–15 | 56–65 | 4.3 | 5.8 | 1.04 |
+| 6×6 | 16–32 | 62–75 | 7.4 | 8.1 | 1.16 |
+| 7×7 | 33–50 | 74–87 | 11.8 | 10.2 | 1.11 |
+| *Flow Free 8×8* | | *67* | *13* | *7.1* | *1.33* |
+
+50/50 well-formed, 50/50 uniquely solvable, zero self-touches, zero levels without an opening deduction.
+
+**Every measure now rises monotonically across the blocks** — assumptions 4.3 → 7.4 → 11.8, path 5.8 → 8.1 → 10.2 — which is the first time this campaign has had a ramp rather than a scatter. The old middle dip is gone: the 6×6 block used to top out at 65, BELOW the 5×5's 68. Each block's range now overlaps the previous one by only a few points at the boundary, which plays as a short breather when the board grows rather than a step backwards.
+
+Worth noting what did NOT change to achieve this: not the gates, not the blend, not the weights, and not one line of the difficulty model. The same calibration that worked at 7×7 produced a coherent ramp at 5×5 and 6×6 on the first attempt, because `CellsPerColourTarget` scales with the board — cells ÷ 12 asks for 3–5 colours at 5×5 and 4–6 at 7×7 on its own. That is the argument for keeping difficulty settings expressed as ratios rather than per-block constants.
+
+### 6.37 Packs: 300 levels, chosen by board size
+
+The campaign structure changed. Instead of one linear run of levels that grows a board size at a time, Classic is now **three packs of 100 — 5×5, 6×6 and 7×7 — and the player picks which to play**. Each pack ramps on its own from the easiest board that size can produce to the hardest; there is no cross-pack ordering to preserve.
+
+| pack | build | generated | duplicates | ramp (score) | assumptions | mean path |
+|---|---|---|---|---|---|---|
+| 5×5 | 269 s | 36,964 | 93% | 25 → 69 | 2.6 | 5.4 |
+| 6×6 | 174 s | 1,982 | 24% | 29 → 75 | 4.0 | 7.4 |
+| 7×7 | 61 min | 2,793 | 3% | **31 → 95** | 7.1 | 8.7 |
+
+Audited independently afterwards, sampling each pack: **every level unique, well-formed, and carrying a stored solution that matches the solver.** Across every board the three builds evaluated, `not unique` and `bad solution` were both **0**.
+
+#### Stratified selection — the change that makes a pack a pack
+
+Selection took the **top N by score**. That is right for eighteen levels appended to a campaign and wrong for a hundred-level pack the player enters at level 1: the hardest hundred of two thousand are bunched at the top of the range, so the pack opens hard and barely climbs.
+
+`SelectStratified` walks the score **range** rather than the population — for each slot it asks for a target difficulty and takes the nearest board not yet used. Taking every *n*th board by rank would instead follow the distribution, and since scores cluster in the middle that yields a pack where most levels feel alike and the ends are sparse.
+
+The result is visible in the 5×5 pack's score walk, every fifth level:
+
+```
+25 27 30 32 34 36 38 40 43 45 47 49 51 53 54 56 57 60 62 64
+```
+
+It is used twice per pack: once to choose the ~300 finalists for stage two, so the expensive model sees the whole range and not just the top, and again to pick the final 100.
+
+#### Two-stage scoring — 98% of the cost, 23% of the weight
+
+`DifficultyModel.Measure` was too expensive to run on thousands of candidates. Measured on 7×7:
+
+| | per board |
+|---|---|
+| Everything except relaxation | **55 ms** |
+| Full model | **2243 ms** |
+
+`RelaxationMetrics` deletes each colour in turn and re-solves, and a board missing a colour is *less* constrained, so each of those solves is dearer than the original. Meanwhile fixedness carries 0.61 of the blend's 2.63 total — about 23%. The three cheap terms carry the other 77%, including refutation, the heaviest single term and the one play responded to.
+
+So `Measure(..., includeRelaxation: false)` ranks every candidate, and the full model runs only on a stratified slice of finalists. `Blend` already dropped an unmeasurable fixedness term and renormalised, so stage one needed no special case.
+
+#### Storing the solution — and the §6.24 conclusion that expired
+
+Asked before generating, because a hint system needs to know the answer. §6.24 had measured deriving a solution on-device at 2.6 ms average and concluded storage was unnecessary. **That is no longer true, and the reason is our own doing:**
+
+| Find ONE solution | §6.24 | after §6.35 |
+|---|---|---|
+| Average | 2.6 ms | **49.5 ms** |
+| Worst | 34 ms | **771 ms** |
+| Over one 60 fps frame | 1 / 55 | **10 / 50** |
+
+Fewer colours and longer paths mean fewer constraints and a far bigger search. **The property that makes these levels good to play is the same one that makes them expensive to solve** — and that is desktop; a phone is several times slower again, so a hint tap could freeze the UI for seconds.
+
+`GridRow.solutionPairId` now records the pair covering each cell. `BuildPlainLevelData` fills it, because the partition IS the solution and that is the last place still holding it — the generator was computing the answer, using it for the gates and tangle, and discarding it.
+
+Two things this buys beyond speed, and both depend on uniqueness:
+
+- **A hint can never be wrong.** One solution means one correct colour per cell, so a hint cannot contradict a valid line the player is pursuing. With two solutions there is no "the" answer to reveal.
+- **A wrong move is provably wrong.** Any path departing from `solutionPairId` cannot be part of the answer, so the player can be told immediately rather than filling the board and failing.
+
+The pack builder verifies both at build time — it re-proves uniqueness with `maxSolutions: 2`, and checks the stored answer against the solver. Both are redundant on paper. §6.20 is why they are there anyway: the Bridge constructor guaranteed two colours crossed, and the dots *derived* from it admitted a different unique solution.
+
+#### 8×8 measured, and set aside
+
+| ask | yield | mean path |
+|---|---|---|
+| 5–7 colours | **0 / 162** | — |
+| 10 colours | 7 / 150 | 6.4 |
+| 12 colours | 9 / 150 | 5.3 |
+
+8×8 is reachable only at 10–12 colours, giving paths of 5.3–6.4 against 7×7's 10.2. More cells forces more colours to keep uniqueness provable, which *shortens* paths. An 8×8 pack would not be a harder 7×7; it would be a different, shorter-pathed puzzle. Consistent with stopping at 7×7.
+
+#### A negative result worth keeping: 5×5 cannot be pushed
+
+The first 5×5 pack duplicated 70% of the time, so the pool was raised from 600 to 1500 and the shortlist from 5× to 12×:
+
+| | before | after |
+|---|---|---|
+| Build time | 38 s | 269 s |
+| Generated | 3,531 | **36,964** |
+| Duplicate rate | 70% | **93%** |
+| Ramp | 25 → 66 | **25 → 69** |
+
+**Seven times the compute bought three points on the ceiling and nothing on the floor**, and it still fell short of the 1500 target, exiting on the attempt cap.
+
+**The higher duplicate rate is the point, not a regression.** Reading 70% → 93% as "the second run was worse" gets it backwards: the rate is not a property of the generator, it is a property of how full the set already is. Every board found makes the next one more likely to be a repeat. The second run contains the first run's cheap early boards *and* then keeps going into the tail, so its average is dragged up by the part the first run never attempted.
+
+The marginal cost is the honest number:
+
+| | generated | distinct | generated per new board |
+|---|---|---|---|
+| First run | 3,531 | 600 | **5.9** |
+| Second run | 36,964 | 1,466 | **25.2** |
+
+Roughly 4× dearer per board, for boards 601 through 1466. A fresh 2000-attempt probe duplicates at only ~50%, which confirms the shape: it is a coupon-collector curve against a finite reachable set, not a defect that appeared between runs. And widening the colour sweep, the obvious diversity lever, measured **worse**: asking 3–7 colours yielded 92 distinct sound boards per 2000 attempts against 3–5's 122, because high-colour attempts mostly fail to generate at all.
+
+**The 5×5 ceiling is board size, not selection pressure.** Twenty-five cells holding three to five paths have no room for more interaction, and searching harder does not change that. Average assumptions is 2.6, a fifth of what 7×7 reaches. A harder small-board experience needs a mechanic, not more search.
+
+#### Three time estimates, three misses
+
+Predicted 10 minutes for a 7×7 rebuild that took 39; predicted 2 minutes for the small blocks and got 1.8; predicted 13 minutes for the 7×7 pack that took 61. The pattern in the misses is the same each time: **whichever stage was not front of mind got left out of the arithmetic.** The 39-minute miss omitted the scoring pass; the 61-minute miss omitted gathering, which for 2,100 canonically distinct boards is the dominant cost and gets slower as the pool fills. The one estimate that landed was the one taken from a direct measurement of every stage.
+
 ### Open questions, current
 
-- **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
+- **Difficulty is SOLVED for 7×7 and confirmed in play (§6.35).** The note below was written when it was not, and its two "blocked" axes have both moved: board size is no longer the constraint (8×8 is cheaper to generate than 7×7, §6.31), and mechanic density is an Advanced-mode question rather than a difficulty one. What remains genuinely open is carried forward below.
+- ~~The 5×5 and 6×6 blocks have not had the §6.35 treatment.~~ **Done — the whole campaign now ramps (§6.36).**
+- **`DifficultyModel.Measure` caps at `maxAssumptions = 14`, and that cap is now binding.** A board needing 15 reports unsolved, fails `WellFormed`, and is discarded — so selection actively rejects the hardest boards the generator makes. Nine of the eighteen shipped 7×7 levels sit at exactly 14, pressed against the wall. Raising it costs only solve time.
+- **THE PACKS ARE NOT REACHABLE IN GAME.** 300 built, verified, and inert. `UIController.LevelResourcePath` returns `Levels/{Mode}/Level_{n}`, which resolves to the old Classic 1–50; the packs are at `Levels/Classic/{size}x{size}/`. Fixing the path is one line, but five things assume one list of levels per mode: there is no "current pack" concept, `classicLevelCount` is a single serialised int, **progress is keyed by mode only** (so finishing 5×5 level 20 would mark 7×7 level 20 done), there is no pack-select UI, and `SetMode()` is still never called so Advanced has never been reachable either. The save-data part is where the care is needed — it must not reset existing progress, the same constraint that made Classic keep the original field names.
+- **Three design decisions gate that work**, and they are not engineering ones: whether the old Classic 1–50 survive alongside the packs or are retired; how mode and pack compose, given Advanced's 45 levels are not organised by board size; and whether packs unlock or are all open from the start.
+- **Sizing a generation run: measure every stage, do not extrapolate from one.** Three estimates, two badly wrong, and the same cause each time — the stage not front of mind was left out. Gathering N *canonically distinct* boards is often the dominant cost and gets slower as the pool fills; the scoring pass is dominated by relaxation. The estimate that landed was measured end to end first.
+- **Levels 51–200 (Mastery), for the record as it stood before the above.** Measured, not estimated.
   - **Mechanic density — and the reason is redundancy, not rarity.** 7×7, 6 colours, three stacked mechanics (Checkpoint + Forbidden + Arrow), across 175 uniquely solvable boards:
 
 | Mechanics load-bearing | Boards | Share |

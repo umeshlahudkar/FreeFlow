@@ -261,10 +261,11 @@ namespace FreeFlow.Tests
             data.gridRows[0].coloum[0] = PairColorType.Red;
             data.gridRows[0].secondPairId[0] = (int)PairColorType.Blue;
 
-            MethodInfo build = typeof(LevelGenerator).GetMethod(
-                "BuildBlockGrid", BindingFlags.NonPublic | BindingFlags.Static);
-            object[] args = { data, 0, 0 };
-            Block[,] grid = (Block[,])build.Invoke(null, args);
+            // Called directly rather than by reflection: BuildBlockGrid became public when the
+            // difficulty model needed it, and a NonPublic-only lookup silently returns null, so
+            // this test failed with a NullReferenceException that said nothing about the mechanic
+            // it is actually guarding.
+            Block[,] grid = LevelGenerator.BuildBlockGrid(data, out int _, out int _);
 
             try
             {
@@ -279,9 +280,7 @@ namespace FreeFlow.Tests
             }
             finally
             {
-                typeof(LevelGenerator)
-                    .GetMethod("DestroyBlockGrid", BindingFlags.NonPublic | BindingFlags.Static)
-                    .Invoke(null, new object[] { grid });
+                LevelGenerator.DestroyBlockGrid(grid);
             }
         }
     }

@@ -67,6 +67,26 @@ public struct GridRow
     public int[] secondPairId;
     public int[] thirdPairId;
     public int[] fourthPairId;
+
+    // The pair that covers each cell in the level's intended solution, or 0 where nothing does
+    // (a blocked cell). This is the ANSWER, stored so the game never has to search for it.
+    //
+    // Why store it rather than solve on demand. §6.24 measured deriving a solution on-device at
+    // 2.6 ms average and concluded storage was unnecessary. That was true of the levels as they
+    // were then. Making them harder (§6.35) -- fewer colours, longer paths, so fewer constraints
+    // and a far bigger search -- took the same measurement to 49.5 ms average and 771 ms worst,
+    // with 10 of 50 levels over a 60 fps frame ON DESKTOP. A phone is several times slower again,
+    // which is seconds of frozen UI on a hint tap. The property that makes these levels good to
+    // play is the same one that makes them expensive to solve.
+    //
+    // It is meaningful ONLY because every level has exactly one solution. With one answer, each
+    // cell has one correct colour, so a hint can never contradict a line the player is validly
+    // pursuing -- and any move that departs from this array is provably wrong, which is a stronger
+    // thing to be able to tell the player than a hint.
+    //
+    // Optional, like every other added column: null on levels generated before this existed, and
+    // every reader must cope with that rather than assume it is present.
+    public int[] solutionPairId;
 }
 
 
