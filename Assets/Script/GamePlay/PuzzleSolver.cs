@@ -173,6 +173,15 @@ namespace FreeFlow.GamePlay
             public List<List<PairSolution>> FoundSolutions;
             public int DecisionPointCount;
             public int DeadEndCount;
+
+            /// <summary>
+            /// Whether the stranded-cell prune may run. Off when the board carries Bridge or
+            /// shared-goal cells: those hold more than one occupant, so the "an empty cell needs
+            /// two ways in and out" arithmetic the prune relies on stops being true. Correctness
+            /// first -- an unsound prune would not merely slow generation, it would silently
+            /// declare solvable boards unsolvable and unique ones non-unique.
+            /// </summary>
+            public bool StrandPruningEnabled;
         }
 
         public static SolveResult Solve(Block[,] grid, int rowCount, int colCount, SolverOptions options = default)
@@ -223,7 +232,13 @@ namespace FreeFlow.GamePlay
                 Steps = 0,
                 MaxSolutions = maxSolutions,
                 AllowPartialCoverage = options.AllowPartialCoverage,
-                FoundSolutions = new List<List<PairSolution>>()
+                FoundSolutions = new List<List<PairSolution>>(),
+                // Full coverage is what makes the prune sound: every empty cell MUST end up on
+                // some path, so one that can no longer be entered and left is a dead board. With
+                // partial coverage allowed, leaving a cell empty is legal and the prune would be
+                // wrong.
+                StrandPruningEnabled = !options.AllowPartialCoverage
+                    && !BoardHasSharedCapacityCells(grid, rowCount, colCount)
             };
 
             bool exhausted = true;
@@ -331,6 +346,14 @@ namespace FreeFlow.GamePlay
 
                 state.Occupy(neighbor, pairId, dir);
 
+                // Cheapest possible rejection: if this move just sealed a neighbouring empty cell
+                // off, no continuation of it can cover the board, so do not recurse at all.
+                if (ctx.StrandPruningEnabled && StrandsAnEmptyNeighbour(ctx, state, neighbor, neighbor))
+                {
+                    state.Release(neighbor, pairId, dir);
+                    continue;
+                }
+
                 bool stop = Search(ctx, state, pairIndex, neighbor, dir);
                 if (stop) { return true; }
 
@@ -348,6 +371,68 @@ namespace FreeFlow.GamePlay
         /// never the reverse, which is exactly what a safe prune needs -- it must never reject a
         /// branch that the real, fully-constrained search could still solve.
         /// </summary>
+        /// <summary>
+        /// Whether any cell on the board can hold more than one path -- a Bridge, or a dot shared
+        /// by several pairs. Their presence disables the stranded-cell prune; see
+        /// SearchContext.StrandPruningEnabled.
+        /// </summary>
+        private static bool BoardHasSharedCapacityCells(Block[,] grid, int rowCount, int colCount)
+        {
+            for (int i = 0; i < rowCount; i++)
+            {
+                for (int j = 0; j < colCount; j++)
+                {
+                    Block cell = grid[i, j];
+                    if (cell == null) { continue; }
+                    if (cell.BlockType == BlockType.Bridge || cell.IsSharedGoal) { return true; }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether the move just made orphaned a neighbouring empty cell.
+        ///
+        /// Under full coverage every empty cell has to end up on some path, and a path that runs
+        /// THROUGH a cell needs two ways out of it -- one to enter by, one to leave by. A dot needs
+        /// only one, being where a path stops. So an empty cell whose available connections have
+        /// dropped below that threshold can never be covered, and the whole branch is dead however
+        /// deep it is pursued.
+        ///
+        /// Only the four neighbours of the cell just filled are examined, because nothing else on
+        /// the board changed. That keeps the check O(16) per move while catching the strand at the
+        /// move that caused it, rather than thousands of steps later when the search finally runs
+        /// out of room -- the difference between 469 ms and something usable on a full 8x8.
+        ///
+        /// <paramref name="head"/> is the path's current tip, which counts as an available
+        /// connection for its neighbours: the path can still grow out of it.
+        /// </summary>
+        private static bool StrandsAnEmptyNeighbour(SearchContext ctx, SolverState state, Block filled, Block head)
+        {
+            for (int i = 0; i < Directions.Length; i++)
+            {
+                Block cell = BoardTopology.Neighbor(state.Grid, state.Rows, state.Cols, filled, Directions[i]);
+                if (cell == null || !state.IsUnoccupied(cell)) { continue; }
+
+                int available = 0;
+                for (int j = 0; j < Directions.Length; j++)
+                {
+                    Direction dir = Directions[j];
+                    Block other = BoardTopology.Neighbor(state.Grid, state.Rows, state.Cols, cell, dir);
+                    if (other == null) { continue; }
+                    // A wall seals the edge for every pair, so it removes the connection outright.
+                    if (cell.HasWall(dir) || other.HasWall(BoardTopology.Opposite(dir))) { continue; }
+
+                    if (state.IsUnoccupied(other) || other == head) { available++; }
+                }
+
+                int needed = cell.IsPairBlock ? 1 : 2;
+                if (available < needed) { return true; }
+            }
+
+            return false;
+        }
+
         private static bool IsOptimisticallyReachable(SearchContext ctx, SolverState state, Block start, Block end,
             int pairId)
         {
@@ -569,6 +654,22 @@ namespace FreeFlow.GamePlay
 
                 List<(int, int)> path = pathSoFar[pairId];
                 path.RemoveAt(path.Count - 1);
+            }
+
+            /// <summary>
+            /// Whether <paramref name="cell"/> still has nothing in it. Used only by the
+            /// stranded-cell prune, which is disabled on boards carrying Bridge or shared-goal
+            /// cells -- those hold more than one occupant, so "empty" stops being a yes/no.
+            /// </summary>
+            public bool IsUnoccupied(Block cell)
+            {
+                if (cell.BlockType == BlockType.Blocked) { return false; }
+                if (cell.IsPairBlock)
+                {
+                    List<int> occupants = dotOccupants[cell.Row_ID, cell.Coloum_ID];
+                    return occupants == null || occupants.Count == 0;
+                }
+                return soleOccupant[cell.Row_ID, cell.Coloum_ID] == 0;
             }
 
             public List<(int, int)> PathOf(int pairId)
