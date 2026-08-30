@@ -2096,6 +2096,129 @@ namespace FreeFlow.GamePlay
         /// curve can be played and rebuilt quickly. 8x8 costs 8s a level and 9x9 costs 204s, which
         /// are fine for a final build but ruinous for iteration.
         /// </summary>
+        /// <summary>
+        /// Rebuilds ONLY the 6x6 block (Classic 26-60), for iterating on difficulty quickly.
+        ///
+        /// <b>Builds a large pool, keeps the hardest, and orders those by effort.</b> Every earlier
+        /// version fixed a colour count per level and accepted a board that met it. That control
+        /// does not survive contact with the evidence: colour count and path length turned out not
+        /// to predict difficulty at all, while solver decision points do (§6.29). So the colour
+        /// target is gone as a difficulty dial -- candidates are drawn across a RANGE of colour
+        /// counts, scored by the search each one demands, and the hardest are kept and sorted.
+        ///
+        /// Ordering the survivors ascending gives a real ramp measured in the thing that matters,
+        /// rather than a ramp in a proxy that was pointing the wrong way half the time.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Rebuild 6x6 block only (26-60)")]
+        public static void RebuildClassicSixBlock()
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const int firstLevel = 26;
+            const int lastLevel = 60;
+            const int size = 6;
+            const int poolTarget = 240;     // candidates to score before choosing
+            int needed = lastLevel - firstLevel + 1;
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+
+            int cells = size * size;
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            System.Random rng = new System.Random(20261210);
+            HashSet<string> seen = new HashSet<string>();
+            List<(int Decisions, int Colours, LevelData Data)> pool =
+                new List<(int, int, LevelData)>();
+
+            System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+            bool cancelled = false;
+
+            try
+            {
+                for (int attempt = 0; attempt < 6000 && pool.Count < poolTarget && !cancelled; attempt++)
+                {
+                    if ((attempt % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Rebuilding 6x6 block",
+                            "pool " + pool.Count + "/" + poolTarget
+                                + "   attempt " + (attempt + 1)
+                                + "   " + (timer.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            pool.Count / (float)poolTarget))
+                    { cancelled = true; break; }
+
+                    // Sweep colour counts rather than fixing one: which count yields the hardest
+                    // board is not predictable, so let the score decide.
+                    int colours = 3 + (attempt % 6);   // 3..8
+
+                    if (!TryGenerateUniqueByRefinement(size, usable, cells, colours,
+                            MaxDistinctColors, 2000000, 3, rng,
+                            out LevelData data, out int finalColours, out int splits, colours))
+                    {
+                        continue;
+                    }
+
+                    Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                    string key;
+                    int decisions;
+                    try
+                    {
+                        key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                        if (seen.Contains(key)) { continue; }
+                        PuzzleSolver.SolveResult effort = PuzzleSolver.Solve(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(8000000, 1));
+                        decisions = effort.DecisionPointCount;
+                    }
+                    finally { DestroyBlockGrid(grid); }
+
+                    seen.Add(key);
+                    pool.Add((decisions, finalColours, data));
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            timer.Stop();
+
+            if (pool.Count < needed)
+            {
+                Debug.LogError("6x6 block: only " + pool.Count + " candidates for " + needed
+                    + " levels; nothing written.");
+                return;
+            }
+
+            // Hardest N, then ascending so the block ramps.
+            pool.Sort((a, b) => b.Decisions.CompareTo(a.Decisions));
+            List<(int Decisions, int Colours, LevelData Data)> chosen = pool.GetRange(0, needed);
+            chosen.Sort((a, b) => a.Decisions.CompareTo(b.Decisions));
+
+            StringBuilder report = new StringBuilder();
+            for (int i = 0; i < chosen.Count; i++)
+            {
+                SaveLevelAsset(levelsFolder, firstLevel + i, chosen[i].Data, 0f);
+                if (i == 0 || i == chosen.Count / 2 || i == chosen.Count - 1)
+                {
+                    report.Append("L").Append(firstLevel + i)
+                          .Append(": colours=").Append(chosen[i].Colours)
+                          .Append("  decisions=").Append(chosen[i].Decisions)
+                          .AppendLine();
+                }
+            }
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            int poolMin = pool[pool.Count - 1].Decisions;
+            int poolMax = pool[0].Decisions;
+            Debug.Log("6x6 block rebuilt: " + needed + " levels from a pool of " + pool.Count
+                + " in " + (timer.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED early)" : "")
+                + ".\n  pool decisions " + poolMin + ".." + poolMax
+                + "   kept " + chosen[0].Decisions + ".." + chosen[chosen.Count - 1].Decisions
+                + "\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic campaign (100, up to 7x7)")]
         public static void GenerateClassicCampaign()
         {
