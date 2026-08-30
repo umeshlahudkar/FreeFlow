@@ -537,12 +537,12 @@ namespace FreeFlow.GamePlay
                     .Append(" colors=").Append(generated.Data.pairCount)
                     .Append(" blocked=").Append(spec.BlockedCellCount)
                     .Append(" walls=").Append(spec.WallCount)
-                    .Append(" mechanic=").Append(
-                        spec.CheckpointCount > 0 ? "Checkpoint" :
-                        spec.ForbiddenCount > 0 ? "Forbidden" :
-                        spec.ArrowCount > 0 ? "Arrow" :
-                        spec.PermittedCount > 0 ? "Permitted" :
-                        spec.OneWayCount > 0 ? "OneWay" : "none")
+                    .Append(" mechanics=")
+                    .Append(spec.CheckpointCount > 0 ? "Chk " : "")
+                    .Append(spec.ForbiddenCount > 0 ? "Fbd " : "")
+                    .Append(spec.ArrowCount > 0 ? "Arw " : "")
+                    .Append(spec.PermittedCount > 0 ? "Prm " : "")
+                    .Append(spec.OneWayCount > 0 ? "1Way " : "")
                     .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
                     .Append(" tier=").Append(generated.DifficultyTier)
                     .Append(" solutions=").Append(generated.SolutionsFound)
@@ -1997,61 +1997,83 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Levels 51-55: the first Mastery range, and the first board bigger than 7x7.
+        /// Levels 51-55: the first Mastery range. 8x8, EIGHT colours, three mechanics recombined.
         ///
-        /// <b>The difficulty here is the board, not the mechanic count.</b> Twelve simultaneous
-        /// pairs on 58 usable cells is a different kind of problem from six pairs on 44 -- more to
-        /// hold in mind at once, and far less room to be wrong in. That is the lever this range
-        /// pulls; it deliberately carries ONE mechanic, kept under the strict every-mechanic-
-        /// load-bearing rule rather than the looser K-of-M.
+        /// <b>Rebuilt after playtest.</b> The first attempt used twelve colours, on the reasoning
+        /// that a bigger board plus more pairs is harder. It was not: twelve pairs across 58 cells
+        /// drives the average path to 4.8 cells, and the range played as easier than the 7x7 levels
+        /// before it. Reported plainly as "too many colours, path is shortest, too easy to solve",
+        /// and the path-length metric (§6.14) had predicted exactly that.
         ///
-        /// <b>Why not stack mechanics here.</b> Measured on this exact board: uniqueness needs
-        /// short paths and mechanic necessity needs long ones, and they pull against each other.
-        /// Twelve colours buys uniqueness by driving the average path down to 4.8 cells, and a
-        /// mechanic on a 4-cell path has almost no alternative route to rule out. With three
-        /// mechanics, 0 of 136 unique boards had all three load-bearing and only 5 had two; with
-        /// two mechanics, 0 of 144 had both. One mechanic clears the strict rule on ~18% of unique
-        /// boards. Stacking belongs on 7x7, where paths run to 7.3 cells -- see §7.
+        /// <b>Mechanics replace colours as the source of constraint.</b> The reason twelve colours
+        /// were used at all is that eight produced no uniquely solvable boards (0 of 60) -- long
+        /// paths mean many solutions. But that measurement had NO mechanics on the board. Adding
+        /// three restores uniqueness at eight colours (6 of 149), because ruling out alternatives is
+        /// precisely what a mechanic does. The same change makes them load-bearing: at twelve
+        /// colours the board was already over-constrained and no mechanic mattered (0 of 136 had all
+        /// three), while here two of three is reachable. Constraint has to come from somewhere; the
+        /// choice is whether it comes from pairs, which shortens paths and flattens difficulty, or
+        /// from mechanics, which does not.
         ///
-        /// Twelve colours is also the hard ceiling: <see cref="PairColorType"/> defines exactly
-        /// twelve, which is what caps the board at roughly 8x8 (§7's table).
+        /// Average path is back to 7.3 cells -- level with the 7x7 ranges -- on a bigger board
+        /// carrying three mechanics instead of one. That is the difficulty step the phase is for.
+        ///
+        /// Necessity runs as K-of-M with K=2: with three interacting mechanics, demanding all three
+        /// be load-bearing individually is unsatisfiable for the reason §7 records, and the
+        /// collective guard still refuses boards whose failures matter to nothing.
+        ///
+        /// The trio rotates so the range recombines what was taught rather than drilling one thing.
         /// </summary>
         private static GenerationSpec SpecForLevel51To55(int levelNumber, int gridSize)
         {
+            int slot = levelNumber - 51;
             bool combineWall = levelNumber >= 54;
 
-            // Cycles the mechanic so the range revisits what was taught rather than drilling one.
-            int slot = (levelNumber - 51) % 5;
+            // Each level draws a different three of the five per-cell mechanics.
+            bool checkpoint = slot == 0 || slot == 2 || slot == 4;
+            bool forbidden  = slot == 0 || slot == 1 || slot == 3;
+            bool arrow      = slot == 0 || slot == 2 || slot == 3;
+            bool permitted  = slot == 1 || slot == 2 || slot == 4;
+            bool oneWay     = slot == 1 || slot == 3 || slot == 4;
 
             return new GenerationSpec
             {
                 GridSize = gridSize,
-                MinColorCount = 12,
-                MaxColorCount = 12,
-                StraightnessBias = Mathf.Lerp(0.45f, 0.3f, (levelNumber - 51) / 4f),
+                MinColorCount = 8,
+                MaxColorCount = 8,
+                StraightnessBias = Mathf.Lerp(0.4f, 0.28f, slot / 4f),
                 TargetScoreMin = 0f,
                 TargetScoreMax = 100f,
                 Uniqueness = UniquenessPolicy.Require,
                 BlockedCellCount = 6,
                 BlockedCellsInteriorOnly = true,
                 WallCount = combineWall ? 2 : 0,
-                CheckpointCount = slot == 0 ? 1 : 0,
-                ForbiddenCount = slot == 1 ? 1 : 0,
-                ArrowCount = slot == 2 ? 1 : 0,
-                PermittedCount = slot == 3 ? 1 : 0,
-                OneWayCount = slot == 4 ? 1 : 0,
-                MinNecessaryMechanics = 0,   // strict: the one mechanic present must be load-bearing
+                CheckpointCount = checkpoint ? 1 : 0,
+                ForbiddenCount = forbidden ? 1 : 0,
+                ArrowCount = arrow ? 1 : 0,
+                PermittedCount = permitted ? 1 : 0,
+                OneWayCount = oneWay ? 1 : 0,
+                MinNecessaryMechanics = 2,
                 MinWrongRoutes = 3,
-                // 3, not the 5 the 7x7 ranges use. Twelve pairs across 58 cells average 4.8-cell
-                // paths, so demanding 4 everywhere threw out 61% of candidates before any other
-                // gate ran and left nothing at all; at 3 the range generates comfortably. The floor
-                // exists to kill trivial 2-cell pairs, and it still does that.
+                // 3, not 4. This is the floor on the SHORTEST pair, and its job is to kill trivial
+                // 2-cell pairs; at 4 it rejected half of all candidates before uniqueness was even
+                // tested and the range produced nothing. What the playtest was actually about is
+                // the AVERAGE path, which the band below holds at 7.3 cells -- one short pair among
+                // eight does not make a board feel small.
                 MinPathCells = 3,
-                TargetAvgPathMin = 3.5f,
-                TargetAvgPathMax = 7.0f,
+                TargetAvgPathMin = 6.0f,
+                TargetAvgPathMax = 9.5f,
                 RequireEveryPairingCoversBoard = false,
                 RequireMechanicsNecessary = true,
-                MaxAttempts = 60000
+                // Long paths cost 50-80 ms per candidate against ~7 ms at twelve colours -- the
+                // price of the difficulty. Passes run roughly 1 in 1000, and the search ends early
+                // once one lands in band, so this ceiling is a backstop rather than a target.
+                //
+                // 25000, not the 8000 first tried: level 54 exhausted that and produced nothing
+                // while its four neighbours succeeded, so the spec is satisfiable and the budget
+                // was simply short. A plain re-run cannot fix that -- the rng is seeded per range,
+                // so the same budget reproduces the same miss exactly.
+                MaxAttempts = 25000
             };
         }
 

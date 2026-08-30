@@ -45,7 +45,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
 | Generate Levels 41-45 (Checkpoint) | 41–45 | 7×7 | 6 | Checkpoint (+Wall on 44–45) |
 | Generate Levels 46-50 (Shared Destination) | 46–50 | 7×7 | 6 | Shared Destination (+Wall on 49–50) |
-| Generate Levels 51-55 (Mastery: 8x8) | 51–55 | **8×8** | **12** | one per level, cycling (+Wall on 54–55) |
+| Generate Levels 51-55 (Mastery: 8x8) | 51–55 | **8×8** | 8 | **three per level**, recombined (+Wall on 54–55) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -728,7 +728,24 @@ So the range carries **one mechanic under the strict rule**, cycling across the 
 
 **Result:** mechanics 5/5 load-bearing, walls necessary where present, every level uniquely solvable with search exhausted, 6/6 blocked cells interior, wrong routes 7–383, scores **52.8–55.8** against 47–54 for levels 11–50. `totalLevelCount` = 55.
 
-**Open:** average path is 4.8 cells here against 7.3 at 7×7, so by §6.14's measure these are *shorter* even though the board is bigger. Whether twelve pairs to track outweighs shorter routes is a playtest question, not a measurable one — and it decides whether the rest of Mastery scales by board size or by density.
+**Playtested, and the first build was wrong.** Reported as *"too many colours, path is shortest, too easy to solve"* — the 4.8-cell average had predicted it and the level shipped anyway. More pairs on a bigger board is not a harder level; it is a **flatter** one. Rebuilt at **eight colours with three mechanics**, average path back to **7.3 cells**.
+
+**What the rebuild taught, and it generalises past this range.** Eight colours had been ruled out earlier because it produced 0 uniquely solvable boards in 60 — long paths mean many solutions. That measurement had no mechanics on the board. With three, uniqueness returns (6 of 149), because ruling out alternatives is exactly what a mechanic does:
+
+| 8×8 configuration | Avg path | Unique | Mechanics load-bearing |
+|---|---|---|---|
+| 12 colours, 3 mechanics | 4.8 | 136 sampled | **0 of 3, ever** |
+| 12 colours, 2 mechanics | 4.8 | 144 sampled | **0 of 2** |
+| 8 colours, no mechanics | — | **0 of 60** | — |
+| **8 colours, 3 mechanics** | **7.3** | 6 of 149 | **2 of 3 reached** |
+
+**Constraint has to come from somewhere, and the choice of source is the design decision.** Take it from pairs and paths shorten, difficulty flattens, and mechanics have nothing left to forbid — they cannot be load-bearing on a board that is already over-determined. Take it from mechanics and path length survives, the board stays searchable, and the mechanics matter *because* they are what makes the solution unique. The twelve-colour build failed both tests at once, and the same trade governs every remaining Mastery range.
+
+**Also:** `MinPathCells` is a floor on the SHORTEST pair, not the average, and at 4 it rejected half of all candidates before uniqueness was tested. Lowered to 3; the average is held at 7.3 by the path band, and one short pair among eight does not make a board feel small.
+
+**Redundancy caught walls too.** Level 54 — the only board with three mechanics *and* two walls — exhausted 8000 attempts and produced nothing, while its four neighbours succeeded. The wall gate was rejecting 7 of every 8 candidates that reached it: walls are judged strictly, and on a board already constrained by three mechanics, removing one rarely opens a second solution, so it reads as decorative and the board is thrown out. Walls had been carried over from the 7×7 template without rechecking that they still had work to do at this density. Level 55 proved the combination *is* satisfiable, so the budget was raised to 25000 rather than the design changed — the rng is seeded per range, so re-running at the same budget reproduces the identical miss.
+
+**Result across levels 51–55:** all uniquely solvable with search exhausted, average path **7.3 cells** on every board, 6/6 blocked cells interior, walls necessary where present, wrong routes 13–399, scores **51.6–55.8**. Mechanics load-bearing 2 of 3 on four levels and 3 of 3 on level 55 — which is what K=2 was chosen to permit, with the collective guard refusing any board whose failures matter to nothing.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.
