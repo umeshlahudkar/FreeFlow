@@ -986,6 +986,46 @@ Range 24 to 20,447, average 1,756. Level 100 reaches **4,806 decisions — past 
 
 **The lesson worth keeping:** every gate in this generator verifies that a level is *valid* — solvable, unique, fully covered, mechanics load-bearing. None of them measured whether it was *interesting*, and validity turns out to be nearly uncorrelated with difficulty. A generator will happily produce a thousand correct, trivial puzzles unless something explicitly selects for effort.
 
+### 6.30 Tangle: the metric that finally matched how the game plays
+
+Five difficulty metrics were tried across four rebuilds. Four measured how hard the SOLVER works, and every one of them rated boards as hard that played easy. The fifth measures the SHAPE of the solution, and it matched play on the first try.
+
+**The four that failed**, and why each looked convincing at the time:
+
+| Metric | Why it was adopted | Why it was wrong |
+|---|---|---|
+| Path length | longer routes feel harder to draw | our longest-path level needed 7× FEWER decisions than a shorter one |
+| Wrong routes | a board with one pairing is a trace | Flow Free's board has **zero** alternatives and is hard anyway |
+| Solver decision points | branching is where a player must think | a 6×6 reached 7192, above Flow Free's 4600, still played easy |
+| Forced-move collapse | boards that deduce themselves are trivial | ours were LESS deducible than Flow Free's, 25% against 33% |
+
+**What separated them** was measuring the solution's geometry against a real Flow Free board:
+
+| | turns/cell | bounding-box fill | cross-colour adjacency |
+|---|---|---|---|
+| Ours | 0.44–0.61 | 0.73–0.87 | 22–41% |
+| Flow Free 8×8 | **0.17** | **0.63** | **51%** |
+
+Their paths **turn less, sprawl more, and run alongside other colours far more**. Ours wiggled inside a small area, each colour keeping to a compact blob — *scribbly*, not *tangled*. A player never had to route around anyone else, so nothing felt constrained however much the solver thrashed.
+
+That is a direct consequence of the Warnsdorff partition builder: most-constrained-first fills corners and edges, growing compact regions. Excellent at not stranding cells, which is why it was chosen (§6.15), and the wrong geometry entirely.
+
+`TangleScore` = cross-colour adjacency ÷ bounding-box fill. Flow Free scores **81**.
+
+**The two criteria actively oppose each other**, which is why four rounds of "make it harder" made it worse. On the same 6×6 board size: the most decision-heavy board scored **16598 decisions / 25 tangle**; the most tangled scored **86 tangle / 728 decisions**. Optimising solver effort was selecting *against* the property that was wanted.
+
+**Levels 1–50 rebuilt on tangle** — pools of 260–400 per block, keep the most tangled, order ascending so each block ramps:
+
+| Levels | Board | Tangle kept | Pool spanned |
+|---|---|---|---|
+| 1–15 | 5×5 | 76–88 | 27–88 |
+| 16–32 | 6×6 | 78–99 | 30–99 |
+| 33–50 | 7×7 | 78–90 | 43–90 |
+
+Verified: 0 missing, 0 non-unique, 0 duplicates, 0 mechanic cells or walls, 0 ramp breaks within blocks. Average tangle **82** against roughly 40 for the previous build. Confirmed as feeling tangled in play.
+
+**The lesson**, and it is the largest one in this document: every gate here verifies a level is *valid* — solvable, unique, covered, deduplicated. Validity is nearly uncorrelated with fun, and four plausible difficulty proxies were not merely weak but **anti-correlated** with the real thing. The only reliable instrument was a person playing it and saying "tangled".
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.

@@ -2109,6 +2109,322 @@ namespace FreeFlow.GamePlay
         /// Ordering the survivors ascending gives a real ramp measured in the thing that matters,
         /// rather than a ramp in a proxy that was pointing the wrong way half the time.
         /// </summary>
+        /// <summary>
+        /// How TANGLED a board's solution is: colours interleaving rather than each owning a
+        /// compact region of its own.
+        ///
+        /// <b>Why this and not solver effort.</b> Four search-based metrics were tried and each
+        /// said the shipped boards should be hard while play said otherwise. Measuring the SHAPE of
+        /// the solution finally separated them. Against Flow Free's 8x8:
+        ///
+        ///   turns per cell        ours 0.44-0.61   theirs 0.17
+        ///   bounding-box fill     ours 0.73-0.87   theirs 0.63
+        ///   cross-colour touching ours 22-41%      theirs 51%
+        ///
+        /// Their paths turn LESS, sprawl MORE, and run alongside other colours far more often.
+        /// Ours wiggle inside a small area -- scribbly, not tangled, each colour keeping to its own
+        /// blob. That is a direct consequence of Warnsdorff growth, which fills corners and edges
+        /// first: excellent at not stranding cells, and the wrong shape entirely.
+        ///
+        /// The hardest 6x6 by decision count scored 25 here against Flow Free's 81, which is why
+        /// the search metrics and the playtests kept disagreeing.
+        /// </summary>
+        private static float TangleScore(Block[,] grid, int rows, int cols, PuzzleSolver.SolveResult solved)
+        {
+            if (solved.Solutions == null || solved.Solutions.Count == 0) { return 0f; }
+
+            int[,] ownerOf = new int[rows, cols];
+            foreach (PuzzleSolver.PairSolution ps in solved.Solutions)
+            {
+                for (int i = 0; i < ps.Cells.Count; i++)
+                {
+                    ownerOf[ps.Cells[i].Row, ps.Cells[i].Col] = ps.PairId;
+                }
+            }
+
+            float boxFillSum = 0f;
+            foreach (PuzzleSolver.PairSolution ps in solved.Solutions)
+            {
+                int minR = int.MaxValue, maxR = -1, minC = int.MaxValue, maxC = -1;
+                for (int i = 0; i < ps.Cells.Count; i++)
+                {
+                    (int Row, int Col) v = ps.Cells[i];
+                    if (v.Row < minR) { minR = v.Row; }
+                    if (v.Row > maxR) { maxR = v.Row; }
+                    if (v.Col < minC) { minC = v.Col; }
+                    if (v.Col > maxC) { maxC = v.Col; }
+                }
+                boxFillSum += ps.Cells.Count / (float)((maxR - minR + 1) * (maxC - minC + 1));
+            }
+            float boxFill = boxFillSum / solved.Solutions.Count;
+
+            int cross = 0, total = 0;
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+                    if (ownerOf[r, c] == 0) { continue; }
+                    if (r + 1 < rows && ownerOf[r + 1, c] != 0)
+                    { total++; if (ownerOf[r + 1, c] != ownerOf[r, c]) { cross++; } }
+                    if (c + 1 < cols && ownerOf[r, c + 1] != 0)
+                    { total++; if (ownerOf[r, c + 1] != ownerOf[r, c]) { cross++; } }
+                }
+            }
+            if (total == 0 || boxFill <= 0f) { return 0f; }
+
+            return (100f * cross / total) / boxFill;
+        }
+
+        /// <summary>
+        /// Writes three CALIBRATION boards into Classic 58, 59 and 60 -- the hardest 6x6, 7x7 and
+        /// 8x8 this generator can currently produce, with no ramp and no other constraint.
+        ///
+        /// <b>Why measure against a person instead of another metric.</b> Three different proxies
+        /// each said the shipped levels should be hard, and play said otherwise every time: path
+        /// length (§6.29 retracted it), alternative-pairing count (Flow Free's board has none and
+        /// is hard), and solver decision points (a 6x6 reached 7192, above Flow Free's 4600, and
+        /// still played easy). Forced-move collapse was checked too and pointed the other way --
+        /// our boards are LESS deducible than Flow Free's, 25% against 33%.
+        ///
+        /// What has not been tested is whether a 6x6 can be hard at all for an experienced player.
+        /// 36 cells and four pairs may simply not hold enough uncertainty, in which case no amount
+        /// of selection pressure on a 6x6 will help and the answer is board size. These three
+        /// boards put that question to the only instrument that has been reliable so far.
+        /// </summary>
+        /// <summary>
+        /// Rebuilds Classic levels 1-50, selecting boards by TANGLE.
+        ///
+        /// <b>Tangle is the criterion because it is the only one play agreed with.</b> Four
+        /// search-effort metrics were tried first -- path length, alternative-pairing count, solver
+        /// decision points, forced-move collapse -- and every one of them rated boards as hard that
+        /// played easy. Measuring the SHAPE of the solution instead separated them immediately:
+        /// Flow Free's paths turn less, sprawl more, and run alongside other colours far more than
+        /// ours did, which is what "having to route around everyone else" actually is.
+        ///
+        /// <b>The two criteria oppose each other</b>, which is why the earlier attempts failed. The
+        /// board a solver flails hardest on is a compact scribble: our most decision-heavy 6x6
+        /// scored 16598 decisions and 25 tangle, while the most tangled scored 86 tangle and 728
+        /// decisions. Optimising effort was actively selecting against the property wanted.
+        ///
+        /// Each block generates a pool, keeps the most tangled, then orders those ascending so the
+        /// block still ramps -- every level above a high floor rather than merely the last one.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Rebuild levels 1-50 on tangle")]
+        public static void RebuildClassicFirstFifty()
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+
+            // size, firstLevel, lastLevel, poolTarget
+            int[,] blocks =
+            {
+                { 5,  1, 15, 320 },
+                { 6, 16, 32, 400 },
+                { 7, 33, 50, 260 },
+            };
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+
+            HashSet<string> seen = new HashSet<string>();
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            bool cancelled = false;
+
+            try
+            {
+                for (int b = 0; b < blocks.GetLength(0) && !cancelled; b++)
+                {
+                    int size = blocks[b, 0];
+                    int firstLevel = blocks[b, 1];
+                    int lastLevel = blocks[b, 2];
+                    int poolTarget = blocks[b, 3];
+                    int needed = lastLevel - firstLevel + 1;
+                    int cells = size * size;
+
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(20261225 + size);
+                    List<(float Tangle, int Colours, int Decisions, LevelData Data)> pool =
+                        new List<(float, int, int, LevelData)>();
+
+                    for (int attempt = 0; attempt < 12000 && pool.Count < poolTarget; attempt++)
+                    {
+                        if ((attempt % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Rebuilding Classic 1-50  (block " + (b + 1) + "/3)",
+                                size + "x" + size + "  -  pool " + pool.Count + "/" + poolTarget
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (b + pool.Count / (float)poolTarget) / 3f))
+                        { cancelled = true; break; }
+
+                        // Sweep colour counts; which one yields a tangled board is not predictable.
+                        int colours = Mathf.Max(3, cells / 9) + (attempt % 6);
+                        if (colours > MaxDistinctColors) { continue; }
+
+                        if (!TryGenerateUniqueByRefinement(size, usable, cells, colours,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out LevelData data, out int finalColours, out int splits, colours))
+                        {
+                            continue;
+                        }
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        string key;
+                        float tangle;
+                        int decisions;
+                        try
+                        {
+                            key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                            if (seen.Contains(key)) { continue; }
+                            PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                                new PuzzleSolver.SolverOptions(8000000, 1));
+                            tangle = TangleScore(grid, rows, cols, solved);
+                            decisions = solved.DecisionPointCount;
+                        }
+                        finally { DestroyBlockGrid(grid); }
+
+                        seen.Add(key);
+                        pool.Add((tangle, finalColours, decisions, data));
+                    }
+
+                    if (pool.Count < needed)
+                    {
+                        Debug.LogError("Block " + size + "x" + size + ": only " + pool.Count
+                            + " candidates for " + needed + " levels; block skipped.");
+                        continue;
+                    }
+
+                    pool.Sort((x, y) => y.Tangle.CompareTo(x.Tangle));          // most tangled first
+                    List<(float Tangle, int Colours, int Decisions, LevelData Data)> chosen =
+                        pool.GetRange(0, needed);
+                    chosen.Sort((x, y) => x.Tangle.CompareTo(y.Tangle));        // then ramp upward
+
+                    for (int i = 0; i < chosen.Count; i++)
+                    {
+                        SaveLevelAsset(levelsFolder, firstLevel + i, chosen[i].Data, 0f);
+                    }
+
+                    report.Append(size).Append('x').Append(size)
+                          .Append("  levels ").Append(firstLevel).Append('-').Append(lastLevel)
+                          .Append(":  tangle ").Append(chosen[0].Tangle.ToString("0"))
+                          .Append("..").Append(chosen[chosen.Count - 1].Tangle.ToString("0"))
+                          .Append("   from a pool of ").Append(pool.Count)
+                          .Append(" spanning ").Append(pool[pool.Count - 1].Tangle.ToString("0"))
+                          .Append("..").Append(pool[0].Tangle.ToString("0"))
+                          .AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("Classic 1-50 rebuilt on tangle in "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ".\n" + report
+                + "Flow Free 8x8 reference: tangle 81.");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Write 3 calibration levels (58,59,60)")]
+        public static void WriteCalibrationLevels()
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            int[] sizes = { 6, 7, 8 };
+            int[] slots = { 58, 59, 60 };
+            int[] poolFor = { 400, 250, 60 };
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+            StringBuilder report = new StringBuilder();
+            bool cancelled = false;
+
+            try
+            {
+                for (int i = 0; i < sizes.Length && !cancelled; i++)
+                {
+                    int size = sizes[i];
+                    int cells = size * size;
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    System.Random rng = new System.Random(20261220 + size);
+                    LevelData best = default;
+                    int bestDecisions = -1, bestColours = 0, scored = 0;
+                    float bestTangle = -1f;
+                    System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+
+                    for (int attempt = 0; attempt < 8000 && scored < poolFor[i]; attempt++)
+                    {
+                        if ((attempt % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Calibration boards",
+                                size + "x" + size + "  -  scored " + scored + "/" + poolFor[i]
+                                    + "  -  hardest so far " + bestDecisions + " decisions"
+                                    + "  -  " + (timer.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + scored / (float)poolFor[i]) / sizes.Length))
+                        { cancelled = true; break; }
+
+                        int colours = Mathf.Max(3, cells / 9) + (attempt % 7);
+                        if (colours > MaxDistinctColors) { continue; }
+
+                        if (!TryGenerateUniqueByRefinement(size, usable, cells, colours,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out LevelData data, out int finalColours, out int splits, colours))
+                        {
+                            continue;
+                        }
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        int decisions;
+                        float tangle;
+                        try
+                        {
+                            PuzzleSolver.SolveResult effort = PuzzleSolver.Solve(grid, rows, cols,
+                                new PuzzleSolver.SolverOptions(8000000, 1));
+                            decisions = effort.DecisionPointCount;
+                            tangle = TangleScore(grid, rows, cols, effort);
+                        }
+                        finally { DestroyBlockGrid(grid); }
+
+                        scored++;
+                        // Ranked on TANGLE rather than solver effort. Four effort metrics each said
+                        // the shipped boards should be hard and play disagreed every time; the
+                        // hardest 6x6 by decision count scored 25 tangle against Flow Free's 81.
+                        if (tangle > bestTangle)
+                        {
+                            bestTangle = tangle;
+                            bestDecisions = decisions;
+                            bestColours = finalColours;
+                            best = data;
+                        }
+                    }
+                    timer.Stop();
+
+                    if (bestTangle < 0f) { report.Append("L").Append(slots[i]).AppendLine(": FAILED"); continue; }
+
+                    SaveLevelAsset(levelsFolder, slots[i], best, 0f);
+                    report.Append("L").Append(slots[i]).Append(" = hardest ").Append(size).Append('x').Append(size)
+                          .Append(":  colours=").Append(bestColours)
+                          .Append("  TANGLE=").Append(bestTangle.ToString("0"))
+                          .Append("  decisions=").Append(bestDecisions)
+                          .Append("  (best of ").Append(scored).Append(" in ")
+                          .Append((timer.ElapsedMilliseconds / 1000f).ToString("0")).AppendLine("s)");
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("Calibration levels written" + (cancelled ? " (CANCELLED)" : "")
+                + ".\n" + report + "\nFlow Free 8x8 reference: TANGLE 81, decisions 4600.");
+        }
+
         [MenuItem("FreeFlow/Level Generator/Classic/Rebuild 6x6 block only (26-60)")]
         public static void RebuildClassicSixBlock()
         {
