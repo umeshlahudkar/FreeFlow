@@ -774,7 +774,18 @@ Hooked into `OnPointerMoved` (live, covers drawing and retreating) and the win c
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
-  - **Mechanic density.** 7×7, 6 colours, three stacked mechanics (Checkpoint + Forbidden + Arrow): 1495 attempts produced 1151 boards and **148 uniquely solvable ones — of which 0 had all three mechanics load-bearing.** Uniqueness is not the problem; joint necessity is. Requiring every mechanic to independently create a second solution when removed is a far stronger condition than requiring one to, and it compounds: Checkpoint alone already rejected 94% (§6.21). **The hard-reject-every-mechanic rule from §6.18 does not survive stacking, and Mastery needs a different rule** — e.g. the headline mechanic must be load-bearing while the rest may be supporting, or "removing all of them together must open alternatives". That is a design decision, not a tuning one.
+  - **Mechanic density — and the reason is redundancy, not rarity.** 7×7, 6 colours, three stacked mechanics (Checkpoint + Forbidden + Arrow), across 175 uniquely solvable boards:
+
+| Mechanics load-bearing | Boards | Share |
+|---|---|---|
+| 0 of 3 | 97 | 55.4% |
+| 1 of 3 | 65 | 37.1% |
+| 2 of 3 | 13 | 7.4% |
+| 3 of 3 | 0 | **0.0%** |
+
+    A steep decay, not a cliff — each additional "must be load-bearing" costs roughly 5× in yield. **The cause is that our necessity test asks a MARGINAL question**: "does removing this one mechanic, alone, open a second solution?" As density rises the mechanics start ruling out the *same* alternative routes, so removing either one alone leaves that route still blocked by the other, and both then measure as unnecessary. Redundancy between mechanics reads as uselessness of each. Uniqueness is not the constraint (175 unique boards were easy to find); marginal necessity is.
+
+    **The fix is to stop asking a marginal question.** A "**at least K of M**" rule is immediately viable off these numbers — 2-of-3 accepts 7.4% of unique boards, 1-of-3 accepts 44.6% — ideally paired with a joint check (removing *all* the mechanics together must open alternatives) so a board cannot pass with two decorative mechanics riding along. Choosing K is a level-quality decision, not tuning.
   - **Board size.** 8×8 / 8 colours costs **224 ms per candidate against 7 ms at 7×7 (32×), worst case 1016 ms, and produced 0 unique boards in 30.** A 9×9 probe locked the editor for minutes inside `LevelValidator` on the main thread. The partition builder is not the constraint (10×10 in 0.1 ms); verification is. Bigger boards need **solver pruning**, and until that exists the campaign is capped at 7×7.
 - **The four newest mechanics have never been played.** Bridge, Checkpoint, Shared Destination and Permitted (levels 31–50) are verified by the solver but not by a human. Every previous playtest found something the gates did not — Level 1's empty cells, Level 7, Level 11, Level 14's walls — so this is worth doing before generating 150 more.
 - **Board size beyond 7×7 needs solver work, not generator work.** The partition builder does 10×10 in 0.1 ms; verification is the ceiling (8×8 ≈ 8M steps, 1–3 s per candidate). Larger boards are the obvious difficulty lever for the Mastery tier, so this is likely the next real engineering task: solver pruning, not more specs.
