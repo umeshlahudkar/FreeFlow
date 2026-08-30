@@ -368,6 +368,7 @@ namespace FreeFlow.GamePlay
                 }
 
                 UpdateDragPreview();
+                RefreshUnmetCheckpointFeedback();
             }
         }
 
@@ -524,38 +525,80 @@ namespace FreeFlow.GamePlay
             }
             else
             {
-                RefreshUnmetCheckpointFeedback(boardFull);
+                RefreshUnmetCheckpointFeedback();
             }
         }
 
         /// <summary>
-        /// Blinks any Checkpoint whose own colour is not running through it, but only once the
-        /// board is otherwise full.
+        /// Blinks every Checkpoint currently held by a colour that is not its own.
         ///
-        /// This exists because a Checkpoint is the only mechanic that is not enforced as the player
-        /// moves. Every other rule refuses the step itself -- <see cref="Block.CanEnter"/> turns a
-        /// colour away from a Forbidden or Permitted cell, <see cref="Block.CanExitFrom"/> refuses
-        /// to let a path turn on a Bridge -- so the player is told immediately. Checkpoint names no
-        /// one at the door: any colour may cross it, and the rule is only consulted at completion
-        /// time by PairSatisfiesCheckpoints.
+        /// A Checkpoint is the only mechanic not enforced as the player moves. Every other rule
+        /// refuses the step itself -- <see cref="Block.CanEnter"/> turns a colour away from a
+        /// Forbidden or Permitted cell, <see cref="Block.CanExitFrom"/> will not let a path turn on
+        /// a Bridge -- so the player is told at once. Checkpoint stops nobody at the door: any
+        /// colour may cross it, and the rule is consulted only at completion time by
+        /// PairSatisfiesCheckpoints. Without this the player fills the board, joins every pair,
+        /// reads "Cells : 44/44" and nothing happens, with no clue which cell is wrong. Levels
+        /// 41-45 have eight such states between them, and they are not edge cases: the generator's
+        /// necessity gate REQUIRES that routing the owner around its checkpoint stays otherwise
+        /// solvable, since that is exactly what makes the checkpoint load-bearing.
         ///
-        /// The result was a dead end with no explanation. The player fills every cell, joins every
-        /// pair, sees the counter read "Cells : 44/44" -- and nothing happens, because one
-        /// checkpoint is held by the wrong colour. Nothing on screen said which cell, or that a
-        /// cell was the problem at all. Measured across levels 41-45 there are eight such states,
-        /// and they are not edge cases: the generator's necessity gate REQUIRES that routing the
-        /// checkpoint's owner around it stays otherwise-solvable, since that is exactly what makes
-        /// the checkpoint load-bearing. Every one of those levels ships with at least one.
-        ///
-        /// Deliberately silent until the board is full. Blinking a checkpoint the moment its colour
-        /// is not yet on it would fire through most of a normal solve, when the player simply has
-        /// not drawn that colour yet -- noise, not a hint. Once every cell is covered, "not yet" is
-        /// no longer a possibility and the cell really is wrong.
+        /// <b>Occupied by the wrong colour, not merely missing its own.</b> An empty checkpoint is
+        /// unfinished, not wrong -- its colour may simply not be drawn yet -- and blinking through
+        /// most of a normal solve is noise the player learns to ignore. A checkpoint holding
+        /// someone else is wrong the instant it happens: the cell takes one occupant, so the rule
+        /// cannot be met until that colour leaves. That reads off live occupancy rather than the
+        /// committed segments the win condition uses, which is deliberate -- occupancy updates as
+        /// the finger moves, so the warning arrives during the drag that causes it instead of after
+        /// release.
         /// </summary>
-        private void RefreshUnmetCheckpointFeedback(bool boardFull)
+        /// <summary>How many Checkpoint cells this board carries. 0 on levels without the
+        /// mechanic, which is how the HUD knows to say nothing about them.</summary>
+        public int CheckpointCellCount
+        {
+            get
+            {
+                int total = 0;
+                for (int i = 0; i < gridRow; i++)
+                {
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        if (grid[i, j] != null && grid[i, j].BlockType == BlockType.Checkpoint) { total++; }
+                    }
+                }
+                return total;
+            }
+        }
+
+        /// <summary>
+        /// How many Checkpoints currently have their own colour's path running through them.
+        ///
+        /// Asks the same question <see cref="PairSatisfiesCheckpoints"/> asks -- is this cell in
+        /// that pair's committed segments -- rather than reading occupancy, so the counter can
+        /// never read "2/2" while the level refuses to finish. That mismatch is exactly the defect
+        /// the cells counter was introduced to fix; repeating it here would undo the lesson.
+        /// </summary>
+        public int SatisfiedCheckpointCount
+        {
+            get
+            {
+                int met = 0;
+                for (int i = 0; i < gridRow; i++)
+                {
+                    for (int j = 0; j < gridCol; j++)
+                    {
+                        Block cell = grid[i, j];
+                        if (cell == null || cell.BlockType != BlockType.Checkpoint) { continue; }
+                        if (SegmentContaining(cell.PairId, cell) != null) { met++; }
+                    }
+                }
+                return met;
+            }
+        }
+
+        private void RefreshUnmetCheckpointFeedback()
         {
             ClearUnmetCheckpointFeedback();
-            if (!boardFull) { return; }
 
             for (int i = 0; i < gridRow; i++)
             {
@@ -563,7 +606,8 @@ namespace FreeFlow.GamePlay
                 {
                     Block cell = grid[i, j];
                     if (cell == null || cell.BlockType != BlockType.Checkpoint) { continue; }
-                    if (SegmentContaining(cell.PairId, cell) != null) { continue; }
+                    if (cell.OccupantCount == 0) { continue; }        // unfinished, not wrong
+                    if (cell.IsOccupiedBy(cell.PairId)) { continue; } // its own colour is here
 
                     cell.PlayInvalidMoveFeedback();
                     unmetCheckpointBlocks.Add(cell);

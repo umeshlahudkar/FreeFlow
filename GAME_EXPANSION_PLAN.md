@@ -759,7 +759,17 @@ The defect is what the player sees while that is happening: every cell filled, t
 
 The split is structural, not luck. Bridge's rules live in `CanExitFrom` (no turning on a crossing) and `CanAcceptEntry` (one lane per axis), both consulted as the player moves, so an illegal bridge route cannot be drawn in the first place. Shared Destination has no completion-time rule at all — it is a dot with two identities. **Checkpoint is the only mechanic whose rule is checked at completion time**, and therefore the only one that can be broken silently.
 
-**Fixed** in `GamePlayController.RefreshUnmetCheckpointFeedback`: once the board is full, any Checkpoint whose colour is not on it blinks via the existing `Block.PlayInvalidMoveFeedback`. Deliberately silent until the board is full — a checkpoint whose colour has not been drawn yet is unfinished, not wrong, and blinking through most of a normal solve is noise the player learns to ignore. Cleared on `ResetGameplay` and re-evaluated after every drag so a stale blink never points at a cell that is now correct.
+**Fixed** in `GamePlayController.RefreshUnmetCheckpointFeedback`, on the sharper of two possible triggers.
+
+The first attempt waited until the board was full, reasoning that a checkpoint missing its colour mid-solve is unfinished rather than wrong. That is true of an EMPTY checkpoint but not of one **held by another colour** — the cell takes a single occupant, so the rule is already unsatisfiable the instant a wrong colour lands, and no waiting is justified. The sharper trigger also subsumes the original: a full board means every cell has an occupant, so "wrong occupant" catches everything "board full" caught, only earlier. The empty case stays silent.
+
+It reads **live occupancy** rather than the committed segments the win condition uses, so the warning arrives during the drag that causes it rather than after release. The HUD counter deliberately does the opposite — `SatisfiedCheckpointCount` asks the same question `PairSatisfiesCheckpoints` asks, so it can never read `2/2` while the level refuses to finish, which is precisely the defect the cells counter was introduced to fix.
+
+Hooked into `OnPointerMoved` (live, covers drawing and retreating) and the win check; cleared on `ResetGameplay`.
+
+**HUD:** the cells line gains `Checkpoints : 1/2` on levels that have them, hidden entirely on levels that do not rather than shown as `0/0`, which would read as a goal already failed. Checkpoints need their own count because they are the one rule the board cannot show as satisfied on its own — a filled cell looks identical whether the colour crossing it is the named one or not.
+
+**Multiple checkpoints per level** work throughout — verified end to end, not assumed: `PairSatisfiesCheckpoints`, `CollectCheckpoints`, the feedback pass and the counter all iterate. A spec with `CheckpointCount = 2` produces uniquely-solvable boards with both honoured. Levels 41–45 ship one each; that is a content choice, not a limit.
 
 ### Open questions, current
 

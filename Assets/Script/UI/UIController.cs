@@ -372,7 +372,20 @@ namespace FreeFlow.UI
             GamePlayController controller = GamePlayController.Instance;
             if (controller == null) { return; }
 
-            gameplayPairText.text = "Cells : " + controller.FilledCellCount + "/" + controller.UsableCellCount;
+            string label = "Cells : " + controller.FilledCellCount + "/" + controller.UsableCellCount;
+
+            // Checkpoints get their own count because they are the one rule the board does not
+            // show as satisfied on its own: a filled cell looks identical whether the colour
+            // crossing it is the one the checkpoint named or not. Hidden entirely on levels
+            // without the mechanic rather than shown as "0/0", which would read as a goal the
+            // player has failed to start.
+            int checkpoints = controller.CheckpointCellCount;
+            if (checkpoints > 0)
+            {
+                label += "   Checkpoints : " + controller.SatisfiedCheckpointCount + "/" + checkpoints;
+            }
+
+            gameplayPairText.text = label;
         }
 
         /// <summary>
