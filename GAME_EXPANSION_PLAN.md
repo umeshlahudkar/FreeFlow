@@ -749,7 +749,17 @@ The defect is what the player sees while that is happening: every cell filled, t
 
 **Every level from 41–45 contains at least one such state, by construction.** Necessity requires that removing the checkpoint opens a second solution, and that second solution must route the checkpoint's owner around it (otherwise it would satisfy the rule too, contradicting uniqueness). Measured on Level 41: strip the checkpoint and 3 full-coverage solutions appear, **2 of which are dead ends** — board full, every pair connected, the checkpoint at (3,5) held by pair 9 or pair 5 rather than its owner, pair 3.
 
-**Fix, not yet applied:** make the unmet rule visible. When the board is fully covered but a checkpoint is unsatisfied, mark that cell — `Block.PlayInvalidMoveFeedback` already exists — so the player learns which rule they missed instead of guessing. Worth checking whether Shared Destination and Bridge have the same silent-refusal shape before fixing only this one.
+**Audited across levels 36–50, and Checkpoint is the only offender.** The test: count arrangements the player can physically reach that fill the board and join every pair — move-time rules bind them, completion-time rules do not. Anything above 1 is a dead end.
+
+| Levels | Mechanic | Reachable complete-looking states | Dead ends |
+|---|---|---|---|
+| 36–40 | Bridge | 1 each | **0** |
+| 41–45 | Checkpoint | 3, 4, 2, 2, 2 | **8 total** |
+| 46–50 | Shared Destination | 1 each | **0** |
+
+The split is structural, not luck. Bridge's rules live in `CanExitFrom` (no turning on a crossing) and `CanAcceptEntry` (one lane per axis), both consulted as the player moves, so an illegal bridge route cannot be drawn in the first place. Shared Destination has no completion-time rule at all — it is a dot with two identities. **Checkpoint is the only mechanic whose rule is checked at completion time**, and therefore the only one that can be broken silently.
+
+**Fixed** in `GamePlayController.RefreshUnmetCheckpointFeedback`: once the board is full, any Checkpoint whose colour is not on it blinks via the existing `Block.PlayInvalidMoveFeedback`. Deliberately silent until the board is full — a checkpoint whose colour has not been drawn yet is unfinished, not wrong, and blinking through most of a normal solve is noise the player learns to ignore. Cleared on `ResetGameplay` and re-evaluated after every drag so a stale blink never points at a cell that is now correct.
 
 ### Open questions, current
 

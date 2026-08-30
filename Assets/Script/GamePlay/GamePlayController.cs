@@ -28,6 +28,11 @@ namespace FreeFlow.GamePlay
         // lands anywhere else, so the blink never outlives the touch that triggered it.
         private Block invalidFeedbackBlock;
 
+        // Checkpoints currently blinking because the board is full but their colour is not
+        // on them. Separate from invalidFeedbackBlock, which is one cell and lives only for
+        // the duration of a drag: this is board state, and can be several cells at once.
+        private readonly List<Block> unmetCheckpointBlocks = new List<Block>();
+
         // Set only while invalidFeedbackBlock is blinking a WALL rather than a cell: the block on
         // the other side of that wall, and invalidFeedbackBlock's own edge direction, so the
         // matching blink on both sides of the wall (see FlashInvalidStep) can be stopped together.
@@ -508,12 +513,72 @@ namespace FreeFlow.GamePlay
             int count = GetPairCompleteCount();
             UIController.Instance.UpdateFilledCells();
 
-            if (count >= UIController.Instance.CurrentLevelGoal && IsBoardFullyCovered())
+            bool boardFull = IsBoardFullyCovered();
+
+            if (count >= UIController.Instance.CurrentLevelGoal && boardFull)
             {
+                ClearUnmetCheckpointFeedback();
                 GameState = GameState.Ending;
                 UIController.Instance.ActivateLevelCompleteScreen(moves);
                 SaveLevelData();
             }
+            else
+            {
+                RefreshUnmetCheckpointFeedback(boardFull);
+            }
+        }
+
+        /// <summary>
+        /// Blinks any Checkpoint whose own colour is not running through it, but only once the
+        /// board is otherwise full.
+        ///
+        /// This exists because a Checkpoint is the only mechanic that is not enforced as the player
+        /// moves. Every other rule refuses the step itself -- <see cref="Block.CanEnter"/> turns a
+        /// colour away from a Forbidden or Permitted cell, <see cref="Block.CanExitFrom"/> refuses
+        /// to let a path turn on a Bridge -- so the player is told immediately. Checkpoint names no
+        /// one at the door: any colour may cross it, and the rule is only consulted at completion
+        /// time by PairSatisfiesCheckpoints.
+        ///
+        /// The result was a dead end with no explanation. The player fills every cell, joins every
+        /// pair, sees the counter read "Cells : 44/44" -- and nothing happens, because one
+        /// checkpoint is held by the wrong colour. Nothing on screen said which cell, or that a
+        /// cell was the problem at all. Measured across levels 41-45 there are eight such states,
+        /// and they are not edge cases: the generator's necessity gate REQUIRES that routing the
+        /// checkpoint's owner around it stays otherwise-solvable, since that is exactly what makes
+        /// the checkpoint load-bearing. Every one of those levels ships with at least one.
+        ///
+        /// Deliberately silent until the board is full. Blinking a checkpoint the moment its colour
+        /// is not yet on it would fire through most of a normal solve, when the player simply has
+        /// not drawn that colour yet -- noise, not a hint. Once every cell is covered, "not yet" is
+        /// no longer a possibility and the cell really is wrong.
+        /// </summary>
+        private void RefreshUnmetCheckpointFeedback(bool boardFull)
+        {
+            ClearUnmetCheckpointFeedback();
+            if (!boardFull) { return; }
+
+            for (int i = 0; i < gridRow; i++)
+            {
+                for (int j = 0; j < gridCol; j++)
+                {
+                    Block cell = grid[i, j];
+                    if (cell == null || cell.BlockType != BlockType.Checkpoint) { continue; }
+                    if (SegmentContaining(cell.PairId, cell) != null) { continue; }
+
+                    cell.PlayInvalidMoveFeedback();
+                    unmetCheckpointBlocks.Add(cell);
+                }
+            }
+        }
+
+        /// <summary>Stops every blink <see cref="RefreshUnmetCheckpointFeedback"/> started.</summary>
+        private void ClearUnmetCheckpointFeedback()
+        {
+            for (int i = 0; i < unmetCheckpointBlocks.Count; i++)
+            {
+                if (unmetCheckpointBlocks[i] != null) { unmetCheckpointBlocks[i].StopInvalidMoveFeedback(); }
+            }
+            unmetCheckpointBlocks.Clear();
         }
 
         /// <summary>
@@ -1601,6 +1666,7 @@ namespace FreeFlow.GamePlay
             gameState = GameState.Waiting;
 
             StopInvalidFeedback();
+            ClearUnmetCheckpointFeedback();
 
             selectedBlocks.Clear();
             pairSegments.Clear();
