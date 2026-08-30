@@ -47,13 +47,13 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 1-10 (Basic Flow + Blocked Cell)")]
         public static void GenerateLevels1To10()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
             const int levelCount = 10;
+            // Classic numbering already starts at 1, so nothing to subtract -- declared anyway so
+            // every generate method reads the same way.
+            const int outputOffset = 0;
 
-            if (!AssetDatabase.IsValidFolder(levelsFolder))
-            {
-                AssetDatabase.CreateFolder("Assets/Resources", "Levels");
-            }
+            EnsureLevelFolder(levelsFolder);
 
             System.Random rng = new System.Random(20260830); // fixed seed for the 200-level campaign's opening levels
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
@@ -87,7 +87,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": grid=").Append(spec.GridSize)
@@ -116,14 +116,17 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 11-15 (Wall)")]
         public static void GenerateLevels11To15()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 11;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 15;
             const int gridSize = 6;
 
             System.Random rng = new System.Random(20260831); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -155,7 +158,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -181,14 +184,17 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 16-20 (One-Way)")]
         public static void GenerateLevels16To20()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 16;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 20;
             const int gridSize = 6;
 
             System.Random rng = new System.Random(20260901); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -220,7 +226,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -247,14 +253,17 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 21-25 (Arrow)")]
         public static void GenerateLevels21To25()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 21;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 25;
             const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
 
             System.Random rng = new System.Random(20260902); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -286,7 +295,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -335,13 +344,16 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Prototype Levels 31-33 (relaxed coverage)")]
         public static void GeneratePrototypeLevels31To33()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 31;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 33;
 
             System.Random rng = new System.Random(20260904);
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -373,7 +385,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": grid=").Append(spec.GridSize)
@@ -430,14 +442,17 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 26-30 (Forbidden)")]
         public static void GenerateLevels26To30()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 26;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 30;
             const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
 
             System.Random rng = new System.Random(20260903); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -469,7 +484,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -496,19 +511,23 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 51-55 (Mastery: 8x8)")]
         public static void GenerateLevels51To55()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 51;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 55;
             const int gridSize = 8; // first range past 7x7 -- see SpecForLevel51To55
 
             System.Random rng = new System.Random(20261003);
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
 
+            EnsureLevelFolder(levelsFolder);
             EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
@@ -530,7 +549,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": ").Append(gridSize).Append("x").Append(gridSize)
@@ -563,19 +582,23 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 46-50 (Shared Destination)")]
         public static void GenerateLevels46To50()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 46;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 50;
             const int gridSize = 7;
 
             System.Random rng = new System.Random(20260926); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
 
+            EnsureLevelFolder(levelsFolder);
             EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
@@ -597,7 +620,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -624,19 +647,23 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 41-45 (Checkpoint)")]
         public static void GenerateLevels41To45()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 41;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 45;
             const int gridSize = 7;
 
             System.Random rng = new System.Random(20260919); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
 
+            EnsureLevelFolder(levelsFolder);
             EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
@@ -658,7 +685,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -685,19 +712,23 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 36-40 (Bridge)")]
         public static void GenerateLevels36To40()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 36;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 40;
             const int gridSize = 7;
 
             System.Random rng = new System.Random(20260912); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
             bool cancelled = false;
 
+            EnsureLevelFolder(levelsFolder);
             EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
 
             for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
@@ -719,7 +750,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -746,14 +777,17 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 31-35 (Permitted)")]
         public static void GenerateLevels31To35()
         {
-            const string levelsFolder = "Assets/Resources/Levels";
+            const string levelsFolder = "Assets/Resources/Levels/Advanced";
             const int startLevel = 31;
+            // Campaign numbering stays as authored (the specs and the plan doc both use it);
+            // the mode's own level files are numbered from 1, so subtract the offset on write.
+            const int outputOffset = 10;
             const int endLevel = 35;
             const int gridSize = 7; // 7x7 became reachable once the strict coverage rule was dropped
 
             System.Random rng = new System.Random(20260905); // a fresh seed for this level range
             HashSet<string> seenCanonicalKeys = new HashSet<string>();
-            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1 - outputOffset, seenCanonicalKeys);
 
             StringBuilder report = new StringBuilder();
             int savedCount = 0;
@@ -785,7 +819,7 @@ namespace FreeFlow.GamePlay
                     continue;
                 }
 
-                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                SaveLevelAsset(levelsFolder, levelNumber - outputOffset, generated.Data, generated.DifficultyScore);
                 savedCount++;
                 report.Append("Level ").Append(levelNumber)
                     .Append(": colors=").Append(generated.Data.pairCount)
@@ -3542,6 +3576,17 @@ namespace FreeFlow.GamePlay
         // ---------------------------------------------------------------------------------------
         // Saving.
         // ---------------------------------------------------------------------------------------
+
+        /// <summary>Creates Resources/Levels/&lt;Mode&gt; if it is not there yet.</summary>
+        private static void EnsureLevelFolder(string folder)
+        {
+            if (AssetDatabase.IsValidFolder(folder)) { return; }
+            if (!AssetDatabase.IsValidFolder("Assets/Resources/Levels"))
+            {
+                AssetDatabase.CreateFolder("Assets/Resources", "Levels");
+            }
+            AssetDatabase.CreateFolder("Assets/Resources/Levels", folder.Substring(folder.LastIndexOf('/') + 1));
+        }
 
         private static void SaveLevelAsset(string folder, int levelNumber, LevelData data, float difficultyScore)
         {

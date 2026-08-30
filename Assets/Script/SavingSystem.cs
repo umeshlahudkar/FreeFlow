@@ -55,10 +55,42 @@ public class SavingSystem : Singleton<SavingSystem>
 [System.Serializable]
 public struct SaveData
 {
+    // Classic's progress deliberately keeps the ORIGINAL field names. JsonUtility fills any field
+    // missing from an existing save with its default, so a save written before the two modes
+    // existed would silently reset whichever campaign got renamed. Classic is the default mode and
+    // the one a returning player is most likely mid-way through, so it inherits the old fields and
+    // the old progress; Advanced starts empty, which is correct -- it did not exist before.
     public int completedLevel;
     public int[] completedlevelMoves;
 
+    public int advancedCompletedLevel;
+    public int[] advancedCompletedLevelMoves;
+
     public AudioData audioData;
+
+    /// <summary>Highest level finished in <paramref name="mode"/>.</summary>
+    public int CompletedLevelFor(FreeFlow.Enums.GameMode mode)
+    {
+        return mode == FreeFlow.Enums.GameMode.Advanced ? advancedCompletedLevel : completedLevel;
+    }
+
+    public void SetCompletedLevelFor(FreeFlow.Enums.GameMode mode, int value)
+    {
+        if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevel = value; }
+        else { completedLevel = value; }
+    }
+
+    /// <summary>Per-level move counts for <paramref name="mode"/>. Null until that mode is played.</summary>
+    public int[] MovesFor(FreeFlow.Enums.GameMode mode)
+    {
+        return mode == FreeFlow.Enums.GameMode.Advanced ? advancedCompletedLevelMoves : completedlevelMoves;
+    }
+
+    public void SetMovesFor(FreeFlow.Enums.GameMode mode, int[] value)
+    {
+        if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelMoves = value; }
+        else { completedlevelMoves = value; }
+    }
 }
 
 [System.Serializable]

@@ -35,11 +35,12 @@ namespace FreeFlow.UI
         [SerializeField] private GameObject gameplayScreen;
 
         [Header("Level Data")]
-        // total level count is authored metadata, not derived from a loaded array --
-        // each level's grid data now lives in its own SingleLevelDataSO under
-        // Resources/Levels/, loaded on demand so memory scales with levels visited,
-        // not levels that exist. Keep this in sync when adding new level assets.
-        [SerializeField] private int totalLevelCount;
+        // Counts are authored metadata, not derived from a loaded array -- each level's grid data
+        // lives in its own SingleLevelDataSO under Resources/Levels/<Mode>/, loaded on demand so
+        // memory scales with levels visited, not levels that exist. Keep these in sync when adding
+        // level assets.
+        [SerializeField] private int classicLevelCount;
+        [SerializeField] private int advancedLevelCount;
 
         [Header("Pause screen")]
         [SerializeField] GameObject pauseScreen;
@@ -52,13 +53,50 @@ namespace FreeFlow.UI
         private int currentLevel;
 
         public int CurrentLevel { get { return currentLevel; } }
-        public int TotalLevelCount { get { return totalLevelCount; } }
+
+        /// <summary>Which campaign is being played. Classic is the default and the front door;
+        /// see <see cref="GameMode"/> for why the two are separate level sets rather than a
+        /// difficulty toggle.</summary>
+        public GameMode CurrentMode { get; private set; } = GameMode.Classic;
+
+        /// <summary>How many levels the CURRENT mode has. Every caller that used to ask for a
+        /// single campaign total wants this.</summary>
+        public int TotalLevelCount
+        {
+            get { return CurrentMode == GameMode.Advanced ? advancedLevelCount : classicLevelCount; }
+        }
+
+        public int LevelCountFor(GameMode mode)
+        {
+            return mode == GameMode.Advanced ? advancedLevelCount : classicLevelCount;
+        }
+
+        /// <summary>
+        /// Where the current mode's level assets live. The two campaigns are numbered
+        /// independently -- Classic 1 and Advanced 1 are different boards -- so the mode is part
+        /// of the path rather than an offset into one shared range.
+        /// </summary>
+        private string LevelResourcePath(int levelNumber)
+        {
+            return "Levels/" + CurrentMode + "/Level_" + levelNumber;
+        }
+
+        /// <summary>
+        /// Switches campaign and rebuilds the level list. Progress is stored per mode, so this
+        /// does not disturb the other campaign's completion.
+        /// </summary>
+        public void SetMode(GameMode mode)
+        {
+            if (CurrentMode == mode) { return; }
+            CurrentMode = mode;
+            levelScreenController.SpawnLevelButtons(TotalLevelCount);
+        }
 
         public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
 
         private void Start()
         {
-            levelScreenController.SpawnLevelButtons(totalLevelCount);
+            levelScreenController.SpawnLevelButtons(TotalLevelCount);
         }
 
         /// <summary>
@@ -67,7 +105,7 @@ namespace FreeFlow.UI
         /// <param name="levelNumber">The number of the level to load.</param>
         public void LoadLevel(int levelNumber)
         {
-            if (levelNumber <= totalLevelCount)
+            if (levelNumber <= TotalLevelCount)
             {
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
@@ -78,7 +116,7 @@ namespace FreeFlow.UI
                 {
                     Resources.UnloadAsset(currentLevelDataAsset);
                 }
-                currentLevelDataAsset = Resources.Load<SingleLevelDataSO>("Levels/Level_" + levelNumber);
+                currentLevelDataAsset = Resources.Load<SingleLevelDataSO>(LevelResourcePath(levelNumber));
                 currentLevelData = currentLevelDataAsset.levelData;
 
                 levelScreenController.gameObject.SetActive(false);
@@ -209,7 +247,7 @@ namespace FreeFlow.UI
         private void LoadNextLevel()
         {
             currentLevel++;
-            if (currentLevel > totalLevelCount) { currentLevel = 1; }
+            if (currentLevel > TotalLevelCount) { currentLevel = 1; }
             LoadLevel(currentLevel);
         }
 

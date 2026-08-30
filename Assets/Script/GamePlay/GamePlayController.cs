@@ -719,24 +719,27 @@ namespace FreeFlow.GamePlay
             SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
             int totalLevelCount = UIController.Instance.TotalLevelCount;
+            GameMode mode = UIController.Instance.CurrentMode;
+
+            // Progress is kept per mode: Classic 1 and Advanced 1 are different boards, so one
+            // shared array would have each campaign overwriting the other's move counts.
+            int[] modeMoves = data.MovesFor(mode);
 
             // sized once to the total level count, rather than growing by one slot (and
             // copying the whole array) on every single level completion
-            if (data.completedlevelMoves == null || data.completedlevelMoves.Length < totalLevelCount)
+            if (modeMoves == null || modeMoves.Length < totalLevelCount)
             {
                 int[] resized = new int[totalLevelCount];
-                if (data.completedlevelMoves != null)
-                {
-                    System.Array.Copy(data.completedlevelMoves, resized, data.completedlevelMoves.Length);
-                }
-                data.completedlevelMoves = resized;
+                if (modeMoves != null) { System.Array.Copy(modeMoves, resized, modeMoves.Length); }
+                modeMoves = resized;
+                data.SetMovesFor(mode, modeMoves);
             }
 
-            data.completedlevelMoves[currentLevel - 1] = moves;
+            modeMoves[currentLevel - 1] = moves;
 
-            if (currentLevel > data.completedLevel)
+            if (currentLevel > data.CompletedLevelFor(mode))
             {
-                data.completedLevel = currentLevel;
+                data.SetCompletedLevelFor(mode, currentLevel);
             }
 
             SavingSystem.Instance.Save(data);
