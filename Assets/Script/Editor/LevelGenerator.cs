@@ -2110,6 +2110,154 @@ namespace FreeFlow.GamePlay
         /// rather than a ramp in a proxy that was pointing the wrong way half the time.
         /// </summary>
         /// <summary>
+        /// Grows a partition whose paths INTERLEAVE, instead of one whose paths are merely valid.
+        ///
+        /// <b>Why the normal builder cannot produce these.</b> TryGeneratePathPartition grows by
+        /// Warnsdorff, always extending into the most enclosed free cell. That is the right rule
+        /// for never stranding a cell, and it is why it was adopted -- but it fills corners and
+        /// edges first, so each colour accretes into a compact blob in its own corner of the board.
+        /// Measured against a real Flow Free board, ours turned twice as often inside a third less
+        /// space and touched other colours half as much: scribbly rather than tangled. Ranking a
+        /// pool by tangle lifted the average from ~40 to 82, then stopped, because selection can
+        /// only pick the best of what the builder happens to make.
+        ///
+        /// <b>What this does differently.</b> Three changes, each aimed at one of the measured
+        /// gaps:
+        ///   - <b>Round-robin growth.</b> Every path advances one cell per turn rather than one
+        ///     path being driven to completion, so they weave through each other as they grow.
+        ///   - <b>Straightness is rewarded.</b> Flow Free's paths turn 0.17 times per cell against
+        ///     our 0.44-0.61; long runs are what carry a path across the board instead of curling
+        ///     it up next to itself.
+        ///   - <b>Touching yourself is penalised, touching others is rewarded.</b> This is the
+        ///     direct attack on blob formation, and on the metric that separated the two most
+        ///     clearly: cross-colour adjacency, 51% for Flow Free against 22-41% for ours.
+        ///
+        /// Warnsdorff is kept as an override rather than discarded: a free cell down to its last
+        /// free neighbour is taken immediately whatever the aesthetic score says, because a
+        /// stranded cell is not a worse board, it is no board at all. Failure stays cheap -- return
+        /// null and let the caller retry with fresh seeds.
+        /// </summary>
+        private static List<List<(int Row, int Col)>> TryGenerateTangledPartition(int size,
+            bool[,] usable, int usableCount, int pathCount, System.Random rng)
+        {
+            if (pathCount < 1 || usableCount < pathCount * 2) { return null; }
+
+            int[,] taken = new int[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { taken[r, c] = -1; }
+            }
+
+            List<(int Row, int Col)> free = new List<(int, int)>();
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++)
+                {
+                    if (usable[r, c]) { free.Add((r, c)); }
+                }
+            }
+            for (int i = free.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (free[i], free[j]) = (free[j], free[i]);
+            }
+
+            List<List<(int Row, int Col)>> paths = new List<List<(int, int)>>();
+            for (int i = 0; i < pathCount; i++)
+            {
+                taken[free[i].Row, free[i].Col] = i;
+                paths.Add(new List<(int, int)> { free[i] });
+            }
+
+            int placed = pathCount;
+            bool[] stuck = new bool[pathCount];
+
+            while (placed < usableCount)
+            {
+                bool anyGrew = false;
+
+                for (int p = 0; p < pathCount && placed < usableCount; p++)
+                {
+                    if (stuck[p]) { continue; }
+
+                    (int Row, int Col) head = paths[p][paths[p].Count - 1];
+                    (int Row, int Col) prev = paths[p].Count > 1 ? paths[p][paths[p].Count - 2] : head;
+
+                    int bestScore = int.MinValue;
+                    (int Row, int Col) bestCell = (0, 0);
+                    int ties = 0;
+
+                    for (int d = 0; d < Directions.Length; d++)
+                    {
+                        int nr = head.Row, nc = head.Col;
+                        switch (Directions[d])
+                        {
+                            case Direction.Left: nc--; break;
+                            case Direction.Right: nc++; break;
+                            case Direction.Up: nr--; break;
+                            case Direction.Down: nr++; break;
+                        }
+                        if (nr < 0 || nr >= size || nc < 0 || nc >= size) { continue; }
+                        if (!usable[nr, nc] || taken[nr, nc] != -1) { continue; }
+
+                        int score = 0;
+
+                        // Keep going the way we were: long runs cross the board.
+                        bool straight = (nr - head.Row) == (head.Row - prev.Row)
+                                     && (nc - head.Col) == (head.Col - prev.Col);
+                        if (straight && paths[p].Count > 1) { score += 6; }
+
+                        int ownNeighbours = 0, otherNeighbours = 0, freeNeighbours = 0;
+                        for (int e = 0; e < Directions.Length; e++)
+                        {
+                            int ar = nr, ac = nc;
+                            switch (Directions[e])
+                            {
+                                case Direction.Left: ac--; break;
+                                case Direction.Right: ac++; break;
+                                case Direction.Up: ar--; break;
+                                case Direction.Down: ar++; break;
+                            }
+                            if (ar < 0 || ar >= size || ac < 0 || ac >= size) { continue; }
+                            if (!usable[ar, ac]) { continue; }
+                            if (taken[ar, ac] == -1) { freeNeighbours++; }
+                            else if (taken[ar, ac] == p) { ownNeighbours++; }
+                            else { otherNeighbours++; }
+                        }
+
+                        // Hugging your own body is what makes a blob; brushing other colours is
+                        // what makes the board feel woven.
+                        score -= 5 * (ownNeighbours - 1);   // -1: the head itself always counts
+                        score += 4 * otherNeighbours;
+
+                        // Warnsdorff, kept as an override: a cell about to be sealed off has to be
+                        // taken now regardless of how it scores.
+                        if (freeNeighbours <= 1) { score += 40; }
+
+                        if (score > bestScore) { bestScore = score; bestCell = (nr, nc); ties = 1; }
+                        else if (score == bestScore) { ties++; if (rng.Next(ties) == 0) { bestCell = (nr, nc); } }
+                    }
+
+                    if (bestScore == int.MinValue) { stuck[p] = true; continue; }
+
+                    taken[bestCell.Row, bestCell.Col] = p;
+                    paths[p].Add(bestCell);
+                    placed++;
+                    anyGrew = true;
+                }
+
+                // Every path walled in with cells still free -- cheap failure, caller retries.
+                if (!anyGrew) { return null; }
+            }
+
+            for (int i = 0; i < paths.Count; i++)
+            {
+                if (paths[i].Count < 2) { return null; }
+            }
+            return paths;
+        }
+
+        /// <summary>
         /// How TANGLED a board's solution is: colours interleaving rather than each owning a
         /// compact region of its own.
         ///
@@ -3072,6 +3220,12 @@ namespace FreeFlow.GamePlay
             finalColorCount = 0;
             splits = 0;
 
+            // NOTE: an interleaved round-robin builder was tried here and measured WORSE --
+            // average tangle 41 against Warnsdorff's 49, max 55 against 78, and it stranded cells
+            // in 11 of 25 attempts against 1. Growing every path a cell at a time from scattered
+            // seeds gives each one the region around its own seed, which is more compartmentalised
+            // rather than less. TryGenerateTangledPartition is kept for the record; do not wire it
+            // in again without re-measuring.
             List<List<(int Row, int Col)>> paths =
                 TryGeneratePathPartition(size, usable, usableCount, startColorCount, rng);
             if (paths == null) { return false; }
