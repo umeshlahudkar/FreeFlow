@@ -2080,6 +2080,139 @@ namespace FreeFlow.GamePlay
         /// Note a domain reload -- triggered by editing any script, or by Unity regaining focus and
         /// refreshing -- kills a run in progress. Leave scripts alone while this is going.
         /// </summary>
+        /// <summary>
+        /// Builds the whole Classic campaign: 100 levels, full grids, no mechanics of any kind.
+        ///
+        /// <b>Blocked by board size, with the colour count ramping DOWN inside each block.</b> Size
+        /// gives the player a legible sense of chapter -- a bigger grid reads as harder before a
+        /// line is drawn -- while the colour ramp supplies the actual difficulty curve within it.
+        ///
+        /// The downward direction is deliberate and measured. Fewer colours means longer paths,
+        /// and path length is what tracks how hard a board feels (§6.14); more colours means
+        /// shorter paths and an easier level, which is exactly the complaint that sank two earlier
+        /// level sets. So each block opens generously and tightens.
+        ///
+        /// Capped at 7x7 on purpose for this pass: the whole run takes about a minute, so the
+        /// curve can be played and rebuilt quickly. 8x8 costs 8s a level and 9x9 costs 204s, which
+        /// are fine for a final build but ruinous for iteration.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic campaign (100, up to 7x7)")]
+        public static void GenerateClassicCampaign()
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const int totalLevels = 100;
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            System.Random rng = new System.Random(20261201);
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            StringBuilder report = new StringBuilder();
+            int saved = 0;
+            bool cancelled = false;
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                for (int level = 1; level <= totalLevels && !cancelled; level++)
+                {
+                    ClassicShapeFor(level, out int size, out int targetColours);
+                    int cells = size * size;
+
+                    bool[,] usable = new bool[size, size];
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { usable[r, c] = true; }
+                    }
+
+                    LevelData chosen = default;
+                    int chosenColours = 0;
+                    bool built = false;
+
+                    for (int attempt = 0; attempt < 600 && !built; attempt++)
+                    {
+                        if ((attempt % 5) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Classic campaign  (" + level + "/" + totalLevels + ")",
+                                "Level " + level + "  -  " + size + "x" + size
+                                    + "  -  target " + targetColours + " colours  -  attempt " + (attempt + 1)
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s elapsed",
+                                (level - 1) / (float)totalLevels))
+                        { cancelled = true; break; }
+
+                        // Start AT the target, not below it. Refinement only ever splits upward
+                        // and merge-down only ever stops early, so a start below the target makes
+                        // the target unreachable from either side: an earlier build began every
+                        // 7x7 at 6 colours, landed on 8, and produced forty consecutive levels of
+                        // identical difficulty because the ramp had nothing to act on.
+                        if (!TryGenerateUniqueByRefinement(size, usable, cells,
+                                Mathf.Max(3, targetColours), MaxDistinctColors, 2000000, 3, rng,
+                                out LevelData data, out int colours, out int splits, targetColours))
+                        {
+                            continue;
+                        }
+
+                        // Dedup across the whole campaign, not just this size.
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        string key;
+                        try { key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols); }
+                        finally { DestroyBlockGrid(grid); }
+
+                        if (!seenCanonicalKeys.Add(key)) { continue; }
+
+                        chosen = data;
+                        chosenColours = colours;
+                        built = true;
+                    }
+
+                    if (cancelled) { break; }
+
+                    if (!built)
+                    {
+                        Debug.LogError("Classic level " + level + " (" + size + "x" + size
+                            + ", target " + targetColours + " colours) could not be generated.");
+                        report.Append("Level ").Append(level).AppendLine(": FAILED");
+                        continue;
+                    }
+
+                    SaveLevelAsset(levelsFolder, level, chosen, 0f);
+                    saved++;
+                    report.Append("L").Append(level).Append(": ").Append(size).Append('x').Append(size)
+                          .Append("  colours=").Append(chosenColours)
+                          .Append("  avgPath=").Append((cells / (float)chosenColours).ToString("0.0"))
+                          .AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("Classic campaign: " + saved + "/" + totalLevels + " levels in "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ".\n" + report);
+        }
+
+        /// <summary>
+        /// Board size and target colour count for a Classic level.
+        ///
+        /// Three blocks by size; inside each, colours fall from the generous opening value to the
+        /// tight closing one. The closing values are the fewest that were actually observed to be
+        /// reachable per size (3, 3 and 6 respectively), so the hardest level of each block sits at
+        /// the edge of what the generator can produce rather than at an arbitrary number.
+        /// </summary>
+        private static void ClassicShapeFor(int level, out int size, out int targetColours)
+        {
+            int from, to, first, last;
+
+            if (level <= 25) { size = 5; from = 5; to = 3; first = 1; last = 25; }
+            else if (level <= 60) { size = 6; from = 7; to = 4; first = 26; last = 60; }
+            else { size = 7; from = 10; to = 6; first = 61; last = 100; }
+
+            float t = last == first ? 0f : (level - first) / (float)(last - first);
+            targetColours = Mathf.RoundToInt(Mathf.Lerp(from, to, t));
+        }
+
         [MenuItem("FreeFlow/Level Generator/Classic/Measure generation 5x5-10x10")]
         public static void MeasureClassicGeneration()
         {
@@ -2453,7 +2586,8 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private static bool TryGenerateUniqueByRefinement(int size, bool[,] usable, int usableCount,
             int startColorCount, int maxColorCount, int solverBudget, int minPathCells,
-            System.Random rng, out LevelData data, out int finalColorCount, out int splits)
+            System.Random rng, out LevelData data, out int finalColorCount, out int splits,
+            int targetColorCount = 2)
         {
             data = default;
             finalColorCount = 0;
@@ -2488,7 +2622,8 @@ namespace FreeFlow.GamePlay
                         // Unique -- but refinement only ever ADDS colours, so this is the first
                         // unique board found rather than a good one. Walk back down before
                         // accepting it; see MergeDownWhileUnique.
-                        MergeDownWhileUnique(size, usable, paths, solverBudget, minPathCells, rng);
+                        MergeDownWhileUnique(size, usable, paths, solverBudget, minPathCells, rng,
+                            targetColorCount);
 
                         for (int i = 0; i < paths.Count; i++)
                         {
@@ -2534,7 +2669,8 @@ namespace FreeFlow.GamePlay
         /// proof, and those went from minutes to milliseconds on a constrained board.
         /// </summary>
         private static void MergeDownWhileUnique(int size, bool[,] usable,
-            List<List<(int Row, int Col)>> paths, int solverBudget, int minPathCells, System.Random rng)
+            List<List<(int Row, int Col)>> paths, int solverBudget, int minPathCells, System.Random rng,
+            int stopAtCount = 2)
         {
             // Merge trials get a FRACTION of the solver budget, and there is a hard ceiling on how
             // many are run. Both matter, and for the same reason: every successful merge leaves the
@@ -2549,8 +2685,11 @@ namespace FreeFlow.GamePlay
             int trialBudget = Math.Max(120000, solverBudget / 8);
             int trialsLeft = 60;
 
+            // stopAtCount lets a caller ask for a SPECIFIC colour count rather than the fewest
+            // possible. Difficulty inside a block is ramped by walking this down (fewer colours =
+            // longer paths = harder), so the generator has to be able to stop short of the minimum.
             bool progressed = true;
-            while (progressed && paths.Count > 2 && trialsLeft > 0)
+            while (progressed && paths.Count > Math.Max(2, stopAtCount) && trialsLeft > 0)
             {
                 progressed = false;
 
