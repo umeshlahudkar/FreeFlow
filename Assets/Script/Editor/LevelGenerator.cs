@@ -493,6 +493,73 @@ namespace FreeFlow.GamePlay
                 (endLevel - startLevel + 1) + " levels saved.\n" + report);
         }
 
+        [MenuItem("FreeFlow/Level Generator/Generate Levels 51-55 (Mastery: 8x8)")]
+        public static void GenerateLevels51To55()
+        {
+            const string levelsFolder = "Assets/Resources/Levels";
+            const int startLevel = 51;
+            const int endLevel = 55;
+            const int gridSize = 8; // first range past 7x7 -- see SpecForLevel51To55
+
+            System.Random rng = new System.Random(20261003);
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForLevel51To55(levelNumber, gridSize);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress("Levels 51-55", levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Level ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Level ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Level ").Append(levelNumber)
+                    .Append(": ").Append(gridSize).Append("x").Append(gridSize)
+                    .Append(" colors=").Append(generated.Data.pairCount)
+                    .Append(" blocked=").Append(spec.BlockedCellCount)
+                    .Append(" walls=").Append(spec.WallCount)
+                    .Append(" mechanic=").Append(
+                        spec.CheckpointCount > 0 ? "Checkpoint" :
+                        spec.ForbiddenCount > 0 ? "Forbidden" :
+                        spec.ArrowCount > 0 ? "Arrow" :
+                        spec.PermittedCount > 0 ? "Permitted" :
+                        spec.OneWayCount > 0 ? "OneWay" : "none")
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" tier=").Append(generated.DifficultyTier)
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SearchExhausted ? "" : "+")
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: Levels 51-55 generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
         [MenuItem("FreeFlow/Level Generator/Generate Levels 46-50 (Shared Destination)")]
         public static void GenerateLevels46To50()
         {
@@ -866,6 +933,22 @@ namespace FreeFlow.GamePlay
             /// decorative either -- both colours must reach the cell or the level is unsolved.</summary>
             public int SharedGoalCount;
 
+            /// <summary>How many of the board's headline mechanics must be individually
+            /// load-bearing. 0 keeps the strict rule -- every one of them, which is what levels
+            /// 1-50 use.
+            ///
+            /// Above 0 this is the K of "K of M", and it exists because the strict rule cannot be
+            /// satisfied once mechanics are stacked: they start ruling out the same wrong routes,
+            /// so removing either alone changes nothing and both measure as unnecessary. Across 175
+            /// uniquely solvable 3-mechanic boards, 0% had all three individually load-bearing and
+            /// 7.4% had two. The mechanics that fail individually are still checked collectively --
+            /// see MechanicNecessityHolds -- so this loosens "each must matter alone" without
+            /// loosening "all of them must matter".
+            ///
+            /// Blocked and Wall are exempt and always judged individually: a decorative hole or
+            /// wall is noise at any density.</summary>
+            public int MinNecessaryMechanics;
+
             /// <summary>Minimum number of WRONG routes the board must admit -- pairings that
             /// connect every colour but fail to cover the board, so the player can complete all
             /// the dots and still be refused. 0 disables the check.
@@ -1133,35 +1216,10 @@ namespace FreeFlow.GamePlay
                     // was decorative anyway.
                     if (spec.RequireMechanicsNecessary)
                     {
-                        if (spec.ArrowCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Arrow))
-                        {
-                            continue;
-                        }
-                        if (spec.ForbiddenCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.ForbiddenForPair))
-                        {
-                            continue;
-                        }
-                        if (spec.PermittedCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.AllowedForPairs))
-                        {
-                            continue;
-                        }
-                        if (spec.CheckpointCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Checkpoint))
-                        {
-                            continue;
-                        }
-                        // A Bridge is the one mechanic whose necessity is answered by plain
-                        // solvability rather than by solution count: it GRANTS capacity, so
-                        // stripping it leaves the crossing with nowhere to go and the board
-                        // unsolvable outright. RequiredMechanicValidator.Classify handles that
-                        // case; nothing special is needed here beyond asking.
-                        if (spec.BridgeCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Bridge))
-                        {
-                            continue;
-                        }
-                        if (spec.OneWayCount > 0 && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.OneWay))
-                        {
-                            continue;
-                        }
+                        // Blocked and Wall are judged individually no matter what, because they are
+                        // not what MinNecessaryMechanics is about: a decorative hole or a wall that
+                        // rules nothing out is pure noise at any density, and both are cheap to
+                        // test. The headline BlockTypes go through the K-of-M pass below.
                         if (spec.WallCount > 0 && !AllWallsAreNecessary(grid, rows, cols))
                         {
                             continue;
@@ -1170,6 +1228,7 @@ namespace FreeFlow.GamePlay
                         {
                             continue;
                         }
+                        if (!MechanicNecessityHolds(spec, grid, rows, cols)) { continue; }
                     }
 
                     // Scoring only, so it runs last, on the few candidates that survived every hard
@@ -1309,6 +1368,91 @@ namespace FreeFlow.GamePlay
                 if (slack > maxSlack) { maxSlack = slack; }
             }
             return maxSlack;
+        }
+
+        /// <summary>
+        /// The mechanic-necessity rule, in either of its two modes.
+        ///
+        /// <b>Strict (MinNecessaryMechanics = 0, levels 1-50).</b> Every headline mechanic on the
+        /// board must be individually load-bearing: removing it alone must open a second solution.
+        /// That is what turned 13-of-41 decorative instances into 41-of-41 (§6.18).
+        ///
+        /// <b>K-of-M (MinNecessaryMechanics = K, the Mastery ranges).</b> The strict rule does not
+        /// survive stacking, and the reason is worth stating because it is not "the boards got
+        /// rarer". Individual necessity asks a MARGINAL question -- does removing this ONE mechanic
+        /// open an alternative -- and once several mechanics sit on one board they begin ruling out
+        /// the SAME wrong routes. Remove either one alone and the route is still blocked by the
+        /// other, so both measure as unnecessary. Redundancy between mechanics reads as uselessness
+        /// of each. Measured over 175 uniquely solvable 3-mechanic boards: 55.4% had none
+        /// load-bearing, 37.1% one, 7.4% two, and 0% all three.
+        ///
+        /// So K-of-M requires at least K individually, then guards the remainder COLLECTIVELY: the
+        /// mechanics that failed on their own are stripped together, and the board must stop being
+        /// uniquely solvable. That distinguishes a mechanic which is redundant with another (it
+        /// still constrains, just not alone -- keep it) from one that constrains nothing at all
+        /// (decoration -- reject the board). Without that second step K-of-M would happily ship
+        /// boards carrying M-K ornaments.
+        /// </summary>
+        private static bool MechanicNecessityHolds(GenerationSpec spec, Block[,] grid, int rows, int cols)
+        {
+            List<BlockType> present = new List<BlockType>();
+            if (spec.ArrowCount > 0) { present.Add(BlockType.Arrow); }
+            if (spec.ForbiddenCount > 0) { present.Add(BlockType.ForbiddenForPair); }
+            if (spec.PermittedCount > 0) { present.Add(BlockType.AllowedForPairs); }
+            if (spec.CheckpointCount > 0) { present.Add(BlockType.Checkpoint); }
+            // A Bridge GRANTS capacity rather than restricting, so stripping it makes the board
+            // unsolvable outright rather than multi-solution. RequiredMechanicValidator.Classify
+            // already reads that as Required, so it needs no special case here.
+            if (spec.BridgeCount > 0) { present.Add(BlockType.Bridge); }
+            if (spec.OneWayCount > 0) { present.Add(BlockType.OneWay); }
+
+            if (present.Count == 0) { return true; }
+
+            List<BlockType> unnecessary = new List<BlockType>();
+            int necessaryCount = 0;
+            for (int i = 0; i < present.Count; i++)
+            {
+                if (AllCellsOfTypeAreNecessary(grid, rows, cols, present[i])) { necessaryCount++; }
+                else { unnecessary.Add(present[i]); }
+            }
+
+            int required = spec.MinNecessaryMechanics > 0
+                ? Math.Min(spec.MinNecessaryMechanics, present.Count)
+                : present.Count;
+
+            if (necessaryCount < required) { return false; }
+
+            // Fewer than two failures means there is nothing collective left to ask. Stripping a
+            // SINGLE type is bit-for-bit the individual test that just failed, so running the group
+            // check on one mechanic can only ever fail again -- an early version did exactly that
+            // and rejected every board at K=2 of 3, which looked like the spec being impossible
+            // rather than the gate contradicting itself. One mechanic that does not matter alone is
+            // precisely the slack K-of-M is chosen to allow; two or more may be masking each other,
+            // and that is the case worth testing.
+            if (unnecessary.Count < 2) { return true; }
+
+            return MechanicsMatterTogether(grid, rows, cols, unnecessary);
+        }
+
+        /// <summary>
+        /// Whether the given mechanic types, stripped ALL AT ONCE, cost the board its single
+        /// solution. Answers "are these redundant with each other, or with nothing at all" -- the
+        /// question individual necessity cannot ask. One extra solve, and only on candidates that
+        /// have already passed everything else.
+        ///
+        /// Delegates the cloning and stripping to RequiredMechanicValidator rather than repeating
+        /// them: a second copy of "how to remove a mechanic from a cell" is exactly the kind of
+        /// duplicate that drifts out of sync, which is how BuildBlockGrid ended up silently
+        /// ignoring columns BoardGenerator read (§6.22).
+        /// </summary>
+        private static bool MechanicsMatterTogether(Block[,] grid, int rows, int cols,
+            List<BlockType> types)
+        {
+            RequiredMechanicValidator.RequirementResult result =
+                RequiredMechanicValidator.CheckBlockTypesRequiredTogether(grid, rows, cols, types,
+                    new PuzzleSolver.SolverOptions(SolverBudgetFor(rows), 2));
+
+            return result.Status == RequiredMechanicValidator.RequirementStatus.Required;
         }
 
         /// <summary>
@@ -1849,6 +1993,65 @@ namespace FreeFlow.GamePlay
                 // deterministically, so a plain re-run reproduces the same miss -- the budget has
                 // to change for the outcome to.
                 MaxAttempts = 40000
+            };
+        }
+
+        /// <summary>
+        /// Levels 51-55: the first Mastery range, and the first board bigger than 7x7.
+        ///
+        /// <b>The difficulty here is the board, not the mechanic count.</b> Twelve simultaneous
+        /// pairs on 58 usable cells is a different kind of problem from six pairs on 44 -- more to
+        /// hold in mind at once, and far less room to be wrong in. That is the lever this range
+        /// pulls; it deliberately carries ONE mechanic, kept under the strict every-mechanic-
+        /// load-bearing rule rather than the looser K-of-M.
+        ///
+        /// <b>Why not stack mechanics here.</b> Measured on this exact board: uniqueness needs
+        /// short paths and mechanic necessity needs long ones, and they pull against each other.
+        /// Twelve colours buys uniqueness by driving the average path down to 4.8 cells, and a
+        /// mechanic on a 4-cell path has almost no alternative route to rule out. With three
+        /// mechanics, 0 of 136 unique boards had all three load-bearing and only 5 had two; with
+        /// two mechanics, 0 of 144 had both. One mechanic clears the strict rule on ~18% of unique
+        /// boards. Stacking belongs on 7x7, where paths run to 7.3 cells -- see §7.
+        ///
+        /// Twelve colours is also the hard ceiling: <see cref="PairColorType"/> defines exactly
+        /// twelve, which is what caps the board at roughly 8x8 (§7's table).
+        /// </summary>
+        private static GenerationSpec SpecForLevel51To55(int levelNumber, int gridSize)
+        {
+            bool combineWall = levelNumber >= 54;
+
+            // Cycles the mechanic so the range revisits what was taught rather than drilling one.
+            int slot = (levelNumber - 51) % 5;
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = 12,
+                MaxColorCount = 12,
+                StraightnessBias = Mathf.Lerp(0.45f, 0.3f, (levelNumber - 51) / 4f),
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = 6,
+                BlockedCellsInteriorOnly = true,
+                WallCount = combineWall ? 2 : 0,
+                CheckpointCount = slot == 0 ? 1 : 0,
+                ForbiddenCount = slot == 1 ? 1 : 0,
+                ArrowCount = slot == 2 ? 1 : 0,
+                PermittedCount = slot == 3 ? 1 : 0,
+                OneWayCount = slot == 4 ? 1 : 0,
+                MinNecessaryMechanics = 0,   // strict: the one mechanic present must be load-bearing
+                MinWrongRoutes = 3,
+                // 3, not the 5 the 7x7 ranges use. Twelve pairs across 58 cells average 4.8-cell
+                // paths, so demanding 4 everywhere threw out 61% of candidates before any other
+                // gate ran and left nothing at all; at 3 the range generates comfortably. The floor
+                // exists to kill trivial 2-cell pairs, and it still does that.
+                MinPathCells = 3,
+                TargetAvgPathMin = 3.5f,
+                TargetAvgPathMax = 7.0f,
+                RequireEveryPairingCoversBoard = false,
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 60000
             };
         }
 

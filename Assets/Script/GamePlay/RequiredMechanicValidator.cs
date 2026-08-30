@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using FreeFlow.Enums;
 using UnityEngine;
@@ -78,6 +79,36 @@ namespace FreeFlow.GamePlay
 
                 Block neighbor = BoardTopology.Neighbor(clone, rowCount, colCount, cell, edge);
                 if (neighbor != null) { StripWall(neighbor, BoardTopology.Opposite(edge)); }
+            });
+        }
+
+        /// <summary>
+        /// Tests whether the listed BlockType mechanics are required <b>as a group</b> -- stripped
+        /// all at once rather than one at a time.
+        ///
+        /// Individual necessity asks a marginal question: does removing this ONE mechanic open an
+        /// alternative? On a board carrying several, two mechanics often rule out the same wrong
+        /// route, so removing either alone leaves it blocked by the other and both report
+        /// NotRequired -- redundancy reading as uselessness. This asks the question that
+        /// distinguishes the two cases: strip them together, and if the board still has exactly one
+        /// solution they were constraining nothing at all.
+        ///
+        /// Leaves walls and every other cell untouched, exactly as the single-cell overloads do.
+        /// </summary>
+        public static RequirementResult CheckBlockTypesRequiredTogether(Block[,] grid, int rowCount,
+            int colCount, IList<BlockType> types, PuzzleSolver.SolverOptions options = default)
+        {
+            return Check(grid, rowCount, colCount, options, clone =>
+            {
+                for (int i = 0; i < rowCount; i++)
+                {
+                    for (int j = 0; j < colCount; j++)
+                    {
+                        Block cell = clone[i, j];
+                        if (cell == null || !types.Contains(cell.BlockType)) { continue; }
+                        StripBlockTypeMechanic(cell);
+                    }
+                }
             });
         }
 

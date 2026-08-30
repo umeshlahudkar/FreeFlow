@@ -45,6 +45,7 @@ Unity menu → **FreeFlow / Level Generator / …** — one entry per range:
 | Generate Levels 36-40 (Bridge) | 36–40 | 7×7 | 6 | Bridge (+Wall on 39–40) |
 | Generate Levels 41-45 (Checkpoint) | 41–45 | 7×7 | 6 | Checkpoint (+Wall on 44–45) |
 | Generate Levels 46-50 (Shared Destination) | 46–50 | 7×7 | 6 | Shared Destination (+Wall on 49–50) |
+| Generate Levels 51-55 (Mastery: 8x8) | 51–55 | **8×8** | **12** | one per level, cycling (+Wall on 54–55) |
 
 Each writes `Assets/Resources/Levels/Level_N.asset` and logs a per-level report to the Console. **Generation blocks the editor** — it is a synchronous `[MenuItem]`. A cancellable progress bar shows `Level 13 — attempt 800 / 20000`; Cancel aborts and keeps whatever was already saved. After adding levels, set `UIController.totalLevelCount` on the scene's UIController object and save the scene, or the new levels will not appear.
 
@@ -704,6 +705,30 @@ Two properties then come free. The two nodes are in different paths because each
 **Measured before running** (600 attempts, seed 7311): 10.2 ms/attempt, 5 passes in 600 (~0.83%). Round-trip checked on 50 built candidates first: every shared cell carried the second colour's id, and in the **solved** board both named colours ended there.
 
 **Result across levels 46–50:** shared goals 5/5 with exactly two paths ending on them and distinct arrival edges, every level uniquely solvable with search exhausted, blocked cells all interior, shortest path 5–6, wrong routes 47–399, scores 47.7–55.5. 137/137 tests, `totalLevelCount` = 50. No regeneration needed.
+
+### 6.23 Levels 51–55 built (Mastery begins, 8×8) — and why stacking mechanics was the wrong lever
+
+First range past 7x7, and the first where the plan's own assumption turned out to be wrong.
+
+**K-of-M was built, then deliberately not used here.** `MinNecessaryMechanics` implements "at least K of the M mechanics must be individually load-bearing", with a collective guard so the failures still have to matter as a group. It is the right tool for dense boards — but measurement said 8×8 is not one.
+
+**The tension that decides it:** *uniqueness needs short paths; mechanic necessity needs long ones.* A mechanic is only load-bearing if there is an alternative route for it to rule out. Twelve colours buys uniqueness at 8×8 by driving the average path down to **4.8 cells**, and a mechanic on a 4-cell path has almost nothing to forbid. On this exact board:
+
+| Mechanics on the board | Unique boards sampled | All load-bearing |
+|---|---|---|
+| 3 | 136 | **0** (5 had two) |
+| 2 | 144 | **0** |
+| 1 | — | **~18%** |
+
+So the range carries **one mechanic under the strict rule**, cycling across the five levels, and takes its difficulty from the board: twelve simultaneous pairs on 58 usable cells is a different problem from six on 44, not a harder version of the same one. K-of-M stays for dense 7×7 ranges, where paths run to 7.3 cells.
+
+**A bug in the new gate, worth recording because it disguised itself as an impossible spec.** With three mechanics and K=2 exactly one lands in the "unnecessary" set, and stripping a *single* type is bit-for-bit the individual test that just failed — so the collective guard could never pass and rejected every board. It read as "K=2 is unsatisfiable" rather than "the gate contradicts itself". It now runs only when two or more fail, the only case where mechanics can mask each other.
+
+**Tuning that did not transfer, again.** `MinPathCells = 5` (the 7×7 value) rejected 61% of candidates before any other gate and produced nothing. At 3 the range generates at 0.48% and 7.3 ms/attempt. The floor exists to kill trivial 2-cell pairs and still does.
+
+**Result:** mechanics 5/5 load-bearing, walls necessary where present, every level uniquely solvable with search exhausted, 6/6 blocked cells interior, wrong routes 7–383, scores **52.8–55.8** against 47–54 for levels 11–50. `totalLevelCount` = 55.
+
+**Open:** average path is 4.8 cells here against 7.3 at 7×7, so by §6.14's measure these are *shorter* even though the board is bigger. Whether twelve pairs to track outweighs shorter routes is a playtest question, not a measurable one — and it decides whether the rest of Mastery scales by board size or by density.
 
 **Phase 8 — Hint system**
 Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.
