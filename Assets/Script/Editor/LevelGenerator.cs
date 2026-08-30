@@ -2030,6 +2030,156 @@ namespace FreeFlow.GamePlay
             };
         }
 
+        [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic 11-35 (6x6)")]
+        public static void GenerateClassic11To35()
+        {
+            GenerateClassicRange(11, 35, 20261010, "Classic 11-35 (6x6)");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic 36-65 (7x7)")]
+        public static void GenerateClassic36To65()
+        {
+            GenerateClassicRange(36, 65, 20261017, "Classic 36-65 (7x7)");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic 66-100 (8x8)")]
+        public static void GenerateClassic66To100()
+        {
+            GenerateClassicRange(66, 100, 20261024, "Classic 66-100 (8x8)");
+        }
+
+        /// <summary>
+        /// Shared driver for the Classic blocks. One method rather than a copy per range, because
+        /// Classic ranges differ only in which levels they cover -- SpecForClassic already holds
+        /// everything that varies per level.
+        /// </summary>
+        private static void GenerateClassicRange(int startLevel, int endLevel, int seed, string label)
+        {
+            const string levelsFolder = "Assets/Resources/Levels/Classic";
+
+            System.Random rng = new System.Random(seed);
+            HashSet<string> seenCanonicalKeys = new HashSet<string>();
+            // Dedup against every Classic level already built, not just this block.
+            SeedExistingCanonicalKeys(levelsFolder, 1, startLevel - 1, seenCanonicalKeys);
+
+            StringBuilder report = new StringBuilder();
+            int savedCount = 0;
+            bool cancelled = false;
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar(); // sticky cancel flag -- see GenerateLevels31To35
+
+            for (int levelNumber = startLevel; levelNumber <= endLevel; levelNumber++)
+            {
+                GenerationSpec spec = SpecForClassic(levelNumber);
+                GeneratedLevel generated = TryGenerateLevel(spec, rng, seenCanonicalKeys,
+                    attempt => { cancelled = cancelled || ReportGenerationProgress(label, levelNumber, attempt, spec.MaxAttempts); return cancelled; });
+                if (cancelled)
+                {
+                    report.Append("Classic ").Append(levelNumber).AppendLine(": CANCELLED by user");
+                    break;
+                }
+
+                if (generated == null)
+                {
+                    Debug.LogError("LevelGenerator: failed to generate Classic level " + levelNumber +
+                        " after " + spec.MaxAttempts + " attempts.");
+                    report.Append("Classic ").Append(levelNumber).Append(": FAILED\n");
+                    continue;
+                }
+
+                SaveLevelAsset(levelsFolder, levelNumber, generated.Data, generated.DifficultyScore);
+                savedCount++;
+                report.Append("Classic ").Append(levelNumber)
+                    .Append(": ").Append(spec.GridSize).Append('x').Append(spec.GridSize)
+                    .Append(" colors=").Append(generated.Data.pairCount)
+                    .Append(" holes=").Append(spec.BlockedCellCount)
+                    .Append(" score=").Append(generated.DifficultyScore.ToString("0.0"))
+                    .Append(" solutions=").Append(generated.SolutionsFound)
+                    .Append(generated.SolutionsFound == 1 ? " (unique)" : "")
+                    .Append('\n');
+            }
+
+            EditorUtility.ClearProgressBar();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("LevelGenerator: " + label + " generation complete -- " + savedCount + "/" +
+                (endLevel - startLevel + 1) + " levels saved.\n" + report);
+        }
+
+        /// <summary>
+        /// The Classic campaign, levels 11-100. Pure routing: no rule cells, no walls, ever.
+        ///
+        /// <b>Only three dials exist here</b> -- board size, colour count and hole count -- because
+        /// removing mechanics removes every other one. That is the point of the mode (§6.25): a
+        /// blocked cell constrains the board exactly as well as a rule does, and costs the player
+        /// nothing to remember.
+        ///
+        /// <b>Difficulty rises by REMOVING holes.</b> Counter-intuitive but measured: fewer holes
+        /// means longer paths, which is the metric that actually tracks how a board feels (§6.14).
+        /// Each block therefore starts hole-rich and thins out. Board size steps up between blocks,
+        /// which resets path length but raises the count of simultaneous pairs -- the same shape
+        /// Flow Free's own packs use, where board size increases every few levels.
+        ///
+        ///   11-35  6x6, 5 colours, 6 -> 3 holes   (path 6.0 -> 6.6, 36% -> 14% of candidates unique)
+        ///   36-65  7x7, 6 colours, 9 -> 4 holes   (path 6.7 -> 7.5, 20% -> 4.3%)
+        ///   66-100 8x8, 8 colours, 12 -> 8 holes  (path ~6.5 -> 7.0, ~13% -> 3.7%)
+        ///
+        /// <b>Levels 1-10 are not generated by this</b> and keep the STRICT coverage rule
+        /// (RequireEveryPairingCoversBoard) as the tutorial tier, so a beginner can never connect
+        /// every pair and be left staring at empty cells. That rule does not survive past 6x6 --
+        /// measured 10 clean boards from 477 unique ones at 6x6, and zero at 7x7 and 8x8 -- which
+        /// is exactly why it stops there rather than as a matter of taste.
+        /// </summary>
+        private static GenerationSpec SpecForClassic(int levelNumber)
+        {
+            int gridSize, colorCount, holesFrom, holesTo, blockFrom, blockTo;
+            float pathMin, pathMax;
+
+            if (levelNumber <= 35)
+            {
+                gridSize = 6; colorCount = 5; holesFrom = 6; holesTo = 3;
+                blockFrom = 11; blockTo = 35; pathMin = 5.0f; pathMax = 8.0f;
+            }
+            else if (levelNumber <= 65)
+            {
+                gridSize = 7; colorCount = 6; holesFrom = 9; holesTo = 4;
+                blockFrom = 36; blockTo = 65; pathMin = 5.5f; pathMax = 9.0f;
+            }
+            else
+            {
+                gridSize = 8; colorCount = 8; holesFrom = 12; holesTo = 8;
+                blockFrom = 66; blockTo = 100; pathMin = 5.5f; pathMax = 9.0f;
+            }
+
+            float t = blockTo == blockFrom ? 0f : (levelNumber - blockFrom) / (float)(blockTo - blockFrom);
+            int holes = Mathf.RoundToInt(Mathf.Lerp(holesFrom, holesTo, t));
+
+            return new GenerationSpec
+            {
+                GridSize = gridSize,
+                MinColorCount = colorCount,
+                MaxColorCount = colorCount,
+                StraightnessBias = Mathf.Lerp(0.45f, 0.28f, t),
+                TargetScoreMin = 0f,
+                TargetScoreMax = 100f,
+                Uniqueness = UniquenessPolicy.Require,
+                BlockedCellCount = holes,
+                BlockedCellsInteriorOnly = true,
+                // Every mechanic count stays 0. Classic is defined by their absence.
+                MinWrongRoutes = 3,
+                MinPathCells = 3,
+                TargetAvgPathMin = pathMin,
+                TargetAvgPathMax = pathMax,
+                RequireEveryPairingCoversBoard = false,
+                // Blocked cells still have to earn their place -- a hole that changes nothing is
+                // as much noise as a decorative rule, and this is the only mechanic Classic has.
+                RequireMechanicsNecessary = true,
+                MaxAttempts = 30000
+            };
+        }
+
         /// <summary>
         /// Levels 51-55: the first Mastery range. 8x8, eight colours, ONE mechanic, a heavily
         /// shaped board.

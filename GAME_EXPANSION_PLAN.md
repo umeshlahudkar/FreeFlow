@@ -888,6 +888,31 @@ Against ~7 ms per candidate on our 8×8-with-10-holes spec — roughly **400× m
 
 **Consequence for the two-mode plan:** Classic mode is cheap at 8×8 *with holes* (8.1% unique, ~100 wrong routes, 6.8 paths) and impractical at full-grid without solver work. If matching Flow Free's clean full-board look matters, that is a solver-pruning project, not a spec change.
 
+### 6.27 Two modes, and the Classic progression
+
+**Decided:** two campaigns of 100 levels each, expanding later. **Classic is the default and the front door.**
+
+The existing levels split along the line already, so this was a re-label rather than a rebuild: levels 1–10 carry no rule cells and no walls (Classic 1–10); levels 11–55 each carry a mechanic (Advanced 1–45). Assets moved to `Resources/Levels/<Mode>/`, and the generator writes there with mode-local numbering via an `outputOffset` so the specs and this document keep the campaign numbering they were written against.
+
+**Save data is per mode, and Classic keeps the ORIGINAL field names deliberately.** `JsonUtility` fills any field missing from an existing save with its default, so renaming would silently reset whichever campaign lost its name. Classic is the default and the likelier campaign to be mid-way through, so it inherits the old progress; Advanced starts empty, which is correct because it did not exist before.
+
+#### The Classic progression
+
+Removing mechanics removes every difficulty dial except **board size, colour count and hole count** — which is the point of the mode. Two findings shaped the curve:
+
+**Difficulty rises by REMOVING holes.** Counter-intuitive, but fewer holes means longer paths, and path length is the metric that tracks how a board actually feels (§6.14). Each block therefore starts hole-rich and thins out; board size steps up between blocks, which resets path length but raises the number of simultaneous pairs. That is the shape Flow Free's own packs use.
+
+| Block | Board | Colours | Holes | Path | Unique yield |
+|---|---|---|---|---|---|
+| 1–10 | 4×4→6×6 | 3–6 | — | — | *existing, strict rule* |
+| 11–35 | 6×6 | 5 | 6 → 3 | 6.0 → 6.6 | 36% → 14% |
+| 36–65 | 7×7 | 6 | 9 → 4 | 6.7 → 7.5 | 20% → 4.3% |
+| 66–100 | 8×8 | 8 | 12 → 8 | ~6.5 → 7.0 | ~13% → 3.7% |
+
+**The strict coverage rule stops at 6×6, and that is measured rather than chosen.** Levels 1–10 keep `RequireEveryPairingCoversBoard` so a beginner can never connect every pair and be left staring at empty cells. Above 6×6 it cannot be satisfied: at 6×6 it produced 10 clean boards out of 477 unique ones, and at 7×7 and 8×8 it produced **zero**. This is the same ceiling §6.18 hit from the other direction.
+
+**Blocked cells still face the necessity gate.** A hole that changes nothing is as much noise as a decorative rule, and in Classic it is the only mechanic there is.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
