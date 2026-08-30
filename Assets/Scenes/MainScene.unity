@@ -1141,7 +1141,7 @@ MonoBehaviour:
   gameplayMoveText: {fileID: 1078077088}
   gameplayMechanicText: {fileID: 700100013}
   gameplayScreen: {fileID: 1279531204}
-  classicLevelCount: 10
+  classicLevelCount: 100
   advancedLevelCount: 45
   pauseScreen: {fileID: 686318759}
   settingScreen: {fileID: 1269529197}

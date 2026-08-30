@@ -913,6 +913,10 @@ Removing mechanics removes every difficulty dial except **board size, colour cou
 
 **Blocked cells still face the necessity gate.** A hole that changes nothing is as much noise as a decorative rule, and in Classic it is the only mechanic there is.
 
+**Built: Classic 100/100.** Verified across the whole campaign, not level by level: **0 missing, 0 non-unique, 0 rule cells, 0 wall edges** — genuinely mechanic-free. Average path by block: 6.47 (1–10, mixed sizes) → 6.30 (6×6) → **7.08** (7×7) → 6.75 (8×8), with no pair shorter than 3 cells anywhere. `classicLevelCount` = 100.
+
+The path dip at the 8×8 block is the board-size step doing its work: paths shorten when the board grows because the colour count rises with it (6 → 8 pairs), so the level gets harder along a different axis than the one path length measures. That is the same trade Flow Free's packs make, and it is the one thing in this progression that measurement cannot settle — whether 8 pairs on 8×8 at path 6.75 actually plays harder than 6 pairs on 7×7 at 7.08 is a playtest question.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
