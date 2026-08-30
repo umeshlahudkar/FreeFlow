@@ -1026,6 +1026,35 @@ Verified: 0 missing, 0 non-unique, 0 duplicates, 0 mechanic cells or walls, 0 ra
 
 **The lesson**, and it is the largest one in this document: every gate here verifies a level is *valid* — solvable, unique, covered, deduplicated. Validity is nearly uncorrelated with fun, and four plausible difficulty proxies were not merely weak but **anti-correlated** with the real thing. The only reliable instrument was a person playing it and saying "tangled".
 
+### 6.31 What other puzzle games actually do about difficulty
+
+Five metrics failed against play. Rather than invent a sixth, here is how the wider field solves this.
+
+**Sudoku is the closest solved problem, and its answer is the opposite of ours.** Pelánek's computational model reaches **r = 0.95 against human solving times** across 2000+ puzzles and thousands of hours of play. The metric is *"the number of high-level strategies required to solve the problem **without brute force**"*. Generators rate a puzzle by running a **human-technique solver** in order of sophistication -- singles, pairs, locked candidates, fish, wings, chains -- and score it by the hardest technique it is forced to use.
+
+**Crucially, puzzles that require backtracking are reported as "brute-force needed" and treated as BADLY FORMED, not hard.** Search effort is the field's signal for a *defect*. Every metric we tried — decision points, dead ends, nodes explored — measures precisely that.
+
+Pelánek identifies two sources of difficulty, neither of which is search volume:
+1. **complexity of the individual deduction steps**, and
+2. **the dependency structure between them** — how far one deduction must be carried before it unlocks the next.
+
+**Sokoban research agrees.** Comparing computational scores against user-study ratings: human-solver metrics correlate 0.66, box changes 0.74, and **problem decomposition 0.82**. The structural measure beats the search-effort measure.
+
+**Numberlink's own well-formedness rule** (from thomasahle/numberlink, a generator for this exact puzzle): *"the solution uses 100% of the paper and no link touches itself."* Checked against our boards — we already satisfy it: 0, 1 and 0 self-touches on levels 20, 40 and 50, against Flow Free's 0. Not the gap.
+
+**The one caveat the literature is explicit about:** constraint-propagation models are easy to formalise for Sudoku because its rules are simple, and *"for similar problems like Nurikabe it can be difficult to formulate suitable constraint propagation rules."* Flow is closer to Nurikabe than to Sudoku, so the technique hierarchy has to be built rather than borrowed.
+
+**What this means for us.** The measurable target is not "how much does a DFS thrash" but **"how far can a human-style deduction engine get before it must guess, and how many guesses does it need."** That requires a second solver — propagation-only, with named techniques:
+
+- a path head with exactly one legal continuation
+- an empty cell only one colour can still reach
+- a free region reachable by only one colour
+- endpoint parity and corner forcing
+
+Difficulty then rates as: **hardest technique required**, plus **number of times propagation stalls and an assumption is needed**. Easy = solvable by rule 1 alone. Hard = repeated stalls requiring deep look-ahead.
+
+This is a real piece of work, not a scoring tweak, and it is the only approach in the literature with a validated correlation to human experience.
+
 ### Open questions, current
 
 - **Levels 51–200 (Mastery) is blocked on BOTH of its difficulty axes.** Measured, not estimated — and the answer to "can we just generate the next 150?" is no, because with the current pipeline they would come out structurally identical to levels 41–50.
