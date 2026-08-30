@@ -747,8 +747,34 @@ So the range carries **one mechanic under the strict rule**, cycling across the 
 
 **Result across levels 51–55:** all uniquely solvable with search exhausted, average path **7.3 cells** on every board, 6/6 blocked cells interior, walls necessary where present, wrong routes 13–399, scores **51.6–55.8**. Mechanics load-bearing 2 of 3 on four levels and 3 of 3 on level 55 — which is what K=2 was chosen to permit, with the collective guard refusing any board whose failures matter to nothing.
 
-**Phase 8 — Hint system**
-Three-tier hints (§16) built directly on the stored per-level solution — no new solving at gameplay time.
+**Phase 8 — Hint system** *(researched, not started — see §6.24)*
+Three-tier hints (§16). The original premise — "built directly on the stored per-level solution, no new solving at gameplay time" — does not survive contact with the code: **nothing stores a solution.** Measurement says it does not need to. See §6.24.
+
+### 6.24 Hint system: researched against the levels we actually generate
+
+Asked before building: will Phase 8 work on levels generated this way? Short answer — yes, and more cheaply than planned, but the plan's design is wrong in two places and there is one genuine problem it never anticipated.
+
+**1. The premise is false: no solution is stored.** Phase 8 says hints replay "the stored per-level solution". `LevelData` carries `gridSize`, `pairCount`, `gridRows` and `difficultyScore` — and nothing else. The generator builds a solution, uses it to place every mechanic, and discards it.
+
+**2. It does not need to be stored.** Deriving a solution on-device is cheap, because a hint needs *one* solution rather than proof that it is the only one — a much shallower search. Measured across all 55 shipped levels:
+
+| | Find one solution | Prove uniqueness |
+|---|---|---|
+| Average | **2.6 ms** | — |
+| Worst | **34 ms** (L54) | 54 ms |
+| Levels over one 60 fps frame | **1 of 55** | — |
+
+Solved once on level load and cached, that is free. So Phase 8 needs **no schema change and no regeneration** of levels already playtested — which matters, because regenerating to add a field would throw away boards that have been played.
+
+**3. Uniqueness is what makes hints well-defined, and we already have it.** Because every level ships with `Uniqueness = Require`, "the correct next move" is unambiguous. On a multi-solution board a hint can contradict a different valid line the player is pursuing, and either has to track which one they are on or risk telling them to undo correct work. The generation policy solved the hard half of hint design as a side effect.
+
+**4. The real problem, which the plan does not mention: a hint often has to say "undo", not "draw".** `PuzzleSolver.Solve` builds a fresh `SolverState` and **ignores whatever the player has drawn**, so it cannot continue from a partial board — it can only produce the whole answer for comparison. That is fine arithmetically, but our levels admit **13–399 wrong routes each** by deliberate design (§6.18 — that is what makes them puzzles rather than traces). So a player asking for help is frequently in a state that is legal, looks reasonable, and is inconsistent with the only winning solution. Three tiers that only ever reveal more of the answer would point at cells the player has already filled wrongly, and say nothing about why.
+
+This is the same shape as the checkpoint dead end (§6.23's sibling finding): the game knowing something is wrong and not saying so. **A usable hint system needs a "this is where you went wrong" tier**, and it is cheap to build — compare drawn cells against the cached solution and name the first disagreement.
+
+**5. Hint payload must carry direction, not just colour.** Three mechanics need it: One-Way and Arrow are directional rules, and a Bridge appears in **two** paths at once, so "put colour X here" is ambiguous on a crossing. `PairSolution.Cells` is an ordered per-pair list, which supplies direction for free — but the hint UI has to use it. Shared destinations (two paths ending on one cell) are handled by the same per-pair structure.
+
+**Verdict:** Phase 8 works on the current levels, needs no data migration, and gets its hardest guarantee free from uniqueness. Budget the effort for the wrong-state tier rather than for solver work.
 
 **Phase 9 — Player skill system + save-data expansion**
 Extend `SavingSystem`'s single flat struct into a versioned save format carrying skill (overall + per-mechanic), stats, hint usage, and — new — a schema version with migration, since the current "overwrite the whole JSON" approach has no versioning at all today.
