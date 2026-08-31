@@ -2696,6 +2696,32 @@ namespace FreeFlow.GamePlay
         public static void BuildPack8x8() { BuildSizePack(8, 100, 12, 1200, 9); }
 
         /// <summary>
+        /// The 9x9 pack. An overnight job, chosen deliberately over the cheaper configurations.
+        ///
+        /// Probed at 400 attempts per colour count before committing, because 9x9's costs are not
+        /// an extrapolation of 8x8's:
+        ///
+        /// | ask | sound / 400 | mean path | ms per sound board |
+        /// |---|---|---|---|
+        /// | 9 | 8 | 8.7 | 19,491 |
+        /// | 10 | 2 | 7.7 | 62,011 (2 samples -- noise, not a measurement) |
+        /// | 11 | 13 | 7.3 | 11,622 |
+        /// | 12 | 9 | 6.7 | 2,595 |
+        ///
+        /// <b>The affordable configurations are the ones that make a worse puzzle.</b> At 12 colours
+        /// a board costs 2.6s and gives a 6.7-cell path -- SHORTER than the 8x8 pack already manages
+        /// at 7-9 colours. Only 9-11 colours beat it, and those run 12-20s per board. So this asks
+        /// for 9-11 and pays for it: roughly 11 hours to gather 1200 boards at a 60% duty cycle,
+        /// plus about 1.7 hours to score them.
+        ///
+        /// Worth stating plainly, since the intuition keeps reasserting itself and has now been
+        /// wrong twice: a bigger board does not mean a harder pack. More cells need more colours
+        /// before uniqueness can be proved, and more colours means shorter paths.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Classic/Packs/Build 9x9 pack (100)")]
+        public static void BuildPack9x9() { BuildSizePack(9, 100, 12, 1200, 9); }
+
+        /// <summary>
         /// Builds one self-contained PACK of <paramref name="count"/> levels at a single board size,
         /// into <c>Assets/Resources/Levels/Classic/{size}x{size}</c>.
         ///

@@ -793,7 +793,9 @@ Bulk-generate-and-validate regression tests (spec §42), no-level-ships-without-
 
 ## 7. Where the project actually stands
 
-**Classic levels 1–50 are built, verified, and — for the 7×7 block — confirmed challenging in play.** 154 tests pass.
+**Classic ships as five packs of 100, one per board size — 5×5 through 9×9, 500 levels.** The player picks a pack; each ramps on its own from the easiest board that size can produce to the hardest. Every level is uniquely solvable, structurally well-formed, has at least one deduction available from the opening position, and carries its own stored solution for the hint system. 160 tests pass.
+
+The older linear Classic 1–50 still exists and is still what the game loads, because **none of the packs are reachable in play yet** — see the open questions. Difficulty, the problem that survived six rounds of playtesting, was closed in §6.35; §6.37–6.38 cover the pack structure and the two colour-count corrections that came out of play.
 
 The table below describes the ADVANCED campaign's mechanics, which is where levels 1–50 of that mode live. Classic is the default mode and carries no mechanics at all (§6.27); its 50 levels were rebuilt from scratch in §6.34–6.35 and every one of them is uniquely solvable, structurally well-formed, and has at least one deduction available from the opening position. Difficulty, the problem that survived six rounds of playtesting, was closed in §6.35 — the calibration that did it is recorded there.
 
@@ -1458,12 +1460,92 @@ Roughly 4× dearer per board, for boards 601 through 1466. A fresh 2000-attempt 
 
 Predicted 10 minutes for a 7×7 rebuild that took 39; predicted 2 minutes for the small blocks and got 1.8; predicted 13 minutes for the 7×7 pack that took 61. The pattern in the misses is the same each time: **whichever stage was not front of mind got left out of the arithmetic.** The 39-minute miss omitted the scoring pass; the 61-minute miss omitted gathering, which for 2,100 canonically distinct boards is the dominant cost and gets slower as the pool fills. The one estimate that landed was the one taken from a direct measurement of every stage.
 
+### 6.38 Five packs, and the colour-count error that had to be found twice
+
+| pack | ramp | assumptions | mean path | colours (cells per colour) | build |
+|---|---|---|---|---|---|
+| 5×5 | 25 → 69 | 2.6 | 5.4 | 3–5 (8.3 → 5.0) | 4.5 min |
+| 6×6 | 29 → 75 | 4.0 | 7.4 | 4–7 (9.0 → 5.1) | 2.9 min |
+| 7×7 | 31 → 95 | 7.1 | 8.7 | 4–7 (12.3 → 7.0) | 61 min |
+| 8×8 | 30 → 88 | 7.8 | 7.4 | 7–10 (9.1 → 6.4) | 2.5 h |
+| 9×9 | 25 → 93 | 14 at L100 | 7.4–8.1 | 9–12 (9.0 → 6.8) | **23 h** |
+
+500 levels. Every one sampled came back unique, well-formed, and carrying a stored solution that matched the solver; across every board the five builds evaluated, `not unique` and `bad solution` were both 0.
+
+#### The 8×8 colour error, and how it was made
+
+The first 8×8 pack shipped at 10–12 colours on the strength of a recorded claim that nothing lower would generate. **That claim came from samples of ten and twelve attempts at a yield rate near 5%** — where zero results is the *expected* outcome even when the colour count works perfectly well. It was then quoted as "0 / 162", which was not a measurement of anything.
+
+Play feedback ("we have too many colors for 8×8") prompted a proper probe, 1500 attempts per count:
+
+| ask | sound / 1500 | mean path | ms per sound board |
+|---|---|---|---|
+| 7 | 51 | 8.9 | 6772 |
+| 8 | 71 | 7.9 | 1916 |
+| 9 | 54 | 7.1 | 877 |
+| 10 | 83 | 6.4 | 251 |
+
+Seven, eight and nine all yield perfectly well. They are simply **far dearer per board** — which is exactly what a ten-attempt sample cannot see, because it observes only the instant partition failures and never reaches the informative case. Nine colours also reproduces Flow Free's own 8×8 exactly: 9 colours, mean path 7.1.
+
+Rebuilt at 7–9:
+
+| 8×8 pack | 10–12 colours | **7–9 colours** |
+|---|---|---|
+| Assumptions | 4.9 | **7.8** |
+| Dependency (lower = harder) | 2.83 | **1.93** |
+| Mean path | 5.6 | **7.4** |
+| Ramp | 20 → 71 | **30 → 88** |
+
+Fewer colours *and* longer paths *and* harder, moving the pack from below the 7×7 one to above it. The original configuration was the worst of both worlds.
+
+**The general lesson: a bigger board does not mean a harder pack — density does.** Measured across the shipped packs, cells-per-colour lands in the same band every time (7×7: 12.3→7.0, 8×8: 9.1→6.4, 9×9: 9.0→6.8). Board size sets how much *material* there is; the colour ratio sets how hard it plays. This intuition has now been wrong twice in this document, which is why the ratio is expressed as `cellsPerColour` per pack rather than as a colour count.
+
+#### The CPU throttle, and a bug that defeated it silently
+
+Long runs were pinning a core flat out for hours, risking thermal throttling — which slows the run down anyway, on top of what else it risks. `CpuThrottle` holds a target duty cycle by sleeping in proportion to work actually done, rather than sleeping a fixed amount per iteration; that distinction matters because attempt costs vary enormously, from a sub-millisecond partition failure to a seven-second uniqueness proof.
+
+The first version capped each sleep at 250 ms to keep Cancel responsive — and thereby **truncated the rest debt instead of paying it.** A 6.8 s attempt owes ~4.5 s of rest and got 250 ms, so a run intended to hold 60% measured at **92% of a core**: the mechanism failed precisely on the expensive work it existed for. The cap belongs on each *sleep*, not on the *debt*; paying it off in 250 ms slices preserves both properties. Measured over the 9×9 run: **60.5% against a 60% target.**
+
+#### 9×9, and what it cost
+
+Probed first, 400 attempts per count:
+
+| ask | sound / 400 | mean path | ms per sound board |
+|---|---|---|---|
+| 9 | 8 | 8.7 | 19,491 |
+| 10 | 2 | 7.7 | 62,011 *(2 samples — noise, not a measurement)* |
+| 11 | 13 | 7.3 | 11,622 |
+| 12 | 9 | 6.7 | 2,595 |
+
+**The affordable configurations are the ones that make a worse puzzle.** At 12 colours a board costs 2.6 s and gives a 6.7-cell path — shorter than the 8×8 pack already manages. Only 9–11 beat it, at 12–20 s per board. The full pool at 9–11 was chosen deliberately and took **23 hours**.
+
+It ramps through every measure at once:
+
+| level | assumptions | dependency | score |
+|---|---|---|---|
+| 1 | 1 | 6.20 | 25 |
+| 50 | 10 | 2.13 | 59 |
+| 100 | **14** | **1.00** | 93 |
+
+Level 100 needs 14 assumptions with a single deduction available per round — above the Flow Free reference board's 13.
+
+#### Two things left open, and one is the same error again
+
+**The 9×9 probe never tested 7 or 8 colours.** The range `{9,10,11,12}` was chosen by analogy with 8×8's density rather than measured — *the identical mistake that put the first 8×8 pack at 10–12 colours*. At 81 cells, 7 colours is 11.6 cells each and 8 is 10.1, which would be longer paths than anything currently shipped. Cost is the reason to expect difficulty rather than a reason not to look: per-board cost climbed 2.6 s → 11.6 s → 19.5 s as colours fell from 12 to 9, so 8 colours could be several days for a full pack. Probing it is cheap even if building it is not.
+
+**`maxAssumptions = 14` is now hard against the ceiling.** 9×9 level 100 measures exactly 14, which means anything harder was discarded during selection rather than ranked. On the hardest pack we own, that cap is actively throwing away the best material.
+
+#### A note on reading long runs
+
+Mid-way through the 9×9 build I read two monitor events that arrived hours apart as though they were minutes apart, declared the run "far too fast", and asserted it had hit its attempt cap. It had not — it ran for 11 hours of gathering exactly as the probe predicted. Elapsed time on a long job has to be read off the clock, not inferred from the spacing of notifications.
+
 ### Open questions, current
 
 - **Difficulty is SOLVED for 7×7 and confirmed in play (§6.35).** The note below was written when it was not, and its two "blocked" axes have both moved: board size is no longer the constraint (8×8 is cheaper to generate than 7×7, §6.31), and mechanic density is an Advanced-mode question rather than a difficulty one. What remains genuinely open is carried forward below.
 - ~~The 5×5 and 6×6 blocks have not had the §6.35 treatment.~~ **Done — the whole campaign now ramps (§6.36).**
-- **`DifficultyModel.Measure` caps at `maxAssumptions = 14`, and that cap is now binding.** A board needing 15 reports unsolved, fails `WellFormed`, and is discarded — so selection actively rejects the hardest boards the generator makes. Nine of the eighteen shipped 7×7 levels sit at exactly 14, pressed against the wall. Raising it costs only solve time.
-- **THE PACKS ARE NOT REACHABLE IN GAME.** 300 built, verified, and inert. `UIController.LevelResourcePath` returns `Levels/{Mode}/Level_{n}`, which resolves to the old Classic 1–50; the packs are at `Levels/Classic/{size}x{size}/`. Fixing the path is one line, but five things assume one list of levels per mode: there is no "current pack" concept, `classicLevelCount` is a single serialised int, **progress is keyed by mode only** (so finishing 5×5 level 20 would mark 7×7 level 20 done), there is no pack-select UI, and `SetMode()` is still never called so Advanced has never been reachable either. The save-data part is where the care is needed — it must not reset existing progress, the same constraint that made Classic keep the original field names.
+- **`DifficultyModel.Measure` caps at `maxAssumptions = 14`, and that cap is hard against the ceiling.** A board needing 15 reports unsolved, fails `WellFormed`, and is discarded — so selection actively rejects the hardest boards the generator makes. 9×9's level 100 measures exactly 14. On the hardest pack we own, the cap is throwing away the best material. Raising it costs only solve time.
+- **9×9 was never probed below 9 colours**, and the range was chosen by analogy rather than measured — the same error that put the first 8×8 pack at 10–12 colours until play caught it. 7 and 8 colours would give 11.6 and 10.1 cells each, longer paths than anything shipped. Probing is cheap; building might be days.
+- **THE PACKS ARE NOT REACHABLE IN GAME.** 500 built across five sizes, verified, and inert. `UIController.LevelResourcePath` returns `Levels/{Mode}/Level_{n}`, which resolves to the old Classic 1–50; the packs are at `Levels/Classic/{size}x{size}/`. Fixing the path is one line, but five things assume one list of levels per mode: there is no "current pack" concept, `classicLevelCount` is a single serialised int, **progress is keyed by mode only** (so finishing 5×5 level 20 would mark 7×7 level 20 done), there is no pack-select UI, and `SetMode()` is still never called so Advanced has never been reachable either. The save-data part is where the care is needed — it must not reset existing progress, the same constraint that made Classic keep the original field names.
 - **Three design decisions gate that work**, and they are not engineering ones: whether the old Classic 1–50 survive alongside the packs or are retired; how mode and pack compose, given Advanced's 45 levels are not organised by board size; and whether packs unlock or are all open from the start.
 - **Sizing a generation run: measure every stage, do not extrapolate from one.** Three estimates, two badly wrong, and the same cause each time — the stage not front of mind was left out. Gathering N *canonically distinct* boards is often the dominant cost and gets slower as the pool fills; the scoring pass is dominated by relaxation. The estimate that landed was measured end to end first.
 - **Levels 51–200 (Mastery), for the record as it stood before the above.** Measured, not estimated.
