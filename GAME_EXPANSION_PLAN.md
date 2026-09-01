@@ -1539,6 +1539,98 @@ Level 100 needs 14 assumptions with a single deduction available per round — a
 
 Mid-way through the 9×9 build I read two monitor events that arrived hours apart as though they were minutes apart, declared the run "far too fast", and asserted it had hit its attempt cap. It had not — it ran for 11 hours of gathering exactly as the probe predicted. Elapsed time on a long job has to be read off the clock, not inferred from the spacing of notifications.
 
+### 6.39 Advanced pack design: teach to 50, interleave and escalate to 100
+
+#### Two hard constraints, both measured
+
+**Two rules cannot share a board.** Probed at 400 attempts across four mechanic pairs, then again across three colour deficits: **4 boards in 1600, then 1, 0 and 2 out of 300 each.** 103 combinations did pin their board, but the second rule almost always *subsumes* the first — B alone would have sufficed, leaving A decorative. Adding rules in sequence does not make both necessary, and more ambiguity does not help: it just gives the first rule more to do.
+
+**Instance count is governed by the colour deficit**, and that lever works well:
+
+| deficit | cells the rule ends up needing |
+|---|---|
+| 1 | **1×11**, 2×8, 3×3, 4×5, 5×2 |
+| 2 | 1×6, 2×3, **3×8**, 4×6, 5×2, 6×3 |
+| 3 | 1×1, 2×4, 3×3, **4×7**, 5×1, 6×1 |
+
+At one colour down the mode is a single cell; at three it is four, and single-cell boards nearly vanish. So *multiple* checkpoints or one-ways are available on demand — and earned, because the board genuinely needs them to have one solution.
+
+#### What the research says to do with that
+
+Two findings, and they point the same way.
+
+**The contextual interference effect.** Interleaved practice — items from different categories mixed so the same one never repeats consecutively — gives *worse* initial acquisition but better long-term retention and transfer than blocked practice. It is one of the "desirable difficulties": the learner must retrieve afresh each time rather than running a rote response from short-term memory. The corrective literature is equally clear that **initial blocked practice still matters for acquisition**, so the answer is block first, interleave second.
+
+**Puzzle-design pacing.** Scale density back when introducing a mechanic; follow the introduction with simple reinforcing levels; aim for a saw curve where each new mechanic is a valley.
+
+**Together these resolve the mixing problem.** "Mix the mechanics" is achievable *between* levels even though it is impossible *within* one — and interleaving across levels is the form that actually produces retention. The constraint and the good design agree.
+
+#### The plan
+
+**Levels 1–50 — blocked acquisition, deficit 1.**
+
+| slots | content |
+|---|---|
+| warm-up | Blocked, ramping. Needs no introduction; holes are self-evident. |
+| runs | **Three practice levels per rule**, one run each, drawn at deficit 1–2. |
+| consolidation | Interleaved across every rule, still gentle — the remainder of the first half. |
+
+**There is no separate teaching level, and that was a deliberate removal.** A run is stratified from its own rule's difficulty range, so its opening level is already the easiest board carrying that rule — and at deficit 1 that board usually holds a *single* cell of it, which is the clearest form the rule takes. The dedicated teaching slot was adding a level that differed from the one after it only in name, so the introduction now falls out of the ordering rather than costing a slot.
+
+That keeps Blow's "extreme clarity around the first layer" and the pacing literature's density valley, without spending two slots per rule to get them.
+
+**Bridge and Shared Destination are included here.** `HumanSolver.CanRate` refuses both, so they cannot be *ranked* — but a teaching slot does not rank, it only needs the board to be correct and simple. They are gated on uniqueness and the structural gates alone, and placed at fixed positions.
+
+**Levels 51–100 — interleaved escalation, deficit 2→3.**
+
+Three escalations at once, each measured to be available:
+
+1. **Interleaved rules** — no two consecutive levels share a mechanic. This is the "mixing" that is actually possible, and the one the retention research endorses.
+2. **Rising instance counts** — the deficit climbs from 2 to 3 across the block, so levels move from ~3 load-bearing cells to ~4. Four checkpoints that all matter is a genuinely different puzzle from one.
+3. **Rising difficulty score**, stratified as elsewhere.
+
+Bridge and Shared Destination appear at a few fixed slots here too, unranked, so they are not taught and then abandoned.
+
+#### What this deliberately does not do
+
+- **No two-rule boards.** Measured three separate ways; the yield is a rounding error and the survivors carry a decorative rule.
+- **No raising the instance ceiling by fiat.** Counts rise because the deficit makes the board need them, never because a quota asked for them.
+- **No difficulty score on Bridge or Shared Destination levels.** They sit at authored positions rather than being ranked by a model that cannot read them — which is honest about a known limit rather than inventing a number.
+
+#### As built
+
+All nine mechanics generate. They fall into three groups, and the differences are structural rather than cosmetic:
+
+| group | mechanics | how | ranked |
+|---|---|---|---|
+| Partition shape | Blocked | holes placed before partitioning | yes |
+| Edges | Wall | `PlaceWalls` on edges the solution never crosses | yes |
+| Overlay rules | One-Way, Arrow, Checkpoint, Forbidden, Permitted | laid on an under-constrained partition, climbing until pinned | yes |
+| Structural | Bridge, Shared Destination | the older spec pipeline | **no** |
+
+**Mechanic identity had to stop being a `BlockType`.** There is no `BlockType.Wall` — a wall is a blocked *edge* in `wallMask`, not a cell — so keying the schedule on cell type made walls unrepresentable without inventing a fake enum member. Runs are keyed by name instead.
+
+**Both permission rules already supported two colours and we were not using it.** `Block.NamesPair` checks `secondPairId`, and the border art draws a slice per named colour; the generator only ever set `pairId`. Both forms are now generated, and they are worth having because **they pull in opposite directions**: a second *forbidden* colour refuses one more path and tightens the board, a second *permitted* colour admits one more and loosens it. So the pair covers boards the one-colour form over-constrains as well as ones it under-constrains. Two is the model's ceiling rather than a choice — past that the cell stops being readable and the honest form would be a bitmask.
+
+The two-colour form is a *variant*, not a rule: it keeps its own pool cap so both get generated, but shares the player-facing run. Giving it a run of its own split six rules into eight groups and starved each.
+
+**Checkpoint and One-Way start their climb at two cells**, because one of either reads as a quirk rather than a rule. This does not pad the board: `AllCellsOfTypeAreNecessary` requires every cell of the type to be individually load-bearing, so a board where one would have sufficed is rejected as decorative. Raising the floor selects for boards that genuinely need two; it cannot invent them. Measured across a 260-board pool, `Checkpointx1` and `OneWayx1` vanished entirely and the decorative rejection count rose from 891 to 1522 — which is precisely those boards being thrown out.
+
+**Bridge and Shared Destination reuse the spec pipeline** that built the shipped levels 36–40 and 46–50, including the `EveryBridgeCarriesTwoColours` check that caught the L40 self-crossing bug in §6.20. They change the partition's *shape* — one cell split into two lanes, or one cell as the endpoint of two paths — so the deficit-and-climb construction cannot express them. They arrive unranked and are spaced evenly at authored positions, which is honest about a known limit rather than inventing a difficulty for them. Note that `TryGenerateLevel` *reports* uniqueness rather than guaranteeing it, so the call site checks `SolutionsFound == 1 && SearchExhausted` — asking a spec for uniqueness is not the same as getting it.
+
+**No teaching levels.** They were designed in and then removed: a run is stratified from its own rule's range, so its opening level is already the easiest board carrying that rule, and at deficit 1 that board usually holds a single cell of it. The dedicated teaching slot was producing a level that differed from the next one mainly in name.
+
+#### Two bugs the small probe caught that the real pack never would have
+
+The probe runs at 24 levels; the pack runs at 100. Both of these are invisible at 100 and fatal at 24, which is the argument for keeping the probe small.
+
+- **`Stratify(entries, 0)` returned one entry instead of none** — the `count <= 1` branch did not separate "none" from "one". Consolidation showed a single level at score 80 when its budget was zero, making it *harder* than the escalation block beneath it.
+- **The run block could overflow the slot budget.** At 24 levels, 8 rules × 3 exceeded the 12-slot first half, so the ordering exceeded `count` and the write truncated the tail — silently dropping the escalation half. At 100 the arithmetic happens to come out exact, so it would have shipped unnoticed and bitten the first smaller pack. Runs now shrink before they overflow, and never below one level per rule.
+
+#### The open door
+
+Extending `HumanSolver` to model Bridge (multi-occupant cells) and Shared Destination (one cell, two endpoints) would let both be ranked and take full part in the escalation half. It is real work — `State.Owner` holds one pair id per cell — and it is the single change that would most widen what Advanced can be.
+
 ### Open questions, current
 
 - **Difficulty is SOLVED for 7×7 and confirmed in play (§6.35).** The note below was written when it was not, and its two "blocked" axes have both moved: board size is no longer the constraint (8×8 is cheaper to generate than 7×7, §6.31), and mechanic density is an Advanced-mode question rather than a difficulty one. What remains genuinely open is carried forward below.

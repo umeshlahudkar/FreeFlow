@@ -107,7 +107,10 @@ namespace FreeFlow.UI
             }
 
             SaveData data = SavingSystem.Instance.Load();
-            int completedLevels = data.completedLevel;
+            // The pack on screen, not Classic's raw field. Reading `completedLevel` directly
+            // meant the Advanced level list showed Classic's progress, and would have shown 5x5's
+            // on every pack.
+            int completedLevels = data.CompletedLevelForKey(UIController.Instance.ProgressKey);
 
             HashSet<int> wantedPages = new HashSet<int>();
             for (int p = centerStage - 1; p <= centerStage + 1; p++)
@@ -172,7 +175,7 @@ namespace FreeFlow.UI
         private void SetButtons()
         {
             SaveData data = SavingSystem.Instance.Load();
-            int nextLevel = data.completedLevel + 1;
+            int nextLevel = data.CompletedLevelForKey(UIController.Instance.ProgressKey) + 1;
 
             currentstageOnScreen = Mathf.CeilToInt((float)nextLevel / levelButtonPerScreen);
             currentstageOnScreen--;

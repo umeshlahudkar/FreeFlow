@@ -2756,11 +2756,16 @@ namespace FreeFlow.GamePlay
         /// </param>
         /// <summary>
         /// Fraction of wall-clock time a long generation run is allowed to spend working. The rest
-        /// is spent asleep, so a multi-hour job does not pin a core flat out and cook the machine
-        /// into thermal throttling -- which slows the run down anyway, on top of everything else it
-        /// risks. 0.6 stretches a run by about two thirds and keeps the editor responsive.
+        /// is spent asleep, so a long job does not pin a core flat out and cook the machine into
+        /// thermal throttling -- which slows the run down anyway, on top of everything else it
+        /// risks.
+        ///
+        /// 0.9 leaves a tenth of the time idle: enough to break up sustained load, at a cost of
+        /// about a ninth on wall-clock rather than the two thirds 0.6 added. Raised from 0.6 once
+        /// the machine had been observed through a 23-hour run at that setting. Lower it again for
+        /// anything that will run unattended overnight.
         /// </summary>
-        private const float GenerationDutyCycle = 0.6f;
+        private const float GenerationDutyCycle = 0.9f;
 
         /// <summary>
         /// Holds a target duty cycle by sleeping in proportion to work actually done, rather than
@@ -2917,82 +2922,11 @@ namespace FreeFlow.GamePlay
                     return;
                 }
 
-                // --- stage one: cheap score on everything -------------------------------------
-                List<(float Score, LevelData Data)> stageOne = new List<(float, LevelData)>();
-                int stageOneCount = Mathf.Min(survivors.Count, shortlistTarget);
-
-                for (int i = 0; i < stageOneCount && !cancelled; i++)
-                {
-                    throttle.Tick();
-
-                    if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
-                            "Building the " + size + "x" + size + " pack  -  stage 1 (cheap)",
-                            i + "/" + stageOneCount
-                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
-                            0.5f + 0.25f * i / stageOneCount))
-                    { cancelled = true; break; }
-
-                    DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i], 14, 2000000, false);
-                    if (p.Valid && p.WellFormed) { stageOne.Add((p.Score, survivors[i])); }
-                }
-
-                if (stageOne.Count < count)
-                {
-                    Debug.LogError("Pack " + size + "x" + size + ": only " + stageOne.Count
-                        + " well-formed after stage one, needed " + count + ".");
-                    return;
-                }
-
-                // --- stage two: full model on a wide slice ACROSS the range --------------------
-                // Deliberately stratified rather than top-N: the finalists have to span the whole
-                // range, because the easy end of the ramp is being chosen here too.
-                List<(float Score, LevelData Data)> finalists =
-                    SelectStratified(stageOne, Mathf.Min(stageOne.Count, count * 3));
-
-                List<(float Score, LevelData Data)> scored = new List<(float, LevelData)>();
-                for (int i = 0; i < finalists.Count && !cancelled; i++)
-                {
-                    throttle.Tick();
-
-                    if ((i % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
-                            "Building the " + size + "x" + size + " pack  -  stage 2 (full model)",
-                            i + "/" + finalists.Count
-                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
-                            0.75f + 0.25f * i / finalists.Count))
-                    { cancelled = true; break; }
-
-                    DifficultyModel.Profile p = DifficultyModel.Measure(finalists[i].Data);
-                    if (p.Valid && p.WellFormed) { scored.Add((p.Score, finalists[i].Data)); }
-                }
-
-                if (scored.Count < count)
-                {
-                    Debug.LogError("Pack " + size + "x" + size + ": only " + scored.Count
-                        + " survived stage two, needed " + count + ".");
-                    return;
-                }
-
-                List<(float Score, LevelData Data)> chosen = SelectStratified(scored, count);
-
-                for (int i = 0; i < chosen.Count; i++)
-                {
-                    SaveLevelAsset(levelsFolder, i + 1, chosen[i].Data, chosen[i].Score);
-                }
-
-                total.Stop();
-                AssetDatabase.SaveAssets();
-                AssetDatabase.Refresh();
-
-                Debug.Log("Pack " + size + "x" + size + ": " + chosen.Count + " levels written to "
-                    + levelsFolder + " in " + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
-                    + (cancelled ? " (CANCELLED)" : "") + ".\n"
-                    + "  generated " + generated + ", " + duplicates + " duplicates, "
-                    + rejectedStructure + " unsound, " + notUnique + " not unique, " + badSolution + " bad solution, "
-                    + survivors.Count + " distinct kept\n"
-                    + "  stage 1 scored " + stageOneCount + " -> " + stageOne.Count + " well-formed\n"
-                    + "  stage 2 scored " + finalists.Count + " -> " + scored.Count + " well-formed\n"
-                    + "  ramp: level 1 scores " + chosen[0].Score.ToString("0")
-                    + ", level " + chosen.Count + " scores " + chosen[chosen.Count - 1].Score.ToString("0"));
+                ScoreAndWritePack(survivors, levelsFolder, size + "x" + size, count,
+                    shortlistTarget, throttle, total, ref cancelled,
+                    "  generated " + generated + ", " + duplicates + " duplicates, "
+                        + rejectedStructure + " unsound, " + notUnique + " not unique, "
+                        + badSolution + " bad solution, " + survivors.Count + " distinct kept");
             }
             finally { EditorUtility.ClearProgressBar(); }
         }
@@ -3029,6 +2963,1717 @@ namespace FreeFlow.GamePlay
             }
             return true;
         }
+
+        /// <summary>
+        /// Builds a handful of Bridge and Shared Destination boards through the spec-based pipeline
+        /// that already knows how to make them.
+        ///
+        /// Deliberately few: they cannot be difficulty-ranked, so every one placed is a slot the
+        /// ramp does not get to choose. Enough to introduce each mechanic and revisit it, not enough
+        /// to dilute the pack.
+        /// </summary>
+        private static List<(LevelData Data, string Mechanic)> GatherStructuralMechanics(int size,
+            int count, HashSet<string> seen, System.Random rng, CpuThrottle throttle,
+            System.Diagnostics.Stopwatch total, ref bool cancelled)
+        {
+            List<(LevelData Data, string Mechanic)> found = new List<(LevelData, string)>();
+            int wanted = Mathf.Max(2, count / 25);
+
+            // More than one of each, for the same reason every other rule now has a floor of two:
+            // a single bridge reads as a curiosity of that board rather than a mechanic. These are
+            // structural, so the count is asked of the spec rather than climbed to.
+            (string Name, int Bridges, int SharedGoals)[] kinds =
+            {
+                ("Bridge", 2, 0),
+                ("SharedGoal", 0, 2),
+            };
+
+            for (int k = 0; k < kinds.Length && !cancelled; k++)
+            {
+                int made = 0;
+                for (int attempt = 0; attempt < 400 && made < wanted && !cancelled; attempt++)
+                {
+                    throttle.Tick();
+
+                    if ((attempt % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the Advanced " + size + "x" + size + " pack  -  " + kinds[k].Name,
+                            made + "/" + wanted
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.45f))
+                    { cancelled = true; break; }
+
+                    GenerationSpec spec = SpecForStructural(size, kinds[k].Bridges, kinds[k].SharedGoals);
+                    GeneratedLevel built = TryGenerateLevel(spec, rng, seen);
+
+                    // Null means the spec could not be met. Uniqueness is REPORTED rather than
+                    // guaranteed, so it is checked here -- the spec asks for it, and asking is not
+                    // the same as getting it.
+                    if (built == null) { continue; }
+                    if (built.SolutionsFound != 1 || !built.SearchExhausted) { continue; }
+
+                    // The spec pipeline predates solutionPairId and never fills it, so these boards
+                    // arrived with a null answer and no hint could be given on them -- eight of a
+                    // hundred, and invisible until the stored solution was verified against the
+                    // solver. Filled here from the solve we just proved unique.
+                    LevelData withSolution = built.Data;
+                    if (!FillStoredSolution(ref withSolution)) { continue; }
+
+                    found.Add((withSolution, kinds[k].Name));
+                    made++;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The spec for a structural-mechanic board: one bridge or one shared destination, plain
+        /// otherwise. Kept minimal on purpose -- these levels exist to show the mechanic, and
+        /// anything else on the board competes with it for the player's attention.
+        /// </summary>
+        private static GenerationSpec SpecForStructural(int size, int bridges, int sharedGoals)
+        {
+            int cells = size * size;
+            return new GenerationSpec
+            {
+                GridSize = size,
+                MinColorCount = Mathf.Max(3, cells / 9),
+                MaxColorCount = Mathf.Max(4, cells / 7),
+                MinPathCells = StructuralGates.MinPathCells,
+                Uniqueness = UniquenessPolicy.Require,
+                RequireMechanicsNecessary = true,
+                BridgeCount = bridges,
+                SharedGoalCount = sharedGoals,
+                MaxAttempts = 400
+            };
+        }
+
+        /// <summary>
+        /// Orders an Advanced pack: teach each rule briefly, then interleave and escalate.
+        ///
+        /// <b>Why not one global difficulty ramp, as Classic uses.</b> Classic has one rule, so a
+        /// single ramp is the whole design. Advanced has several, and sorting purely by difficulty
+        /// shuffles them: the player meets their first Checkpoint mid-pack with no explanation and
+        /// never sees another for ten levels. Nothing teaches, and no rule stays long enough to
+        /// develop a feel for.
+        ///
+        /// <b>The shape comes from two findings that agree.</b> Learning research on the contextual
+        /// interference effect says interleaved practice gives worse in-the-moment performance but
+        /// better long-term retention and transfer than blocked practice -- while initial BLOCKED
+        /// practice still matters for acquiring the thing in the first place. Puzzle-design pacing
+        /// says scale density back when introducing a mechanic and make each introduction a valley
+        /// in the saw curve. Block to acquire, interleave to retain.
+        ///
+        /// So:
+        ///   - a <b>warm-up</b> of blocked-cell boards, which need no teaching;
+        ///   - a short <b>run</b> per rule -- three practice levels, stratified from that rule's own
+        ///     range so the first is the easiest board carrying it. That opening level is the
+        ///     introduction: at deficit 1 it usually carries a single cell of the rule, which is the
+        ///     clearest form it takes, so a separate teaching slot earned nothing;
+        ///   - <b>consolidation</b>, interleaved across every rule learned, still gentle;
+        ///   - <b>escalation</b>, interleaved and drawn from deficit 2-3 so boards need three or
+        ///     four load-bearing cells rather than one.
+        ///
+        /// <b>Interleaving is how the rules "mix".</b> Two rules cannot share a board -- measured
+        /// three ways, 4 usable boards in 1600 attempts, because the second rule subsumes the first.
+        /// But mixing them level to level is both achievable AND the form the retention research
+        /// actually endorses, so the constraint and the good design agree.
+        /// </summary>
+        private static void ScheduleAndWriteAdvancedPack(
+            List<(LevelData Data, string Mechanic, int Instances, int Deficit)> survivors,
+            List<(LevelData Data, string Mechanic)> structural,
+            string levelsFolder, string label, int count, CpuThrottle throttle,
+            System.Diagnostics.Stopwatch total, ref bool cancelled, string gatherReport)
+        {
+            List<Entry> scored = new List<Entry>();
+
+            for (int i = 0; i < survivors.Count && !cancelled; i++)
+            {
+                throttle.Tick();
+
+                if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                        "Building the " + label + " pack  -  scoring",
+                        i + "/" + survivors.Count
+                            + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                        0.5f + 0.4f * i / survivors.Count))
+                { cancelled = true; break; }
+
+                DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i].Data);
+                if (!p.Valid || !p.WellFormed) { continue; }
+
+                scored.Add(new Entry
+                {
+                    Score = p.Score,
+                    Data = survivors[i].Data,
+                    Mechanic = survivors[i].Mechanic,
+                    Instances = survivors[i].Instances,
+                    Deficit = survivors[i].Deficit
+                });
+            }
+
+            if (scored.Count < count)
+            {
+                Debug.LogError("Pack " + label + ": only " + scored.Count
+                    + " well-formed boards for " + count + " levels.\n" + gatherReport);
+                return;
+            }
+
+            // Slot budget. No dedicated teaching level: each run is practice only, drawn
+            // stratified from that rule's own difficulty range, so its FIRST level is the easiest
+            // board carrying the rule and introduces it anyway. An explicit teaching slot was
+            // tried and removed as redundant with that.
+            const int PracticePerRule = 3;
+
+            List<string> rules = new List<string>();
+            foreach (Entry e in scored)
+            {
+                if (e.Mechanic != "BlockedOnly" && !rules.Contains(e.Mechanic)) { rules.Add(e.Mechanic); }
+            }
+            rules.Sort((a, b) => MedianOf(scored, a).CompareTo(MedianOf(scored, b)));
+
+            int warmUp = Mathf.Min(count / 25 + 2, CountOf(scored, "BlockedOnly"));
+            int firstHalf = count / 2;
+
+            // Runs shrink rather than overflow when the pack is too short to hold three levels of
+            // every rule, but never below one: a rule the player never meets at all is worse than a
+            // rule they meet once. Without this the budget overflowed and the WRITE truncated the
+            // tail, silently dropping the escalation half of a small pack.
+            int practicePerRule = PracticePerRule;
+            while (practicePerRule > 1
+                && rules.Count * practicePerRule > firstHalf - warmUp)
+            {
+                practicePerRule--;
+            }
+
+            int teachBlock = rules.Count * practicePerRule;
+            int consolidation = Mathf.Max(0, firstHalf - warmUp - teachBlock);
+            int escalation = count - firstHalf;
+
+            HashSet<LevelData> used = new HashSet<LevelData>();
+            List<Entry> ordered = new List<Entry>();
+            StringBuilder plan = new StringBuilder();
+
+            // --- warm-up ------------------------------------------------------------------
+            List<Entry> blocked = Where(scored, "BlockedOnly", 0, 9, used);
+            foreach (Entry e in Stratify(blocked, warmUp)) { ordered.Add(e); used.Add(e.Data); }
+            plan.Append("  warm-up: Blocked x").Append(warmUp).AppendLine();
+
+            // --- one short run per rule ---------------------------------------------------
+            for (int r = 0; r < rules.Count; r++)
+            {
+                string rule = rules[r];
+
+                // Deficit 1-2 keeps the introduction gentle: at one colour down a board usually
+                // needs a single cell of the rule, which is the clearest form it takes.
+                List<Entry> practice = Where(scored, rule, 1, 2, used);
+                List<Entry> chosen = Stratify(practice, Mathf.Min(practicePerRule, practice.Count));
+                foreach (Entry e in chosen) { ordered.Add(e); used.Add(e.Data); }
+
+                plan.Append("  run ").Append(r + 1).Append(": ").Append(rule)
+                    .Append("  x").Append(chosen.Count).Append(Range(chosen)).AppendLine();
+            }
+
+            // --- consolidation: every rule, interleaved, still gentle ----------------------
+            List<Entry> gentle = WhereAnyRule(scored, 1, 2, used);
+            List<Entry> consolidated = Interleave(Stratify(gentle, Mathf.Min(consolidation, gentle.Count)));
+            foreach (Entry e in consolidated) { ordered.Add(e); used.Add(e.Data); }
+            plan.Append("  consolidation: x").Append(consolidated.Count)
+                .Append(Range(consolidated)).AppendLine();
+
+            // --- escalation: deficit 2-3, so boards need several cells of their rule -------
+            List<Entry> hard = WhereAnyRule(scored, 2, 3, used);
+            List<Entry> escalated = Interleave(Stratify(hard, Mathf.Min(escalation, hard.Count)));
+            foreach (Entry e in escalated) { ordered.Add(e); used.Add(e.Data); }
+            plan.Append("  escalation: x").Append(escalated.Count)
+                .Append(Range(escalated)).AppendLine();
+
+            // Any shortfall is topped up from whatever is left, easiest first, so the pack is
+            // always the requested length even when one bucket ran thin.
+            if (ordered.Count < count)
+            {
+                List<Entry> spare = WhereAnyRule(scored, 0, 9, used);
+                spare.Sort((x, y) => x.Score.CompareTo(y.Score));
+                for (int i = 0; i < spare.Count && ordered.Count < count; i++)
+                {
+                    ordered.Add(spare[i]);
+                    used.Add(spare[i].Data);
+                }
+                plan.Append("  topped up to ").Append(ordered.Count).AppendLine();
+            }
+
+            if (ordered.Count < count)
+            {
+                Debug.LogError("Pack " + label + ": schedule filled only " + ordered.Count
+                    + " of " + count + " slots.\n" + gatherReport + "\n" + plan);
+                return;
+            }
+
+            // Bridge and Shared Destination go in at authored positions. They carry no difficulty
+            // score, so they cannot take part in the ramp -- spacing them evenly is the honest
+            // placement: each is met early enough to be learned and seen again later, without
+            // pretending to a difficulty nobody measured.
+            if (structural != null && structural.Count > 0)
+            {
+                int spacing = Mathf.Max(1, count / (structural.Count + 1));
+                for (int i = 0; i < structural.Count; i++)
+                {
+                    int slot = Mathf.Min(ordered.Count, (i + 1) * spacing);
+                    ordered.Insert(slot, new Entry
+                    {
+                        Score = 0f,                     // unranked, and recorded as such
+                        Data = structural[i].Data,
+                        Mechanic = structural[i].Mechanic,
+                        Instances = 1,
+                        Deficit = 0
+                    });
+                }
+                plan.Append("  unranked: ").Append(structural.Count)
+                    .Append(" structural levels, every ").Append(spacing).AppendLine();
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                SaveLevelAsset(levelsFolder, i + 1, ordered[i].Data, ordered[i].Score);
+            }
+
+            total.Stop();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("Pack " + label + ": " + count + " levels written to " + levelsFolder
+                + " in " + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ".\n" + gatherReport + "\n"
+                + "  scored " + survivors.Count + " -> " + scored.Count + " well-formed\n" + plan);
+        }
+
+        private sealed class Entry
+        {
+            public float Score;
+            public LevelData Data;
+            public string Mechanic;
+            public int Instances;
+            public int Deficit;
+        }
+
+        private static List<Entry> Where(List<Entry> all, string mechanic,
+            int minDeficit, int maxDeficit, HashSet<LevelData> used)
+        {
+            List<Entry> found = new List<Entry>();
+            foreach (Entry e in all)
+            {
+                if (e.Mechanic != mechanic) { continue; }
+                if (e.Deficit < minDeficit || e.Deficit > maxDeficit) { continue; }
+                if (used.Contains(e.Data)) { continue; }
+                found.Add(e);
+            }
+            return found;
+        }
+
+        private static List<Entry> WhereAnyRule(List<Entry> all, int minDeficit, int maxDeficit,
+            HashSet<LevelData> used)
+        {
+            List<Entry> found = new List<Entry>();
+            foreach (Entry e in all)
+            {
+                if (e.Deficit < minDeficit || e.Deficit > maxDeficit) { continue; }
+                if (used.Contains(e.Data)) { continue; }
+                found.Add(e);
+            }
+            return found;
+        }
+
+        private static int CountOf(List<Entry> all, string mechanic)
+        {
+            int n = 0;
+            foreach (Entry e in all) { if (e.Mechanic == mechanic) { n++; } }
+            return n;
+        }
+
+        private static float MedianOf(List<Entry> all, string mechanic)
+        {
+            List<float> scores = new List<float>();
+            foreach (Entry e in all) { if (e.Mechanic == mechanic) { scores.Add(e.Score); } }
+            scores.Sort();
+            return scores.Count == 0 ? 0f : scores[scores.Count / 2];
+        }
+
+        private static string Range(List<Entry> entries)
+        {
+            if (entries.Count == 0) { return string.Empty; }
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (Entry e in entries)
+            {
+                if (e.Score < lo) { lo = e.Score; }
+                if (e.Score > hi) { hi = e.Score; }
+            }
+            return "  (" + lo.ToString("0") + ".." + hi.ToString("0") + ")";
+        }
+
+        /// <summary>
+        /// Reorders a difficulty-sorted run so consecutive levels rarely repeat a rule, WITHOUT
+        /// disturbing the ramp more than it has to: each step takes the easiest remaining board
+        /// whose rule differs from the one just placed, and falls back to the easiest of any rule
+        /// when that is all that is left.
+        ///
+        /// This is the "mixing" the pack can actually offer. Two rules on one board is not
+        /// available, and interleaving between levels is what the retention research points at
+        /// anyway -- the player has to retrieve the rule fresh each time instead of running a rote
+        /// response from the level before.
+        /// </summary>
+        private static List<Entry> Interleave(List<Entry> ramp)
+        {
+            List<Entry> pool = new List<Entry>(ramp);
+            pool.Sort((x, y) => x.Score.CompareTo(y.Score));
+
+            List<Entry> result = new List<Entry>(pool.Count);
+            string last = null;
+
+            while (pool.Count > 0)
+            {
+                int pick = -1;
+                for (int i = 0; i < pool.Count; i++)
+                {
+                    if (pool[i].Mechanic != last) { pick = i; break; }
+                }
+                if (pick < 0) { pick = 0; }      // only one rule left -- ramp wins over variety
+
+                result.Add(pool[pick]);
+                last = pool[pick].Mechanic;
+                pool.RemoveAt(pick);
+            }
+            return result;
+        }
+
+        private static List<Entry> Stratify(List<Entry> entries, int count)
+        {
+            List<Entry> sorted = new List<Entry>(entries);
+            sorted.Sort((x, y) => x.Score.CompareTo(y.Score));
+
+            if (count <= 0) { return new List<Entry>(); }
+            if (count >= sorted.Count) { return sorted; }
+            if (count == 1)
+            {
+                return new List<Entry> { sorted[sorted.Count - 1] };
+            }
+
+            float lo = sorted[0].Score;
+            float hi = sorted[sorted.Count - 1].Score;
+            bool[] taken = new bool[sorted.Count];
+            List<Entry> picked = new List<Entry>(count);
+
+            for (int i = 0; i < count; i++)
+            {
+                float target = lo + (hi - lo) * i / (count - 1);
+                int best = -1;
+                float bestGap = float.MaxValue;
+                for (int j = 0; j < sorted.Count; j++)
+                {
+                    if (taken[j]) { continue; }
+                    float gap = Mathf.Abs(sorted[j].Score - target);
+                    if (gap < bestGap) { bestGap = gap; best = j; }
+                }
+                taken[best] = true;
+                picked.Add(sorted[best]);
+            }
+
+            picked.Sort((x, y) => x.Score.CompareTo(y.Score));
+            return picked;
+        }
+
+        /// <summary>The colour covering one cell in the intended solution, or 0.</summary>
+        private static int OwnerOfCell(List<List<(int Row, int Col)>> paths,
+            List<PairColorType> palette, int row, int col)
+        {
+            for (int i = 0; i < paths.Count; i++)
+            {
+                for (int j = 0; j < paths[i].Count; j++)
+                {
+                    if (paths[i][j].Row == row && paths[i][j].Col == col) { return (int)palette[i]; }
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>A colour from the palette other than the one or two named, or 0 if the board is
+        /// too small to have one to spare.</summary>
+        private static int PickAnotherColour(List<PairColorType> palette, System.Random rng,
+            int avoidFirst, int avoidSecond)
+        {
+            List<int> options = new List<int>();
+            for (int i = 0; i < palette.Count; i++)
+            {
+                int id = (int)palette[i];
+                if (id != avoidFirst && id != avoidSecond) { options.Add(id); }
+            }
+            return options.Count == 0 ? 0 : options[rng.Next(options.Count)];
+        }
+
+        /// <summary>Which cells a LevelData leaves playable -- PlaceWalls needs the board shape,
+        /// and by this point the only record of it is the level data itself.</summary>
+        private static bool[,] UsableFrom(LevelData data)
+        {
+            int size = (int)data.gridSize;
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                BlockType[] row = data.gridRows[r].blockType;
+                for (int c = 0; c < size; c++)
+                {
+                    usable[r, c] = row == null || c >= row.Length || row[c] != BlockType.Blocked;
+                }
+            }
+            return usable;
+        }
+
+        /// <summary>
+        /// Records the board's own solution into <c>solutionPairId</c>, for boards built by a path
+        /// that does not already do it.
+        ///
+        /// <b>One caveat, and it is inherent to the column rather than to this method.</b>
+        /// <c>solutionPairId</c> holds one colour per cell, which is true of every mechanic except
+        /// Bridge and Shared Destination -- a bridge cell carries two crossing paths, and a shared
+        /// destination is the endpoint of two. At those cells the stored value names ONE of the two
+        /// colours. That is incomplete rather than wrong: the colour named really does cover the
+        /// cell, so a hint built on it cannot mislead, it can only under-report. Storing nothing at
+        /// all was the alternative, and that leaves the hint system with no answer whatsoever.
+        /// </summary>
+        private static bool FillStoredSolution(ref LevelData data)
+        {
+            Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(4000000, 1));
+                if (solved.Status != PuzzleSolver.SolveStatus.Solved || solved.Solutions == null)
+                {
+                    return false;
+                }
+
+                int[,] map = new int[rows, cols];
+                for (int i = 0; i < solved.Solutions.Count; i++)
+                {
+                    List<(int Row, int Col)> cells = solved.Solutions[i].Cells;
+                    for (int j = 0; j < cells.Count; j++)
+                    {
+                        map[cells[j].Row, cells[j].Col] = solved.Solutions[i].PairId;
+                    }
+                }
+
+                for (int r = 0; r < rows; r++)
+                {
+                    int[] row = new int[cols];
+                    for (int c = 0; c < cols; c++) { row[c] = map[r, c]; }
+                    data.gridRows[r].solutionPairId = row;
+                }
+                return true;
+            }
+            finally { DestroyBlockGrid(grid); }
+        }
+
+        /// <summary>Walls actually on the board. Counted from the data rather than taken from the
+        /// recipe, which holds the CEILING the climb was allowed to reach -- reporting that made
+        /// every wall level look like it needed six.</summary>
+        private static int CountWalls(LevelData data)
+        {
+            int size = (int)data.gridSize;
+            int walls = 0;
+            for (int r = 0; r < size; r++)
+            {
+                int[] row = data.gridRows[r].wallMask;
+                if (row == null) { continue; }
+                for (int c = 0; c < size && c < row.Length; c++)
+                {
+                    int mask = row[c];
+                    while (mask != 0) { walls += mask & 1; mask >>= 1; }
+                }
+            }
+            return walls;
+        }
+
+        private static int CountCellsOfType(LevelData data, BlockType type)
+        {
+            int size = (int)data.gridSize;
+            int found = 0;
+            for (int r = 0; r < size; r++)
+            {
+                BlockType[] row = data.gridRows[r].blockType;
+                if (row == null) { continue; }
+                for (int c = 0; c < size && c < row.Length; c++)
+                {
+                    if (row[c] == type) { found++; }
+                }
+            }
+            return found;
+        }
+
+        private static string DescribeRecipeMix(Dictionary<string, int> keptByRecipe)
+        {
+            List<string> parts = new List<string>();
+            foreach (KeyValuePair<string, int> kv in keptByRecipe)
+            {
+                parts.Add(kv.Key + "=" + kv.Value);
+            }
+            parts.Sort();
+            return parts.Count == 0 ? "(none)" : string.Join(", ", parts);
+        }
+
+        /// <summary>
+        /// The half of pack building that has nothing to do with how the boards were made: score
+        /// cheaply, score the finalists properly, stratify, write.
+        ///
+        /// Shared by the Classic and Advanced builders because it is the part worth getting right
+        /// once -- two-stage scoring, and stratified selection applied twice (to pick the finalists
+        /// and again to pick the ramp). Only the GATHERING differs between the two modes.
+        /// </summary>
+        private static void ScoreAndWritePack(List<LevelData> survivors, string levelsFolder,
+            string label, int count, int shortlistTarget, CpuThrottle throttle,
+            System.Diagnostics.Stopwatch total, ref bool cancelled, string gatherReport)
+        {
+            List<(float Score, LevelData Data)> stageOne = new List<(float, LevelData)>();
+            int stageOneCount = Mathf.Min(survivors.Count, shortlistTarget);
+
+            for (int i = 0; i < stageOneCount && !cancelled; i++)
+            {
+                throttle.Tick();
+
+                if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                        "Building the " + label + " pack  -  stage 1 (cheap)",
+                        i + "/" + stageOneCount
+                            + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                        0.5f + 0.25f * i / stageOneCount))
+                { cancelled = true; break; }
+
+                DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i], 14, 2000000, false);
+                if (p.Valid && p.WellFormed) { stageOne.Add((p.Score, survivors[i])); }
+            }
+
+            if (stageOne.Count < count)
+            {
+                Debug.LogError("Pack " + label + ": only " + stageOne.Count
+                    + " well-formed after stage one, needed " + count + ".\n" + gatherReport);
+                return;
+            }
+
+            // Stratified rather than top-N even here: the finalists have to span the whole range,
+            // because the easy end of the ramp is being chosen from them too.
+            List<(float Score, LevelData Data)> finalists =
+                SelectStratified(stageOne, Mathf.Min(stageOne.Count, count * 3));
+
+            List<(float Score, LevelData Data)> scored = new List<(float, LevelData)>();
+            for (int i = 0; i < finalists.Count && !cancelled; i++)
+            {
+                throttle.Tick();
+
+                if ((i % 4) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                        "Building the " + label + " pack  -  stage 2 (full model)",
+                        i + "/" + finalists.Count
+                            + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                        0.75f + 0.25f * i / finalists.Count))
+                { cancelled = true; break; }
+
+                DifficultyModel.Profile p = DifficultyModel.Measure(finalists[i].Data);
+                if (p.Valid && p.WellFormed) { scored.Add((p.Score, finalists[i].Data)); }
+            }
+
+            if (scored.Count < count)
+            {
+                Debug.LogError("Pack " + label + ": only " + scored.Count
+                    + " survived stage two, needed " + count + ".\n" + gatherReport);
+                return;
+            }
+
+            List<(float Score, LevelData Data)> chosen = SelectStratified(scored, count);
+            for (int i = 0; i < chosen.Count; i++)
+            {
+                SaveLevelAsset(levelsFolder, i + 1, chosen[i].Data, chosen[i].Score);
+            }
+
+            total.Stop();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("Pack " + label + ": " + chosen.Count + " levels written to " + levelsFolder
+                + " in " + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ".\n" + gatherReport + "\n"
+                + "  stage 1 scored " + stageOneCount + " -> " + stageOne.Count + " well-formed\n"
+                + "  stage 2 scored " + finalists.Count + " -> " + scored.Count + " well-formed\n"
+                + "  ramp: level 1 scores " + chosen[0].Score.ToString("0")
+                + ", level " + chosen.Count + " scores " + chosen[chosen.Count - 1].Score.ToString("0"));
+        }
+
+        /// <summary>
+        /// One mechanic recipe for an Advanced board: which extra rule to lay over the routing, and
+        /// how much of it.
+        ///
+        /// <b>At most one type beyond Blocked, and that is a measured limit rather than taste.</b>
+        /// §6.31 stacked three mechanics on 7x7 boards and found that NONE of 175 uniquely solvable
+        /// boards had all three load-bearing, while 55% had none at all: past two types they start
+        /// ruling out the same alternative routes, so removing any one alone changes nothing and
+        /// each measures as unnecessary. The player is then tracking complexity they cannot feel.
+        /// Multiple INSTANCES of a type are free -- several blocked cells, three arrows, an L of
+        /// checkpoints -- because instances of one rule reinforce rather than mask each other.
+        /// </summary>
+        private struct MechanicRecipe
+        {
+            /// <summary>
+            /// What this recipe is called, and the key the schedule groups runs by.
+            ///
+            /// A name rather than a <see cref="BlockType"/> because a WALL is not a cell type at
+            /// all -- it is a blocked edge, stored in <c>wallMask</c>, and there is no
+            /// <c>BlockType.Wall</c> to key on. Keying the schedule on cell type would have made
+            /// walls unrepresentable without inventing a fake enum member.
+            /// </summary>
+            public string Name;
+
+            /// <summary>
+            /// The rule as the PLAYER sees it, which is what the schedule groups runs by.
+            ///
+            /// A two-colour forbidden cell is still a forbidden cell -- same border, same rule, one
+            /// more colour named. Grouping by <see cref="Name"/> gave it a run of its own and split
+            /// six rules into eight groups, so each got fewer levels and the variants read as
+            /// separate mechanics. The variant stays distinct for the POOL cap, so both forms still
+            /// get generated; it just does not earn its own teaching run.
+            /// </summary>
+            public string BaseName;
+
+            /// <summary>Walls rather than a cell rule. Mutually exclusive with a non-Normal
+            /// <see cref="Type"/>.</summary>
+            public bool UsesWalls;
+
+            /// <summary>
+            /// Name TWO colours on each permission cell rather than one. Only meaningful for
+            /// ForbiddenForPair and AllowedForPairs, which both read <c>secondPairId</c> through
+            /// <c>Block.NamesPair</c> and draw a border slice per named colour.
+            ///
+            /// The two rules move in opposite directions when a second colour is added, which is
+            /// why both variants are worth generating: a second FORBIDDEN colour refuses one more
+            /// path and tightens the board, while a second PERMITTED colour admits one more and
+            /// loosens it. So the pair covers boards the one-colour form over-constrains as well as
+            /// boards it under-constrains.
+            ///
+            /// Two is the ceiling in the data model, not a choice made here -- past two the cell
+            /// stops being readable at a glance and the honest form would be a bitmask naming every
+            /// colour's status, which nothing else needs.
+            /// </summary>
+            public bool NameTwoColours;
+
+            public BlockType Type;          // Normal means "blocked cells only", or walls
+
+            /// <summary>A second rule laid on after the first, or Normal for none. Used only by the
+            /// combination tier: the standard escalation in puzzle design is A, B, then A+B, and
+            /// three types together is measured NOT to work here (§6.31: 0 of 175 boards had all
+            /// three load-bearing).</summary>
+            public BlockType SecondType;
+
+            /// <summary>
+            /// Add WALLS as the second constraint rather than a second cell rule.
+            ///
+            /// The earlier finding that two rules cannot share a board was measured only on pairs of
+            /// CELL rules -- One-Way+Checkpoint, Arrow+Forbidden, Checkpoint+Forbidden,
+            /// One-Way+Arrow -- all of which restrict entry to cells, which is why one kept making
+            /// the other redundant. A wall blocks an EDGE, irrespective of colour or direction, so
+            /// it constrains a different thing entirely and has far less reason to subsume, or be
+            /// subsumed by, a cell rule.
+            /// </summary>
+            public bool SecondIsWalls;
+
+            public int BlockedCells;
+
+            /// <summary>Ceiling, not a target: the builder climbs until the board is unique and
+            /// stops there, so a level never carries more of a rule than it needed.</summary>
+            public int Instances;
+
+            /// <summary>
+            /// Where the climb STARTS. Two for every rule: one cell of anything reads as a quirk of
+            /// that particular board rather than a rule the player is being taught. Caught in play
+            /// on single-arrow levels, and it is the same argument that first applied to Checkpoint
+            /// and One-Way -- it just was not carried across until the levels were played.
+            ///
+            /// This does not pad the board, because it does not bypass the necessity gate:
+            /// <c>AllCellsOfTypeAreNecessary</c> requires EVERY cell of the type to be individually
+            /// load-bearing, so a board where one cell would have sufficed is rejected as decorative
+            /// rather than shipped with a spare. Raising the floor selects for boards that genuinely
+            /// need two; it cannot invent them.
+            /// </summary>
+            public int MinInstances;
+
+            /// <summary>How many colours short of uniqueness to start. 1 leaves so little ambiguity
+            /// that a single mechanic cell almost always pins the board -- which is why teaching
+            /// levels come out at one cell, and equally why a SECOND rule has nothing left to do.
+            /// Raising it is the lever for both multi-instance and mixed levels.</summary>
+            public int ColourDeficit;
+
+            public MechanicRecipe(BlockType type, int blockedCells, int instances)
+            {
+                Type = type; SecondType = BlockType.Normal; UsesWalls = false; NameTwoColours = false;
+                SecondIsWalls = false;
+                MinInstances = type == BlockType.Normal ? 1 : 2;
+                Name = type == BlockType.Normal ? "BlockedOnly" : type.ToString();
+                BaseName = Name;
+                BlockedCells = blockedCells; Instances = instances; ColourDeficit = 1;
+            }
+
+            /// <summary>A permission recipe naming two colours instead of one.</summary>
+            public static MechanicRecipe TwoColour(BlockType type, int blockedCells, int instances,
+                int deficit)
+            {
+                MechanicRecipe recipe = new MechanicRecipe(type, blockedCells, instances);
+                recipe.Name = type + "2";
+                recipe.BaseName = type.ToString();
+                recipe.NameTwoColours = true;
+                recipe.MinInstances = 2;
+                recipe.ColourDeficit = deficit;
+                return recipe;
+            }
+
+            /// <summary>A wall recipe: blocked EDGES rather than a cell rule.</summary>
+            public static MechanicRecipe Walls(int blockedCells, int instances, int deficit)
+            {
+                MechanicRecipe recipe = new MechanicRecipe(BlockType.Normal, blockedCells, instances);
+                recipe.Name = "Wall";
+                recipe.BaseName = "Wall";
+                recipe.UsesWalls = true;
+
+                // Three, not two, because PlaceWalls grows a CONNECTED barrier -- walls joining at
+                // a shared lattice corner, so they read as one obstacle rather than scattered stubs
+                // (§6.17). Two edges can only ever make an L; three is where a T or a longer run
+                // becomes possible. A single wall cannot form a barrier at all, which is why the
+                // pack that shipped with one wall on most of its wall levels read as noise.
+                recipe.MinInstances = 3;
+                recipe.ColourDeficit = deficit;
+                return recipe;
+            }
+
+            public MechanicRecipe(BlockType type, BlockType secondType, int instances, int deficit)
+            {
+                Type = type; SecondType = secondType; UsesWalls = false; NameTwoColours = false;
+                SecondIsWalls = false;
+                MinInstances = 1;
+                Name = type.ToString();
+                BaseName = Name;
+                BlockedCells = 0; Instances = instances; ColourDeficit = deficit;
+            }
+        }
+
+        /// <summary>
+        /// Builds an Advanced pack: same size-based structure and the same scoring as Classic, with
+        /// one mechanic laid over each board.
+        ///
+        /// <b>Why by size and not by mechanic.</b> Difficulty in this game comes from board size and
+        /// colour ratio -- that is what §6.35-6.38 established and play confirmed. Mechanics have
+        /// never once moved it. A pack per mechanic would also be unrankable for the two most
+        /// distinctive ones: <see cref="HumanSolver.CanRate"/> refuses Bridge and Shared Destination
+        /// on structural grounds, and the blend takes 77% of its score from that solver. So the
+        /// packs are built on the axis that works, and mechanics supply texture.
+        ///
+        /// <b>Bridge and Shared Destination therefore never appear here</b>, and that is deliberate
+        /// rather than an oversight: an unrateable board cannot pass WellFormed, so selection would
+        /// drop it anyway. Both live in the hand-built Advanced 1-45 ladder, which teaches each
+        /// mechanic in turn and is not ranked.
+        ///
+        /// Every mechanic must EARN its place. A candidate is kept only if stripping the mechanic
+        /// costs the board its unique solution -- otherwise it is a plain board wearing a costume,
+        /// which is what §6.31 found most mechanic boards actually are.
+        /// </summary>
+        private static void BuildAdvancedPack(int size, int count, int shortlistPerLevel,
+            int poolTarget, int cellsPerColour)
+        {
+            string levelsFolder = "Assets/Resources/Levels/Advanced/" + size + "x" + size;
+            int cells = size * size;
+            int holes = Mathf.Max(2, cells / 12);
+
+            // Blocked cells appear in most recipes because they are the least intrusive rule -- they
+            // constrain routing without anything to remember. The rest appear alone or alongside
+            // them, never two together.
+            // Each rule appears at every deficit, because the deficit is what decides how many
+            // cells the board ends up needing -- 1 gives mostly single-cell boards (the teaching
+            // shape), 3 gives mostly four-cell ones (the escalation shape). Generating all three
+            // up front means the schedule can draw whichever it needs without a second run.
+            List<MechanicRecipe> recipeList = new List<MechanicRecipe>();
+            BlockType[] rules =
+            {
+                BlockType.OneWay, BlockType.Arrow, BlockType.ForbiddenForPair,
+                BlockType.AllowedForPairs, BlockType.Checkpoint
+            };
+
+            recipeList.Add(new MechanicRecipe(BlockType.Normal, holes, 0));
+            for (int d = 1; d <= 3; d++)
+            {
+                for (int i = 0; i < rules.Length; i++)
+                {
+                    MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, 6);
+                    withHoles.ColourDeficit = d;
+                    recipeList.Add(withHoles);
+
+                    MechanicRecipe bare = new MechanicRecipe(rules[i], 0, 6);
+                    bare.ColourDeficit = d;
+                    recipeList.Add(bare);
+                }
+
+                // Walls are edges, not cells, so they get their own recipe rather than a place in
+                // the rules array. PlaceWalls only ever picks edges the solution does not cross, so
+                // a wall can constrain the board without contradicting the intended paths.
+                recipeList.Add(MechanicRecipe.Walls(holes, 6, d));
+                recipeList.Add(MechanicRecipe.Walls(0, 6, d));
+
+                // Both permission rules can name a second colour, which the one-colour form was
+                // leaving unused. They pull in opposite directions -- a second forbidden colour
+                // tightens, a second permitted colour loosens -- so both are generated.
+                recipeList.Add(MechanicRecipe.TwoColour(BlockType.ForbiddenForPair, 0, 6, d));
+                recipeList.Add(MechanicRecipe.TwoColour(BlockType.AllowedForPairs, 0, 6, d));
+            }
+            MechanicRecipe[] recipes = recipeList.ToArray();
+
+            EnsureLevelFolder(levelsFolder);
+            EditorUtility.ClearProgressBar();
+
+            HashSet<string> seen = new HashSet<string>();
+            System.Random rng = new System.Random(20260915 + size);
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
+            bool cancelled = false;
+
+            // Blocked-only boards succeed far more often than mechanic ones -- holes constrain
+            // the grid before it is even partitioned, so they never fight the uniqueness proof. Left
+            // uncapped they took 50% of the pool and three of every five written levels, which is a
+            // Classic pack with holes rather than an Advanced one. The cap is on the POOL, so the
+            // difficulty ramp still chooses freely from what remains.
+            int blockedOnlyCap = Mathf.Max(1, poolTarget / 4);
+
+            // And a ceiling per rule, for the same reason at the other end. Checkpoint boards are
+            // much easier to construct than the rest -- measured, 94 of 260 against AllowedForPairs'
+            // 8 -- so without a cap the common rules crowd out the rare ones and their runs starve
+            // while Checkpoint has five times the slots it needs. Capping the plentiful ones makes
+            // gathering keep hunting for the scarce ones instead of stopping early on an easy mix.
+            int perMechanicCap = Mathf.Max(1, poolTarget / 12);
+            Dictionary<string, int> keptPerMechanic = new Dictionary<string, int>();
+
+            List<(LevelData Data, string Mechanic, int Instances, int Deficit)> survivors =
+                new List<(LevelData, string, int, int)>();
+            Dictionary<string, int> keptByRecipe = new Dictionary<string, int>();
+            int blockedOnlyKept = 0;
+            int generated = 0, duplicates = 0, unsound = 0, notUnique = 0, decorative = 0;
+            int shortlistTarget = count * shortlistPerLevel;
+
+            try
+            {
+                for (int attempt = 0; attempt < 200000 && survivors.Count < poolTarget; attempt++)
+                {
+                    throttle.Tick();
+
+                    if ((attempt % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the Advanced " + size + "x" + size + " pack  -  gathering",
+                            "kept " + survivors.Count + "/" + poolTarget
+                                + "  -  " + unsound + " unsound, " + duplicates + " dupes, "
+                                + decorative + " decorative"
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.5f * survivors.Count / poolTarget))
+                    { cancelled = true; break; }
+
+                    MechanicRecipe recipe = recipes[attempt % recipes.Length];
+                    if (recipe.Instances == 0 && blockedOnlyKept >= blockedOnlyCap) { continue; }
+                    // Capped per rule AND per deficit: a rule that is plentiful at deficit 1 must
+                    // not fill the pool and leave the escalation half with nothing at deficit 3.
+                    string bucket = recipe.Name + "@" + recipe.ColourDeficit;
+                    if (recipe.Instances > 0
+                        && keptPerMechanic.TryGetValue(bucket, out int already)
+                        && already >= perMechanicCap)
+                    {
+                        continue;
+                    }
+
+                    bool[,] usable = PlaceBlockedCells(size, recipe.BlockedCells, true, rng);
+                    int usableCount = 0;
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { if (usable[r, c]) { usableCount++; } }
+                    }
+
+                    int colours = Mathf.Max(3, usableCount / cellsPerColour)
+                                + (attempt % ColourSweepWidth);
+                    if (colours > MaxDistinctColors) { continue; }
+
+                    LevelData data;
+
+                    if (recipe.Instances == 0)
+                    {
+                        // Blocked-only: the holes shape the board BEFORE it is partitioned, so they
+                        // are part of how uniqueness is reached and refinement is the right tool.
+                        if (!TryGenerateUniqueByRefinement(size, usable, usableCount, colours,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out data, out int finalColours, out int splits, colours))
+                        {
+                            continue;
+                        }
+                    }
+                    else if (!TryBuildMechanicDependentBoard(size, usable, usableCount, colours,
+                                 recipe, rng, out data))
+                    {
+                        continue;
+                    }
+                    generated++;
+
+                    Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                    bool keep = false;
+                    try
+                    {
+                        string key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                        if (!seen.Add(key)) { duplicates++; continue; }
+
+                        PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(8000000, 2));
+                        bool unique = solved.Status == PuzzleSolver.SolveStatus.Solved
+                            && solved.SolutionsFound == 1 && solved.SearchExhausted;
+                        if (!unique) { notUnique++; continue; }
+
+                        if (!StoredSolutionMatchesSolver(data, solved, rows, cols)) { notUnique++; continue; }
+
+                        int liveCells = 0;
+                        for (int r = 0; r < rows; r++)
+                        {
+                            for (int c = 0; c < cols; c++)
+                            {
+                                if (grid[r, c] != null && grid[r, c].BlockType != BlockType.Blocked)
+                                {
+                                    liveCells++;
+                                }
+                            }
+                        }
+                        if (!StructuralGates.Evaluate(solved, liveCells).Passed) { unsound++; continue; }
+
+                        // Every rule on the board has to be load-bearing, or the level is a plain
+                        // board wearing a costume -- §6.31 measured 55% of three-mechanic boards
+                        // that way.
+                        if (recipe.Instances > 0 && recipe.UsesWalls
+                            && !AllWallsAreNecessary(grid, rows, cols))
+                        {
+                            decorative++;
+                            continue;
+                        }
+                        if (recipe.Instances > 0 && !recipe.UsesWalls
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.Type))
+                        {
+                            decorative++;
+                            continue;
+                        }
+                        if (recipe.SecondType != BlockType.Normal
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.SecondType))
+                        {
+                            decorative++;
+                            continue;
+                        }
+                        if (recipe.BlockedCells > 0
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked))
+                        {
+                            decorative++;
+                            continue;
+                        }
+
+                        keep = true;
+                    }
+                    finally { DestroyBlockGrid(grid); }
+
+                    if (keep)
+                    {
+                        survivors.Add((data, recipe.BaseName,
+                            recipe.Instances == 0
+                                ? 0
+                                : (recipe.UsesWalls ? CountWalls(data) : CountCellsOfType(data, recipe.Type)),
+                            recipe.ColourDeficit));
+                        if (recipe.Instances == 0) { blockedOnlyKept++; }
+                        else
+                        {
+                            keptPerMechanic.TryGetValue(bucket, out int had);
+                            keptPerMechanic[bucket] = had + 1;
+                        }
+
+                        // Tallied by what the board actually ENDED UP with, not what the recipe
+                        // asked for: the builder stops as soon as the board is pinned, so the count
+                        // it settled on is the interesting number.
+                        string name = recipe.Instances == 0
+                            ? "BlockedOnly"
+                            : recipe.Name + "x" + (recipe.UsesWalls
+                                ? CountWalls(data)
+                                : CountCellsOfType(data, recipe.Type));
+                        keptByRecipe[name] = keptByRecipe.ContainsKey(name) ? keptByRecipe[name] + 1 : 1;
+                    }
+                }
+
+                // Bridge and Shared Destination are gathered separately, by the older spec-based
+                // pipeline. They are not overlays laid on a finished partition -- they change the
+                // partition's SHAPE, splitting one cell into two lanes or making one cell the
+                // endpoint of two paths -- so the deficit-and-climb construction above cannot
+                // express them. That pipeline already builds and verifies them (it produced the
+                // shipped levels 36-40 and 46-50, including the EveryBridgeCarriesTwoColours check
+                // that caught the L40 self-crossing bug), so it is reused rather than reimplemented.
+                //
+                // They arrive UNRANKED: HumanSolver.CanRate refuses both, so DifficultyModel cannot
+                // score them and they can never pass WellFormed. The schedule places them at
+                // authored positions instead of in the ramp -- honest about a known limit rather
+                // than inventing a number for them.
+                List<(LevelData Data, string Mechanic)> structural =
+                    GatherStructuralMechanics(size, count, seen, rng, throttle, total, ref cancelled);
+
+                if (survivors.Count < count)
+                {
+                    Debug.LogError("Advanced pack " + size + "x" + size + ": only " + survivors.Count
+                        + " boards for " + count + " levels. Generated " + generated + ", "
+                        + duplicates + " duplicates, " + unsound + " unsound, "
+                        + decorative + " with a decorative mechanic.");
+                    return;
+                }
+
+                ScheduleAndWriteAdvancedPack(survivors, structural, levelsFolder,
+                    "Advanced " + size + "x" + size, count, throttle, total, ref cancelled,
+                    "  generated " + generated + ", " + duplicates + " duplicates, "
+                        + unsound + " unsound, " + notUnique + " not unique, "
+                        + decorative + " decorative, " + survivors.Count + " kept\n"
+                        + "  kept by mechanic: " + DescribeRecipeMix(keptByRecipe));
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+        }
+
+        /// <summary>
+        /// Builds a board whose mechanic is LOAD-BEARING, by starting from one that is deliberately
+        /// under-constrained and letting the mechanic supply what is missing.
+        ///
+        /// <b>Why the obvious order does not work.</b> The first version generated a uniquely
+        /// solvable board and then laid a mechanic over it. A mechanic added to a board that is
+        /// already unique can never matter: uniqueness was reached without it, so stripping it
+        /// changes nothing and the necessity check throws it out. Measured, that rejected <b>633 of
+        /// 1139</b> candidates as decorative, and the only survivors were blocked-cell boards --
+        /// where the holes shape the grid before it is partitioned and so genuinely participate.
+        /// An Advanced pack built that way would have been Classic with holes.
+        ///
+        /// So: partition with FEWER colours than uniqueness needs, confirm the board really is
+        /// ambiguous, then place the mechanic on the intended solution and require that it becomes
+        /// unique. Necessity then holds by construction rather than by luck, and is still verified.
+        ///
+        /// The mechanic goes on the INTENDED solution, not on whichever one the solver happens to
+        /// return first -- with several solutions available those are different boards. The check
+        /// that the surviving unique solution is the intended one is
+        /// <see cref="StoredSolutionMatchesSolver"/>, which works because
+        /// <see cref="BuildPlainLevelData"/> stores the partition it was given.
+        /// </summary>
+        private static bool TryBuildMechanicDependentBoard(int size, bool[,] usable, int usableCount,
+            int colours, MechanicRecipe recipe, System.Random rng, out LevelData data)
+        {
+            data = default;
+
+            // Short of what this density would normally need, so the board is ambiguous and the
+            // mechanic has something to do. How short is the whole lever: at one colour down a
+            // single cell usually pins it, at three there is real work left for several.
+            int deficit = Mathf.Max(2, colours - Mathf.Max(1, recipe.ColourDeficit));
+
+            List<List<(int Row, int Col)>> paths =
+                TryGeneratePathPartition(size, usable, usableCount, deficit, rng);
+            if (paths == null) { return false; }
+
+            LevelData candidate = BuildPlainLevelData(size, usable, paths, rng);
+
+            Block[,] grid = BuildBlockGrid(candidate, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult before = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(2000000, 2));
+
+                // Unsolvable is a dead end; already unique means the mechanic would be decorative,
+                // which is the whole thing this method exists to avoid.
+                if (before.Status != PuzzleSolver.SolveStatus.Solved) { return false; }
+                if (before.SolutionsFound < 2) { return false; }
+            }
+            finally { DestroyBlockGrid(grid); }
+
+            // Add mechanic cells one at a time until the board is pinned, exactly as refinement
+            // adds colours. Guessing a fixed count was the previous version's failure: two or three
+            // cells often fail to collapse an ambiguous board back to one solution, and 513 of 867
+            // candidates were thrown out as still-not-unique. Climbing finds the MINIMUM that
+            // works, which is also the answer to "do not overdo it" -- no board carries a rule it
+            // did not need.
+            for (int instances = Mathf.Max(1, recipe.MinInstances);
+                 instances <= recipe.Instances;
+                 instances++)
+            {
+                LevelData trial = CloneLevelData(candidate);
+                MechanicRecipe step = recipe;
+                step.Instances = instances;
+
+                HashSet<(int Row, int Col)> used = new HashSet<(int, int)>();
+                if (!LayMechanicOnPaths(ref trial, paths, step, rng, used)) { continue; }
+
+                PinState state = Pinned(trial, paths);
+                if (state == PinState.Broken) { continue; }
+
+                if (state == PinState.Unique)
+                {
+                    // One rule was enough. For a combination recipe that is a failure, not a
+                    // success: the second rule would be decorative, which is the thing this whole
+                    // construction exists to prevent.
+                    if (recipe.SecondType != BlockType.Normal) { continue; }
+                    data = trial;
+                    return true;
+                }
+
+                if (recipe.SecondType == BlockType.Normal && !recipe.SecondIsWalls) { continue; }
+
+                // Still ambiguous, so the second rule has something left to do. A+B, with both
+                // load-bearing by construction rather than by luck.
+                for (int second = 1; second <= recipe.Instances; second++)
+                {
+                    LevelData combo = CloneLevelData(trial);
+                    MechanicRecipe secondStep = recipe;
+                    if (recipe.SecondIsWalls)
+                    {
+                        secondStep.UsesWalls = true;
+                    }
+                    else
+                    {
+                        secondStep.Type = recipe.SecondType;
+                    }
+                    secondStep.Instances = second;
+
+                    HashSet<(int Row, int Col)> alsoUsed = new HashSet<(int, int)>(used);
+                    if (!LayMechanicOnPaths(ref combo, paths, secondStep, rng, alsoUsed)) { continue; }
+
+                    if (Pinned(combo, paths) == PinState.Unique) { data = combo; return true; }
+                }
+            }
+
+            return false;
+        }
+
+        private enum PinState { Broken, Ambiguous, Unique }
+
+        /// <summary>
+        /// Whether <paramref name="data"/> now has exactly one solution, and it is the intended one.
+        /// Those are two different claims when the board started out ambiguous, and only the pair of
+        /// them means the mechanic pinned the puzzle the generator meant to build.
+        /// </summary>
+        private static PinState Pinned(LevelData data, List<List<(int Row, int Col)>> paths)
+        {
+            Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(2000000, 2));
+
+                if (result.Status != PuzzleSolver.SolveStatus.Solved) { return PinState.Broken; }
+                if (result.SolutionsFound > 1 || !result.SearchExhausted) { return PinState.Ambiguous; }
+                return StoredSolutionMatchesSolver(data, result, rows, cols)
+                    ? PinState.Unique
+                    : PinState.Broken;
+            }
+            finally { DestroyBlockGrid(grid); }
+        }
+
+        /// <summary>A copy whose per-cell columns can be written without touching the original --
+        /// needed because each mechanic-count trial must start from the same clean board.</summary>
+        private static LevelData CloneLevelData(LevelData source)
+        {
+            int size = (int)source.gridSize;
+            LevelData copy = source;
+            copy.gridRows = new GridRow[size];
+
+            for (int r = 0; r < size; r++)
+            {
+                GridRow src = source.gridRows[r];
+                copy.gridRows[r] = new GridRow
+                {
+                    coloum = (PairColorType[])src.coloum?.Clone(),
+                    pairId = (int[])src.pairId?.Clone(),
+                    blockType = (BlockType[])src.blockType?.Clone(),
+                    wallMask = (int[])src.wallMask?.Clone(),
+                    requiredEntryDirection = (Direction[])src.requiredEntryDirection?.Clone(),
+                    forcedExitDirection = (Direction[])src.forcedExitDirection?.Clone(),
+                    secondPairId = (int[])src.secondPairId?.Clone(),
+                    thirdPairId = (int[])src.thirdPairId?.Clone(),
+                    fourthPairId = (int[])src.fourthPairId?.Clone(),
+                    solutionPairId = (int[])src.solutionPairId?.Clone()
+                };
+            }
+            return copy;
+        }
+
+        /// <summary>
+        /// Writes one mechanic into <paramref name="data"/>, placed against <paramref name="paths"/>
+        /// -- the intended solution.
+        /// </summary>
+        private static bool LayMechanicOnPaths(ref LevelData data,
+            List<List<(int Row, int Col)>> paths, MechanicRecipe recipe, System.Random rng,
+            HashSet<(int Row, int Col)> reserved = null)
+        {
+            List<PairColorType> palette = new List<PairColorType>();
+            for (int i = 0; i < paths.Count; i++)
+            {
+                (int Row, int Col) head = paths[i][0];
+                palette.Add(data.gridRows[head.Row].coloum[head.Col]);
+            }
+
+            // A dot already means something; overwriting one would delete a pair. `reserved`
+            // carries cells a previous mechanic already claimed -- BlockType is one per cell, so a
+            // second mechanic landing on the first would silently erase it.
+            HashSet<(int Row, int Col)> excluded = new HashSet<(int, int)>();
+            for (int i = 0; i < paths.Count; i++)
+            {
+                excluded.Add(paths[i][0]);
+                excluded.Add(paths[i][paths[i].Count - 1]);
+            }
+            if (reserved != null) { excluded.UnionWith(reserved); }
+
+            // Which way round the solver will actually walk each path. A One-Way's entry and an
+            // Arrow's exit are directional, so they must be encoded relative to the direction the
+            // SOLVER takes -- it starts each pair from the row-major-first endpoint, which is array
+            // index 0 only sometimes. Passing an empty dictionary here threw KeyNotFoundException on
+            // the first cell; had the helpers defaulted instead, the levels would have been quietly
+            // wrong half the time.
+            Dictionary<(int Row, int Col), bool> reversedByCell = new Dictionary<(int, int), bool>();
+            for (int i = 0; i < paths.Count; i++)
+            {
+                bool reversed = !IsRowMajorBefore(paths[i][0], paths[i][paths[i].Count - 1]);
+                for (int j = 0; j < paths[i].Count; j++)
+                {
+                    reversedByCell[paths[i][j]] = reversed;
+                }
+            }
+
+            if (recipe.UsesWalls)
+            {
+                List<(int Row, int Col, Direction Dir)> walls =
+                    PlaceWalls(UsableFrom(data), (int)data.gridSize, paths, recipe.Instances, rng);
+                if (walls.Count == 0) { return false; }
+
+                foreach ((int Row, int Col, Direction Dir) wall in walls)
+                {
+                    data.gridRows[wall.Row].wallMask[wall.Col] |= WallBit(wall.Dir);
+                    reserved?.Add((wall.Row, wall.Col));
+                }
+                return true;
+            }
+
+            switch (recipe.Type)
+            {
+                case BlockType.OneWay:
+                {
+                    var placed = PlaceOneWayCells(paths, excluded, reversedByCell, recipe.Instances, rng);
+                    if (placed.Count == 0) { return false; }
+                    foreach (var cell in placed)
+                    {
+                        data.gridRows[cell.Row].blockType[cell.Col] = BlockType.OneWay;
+                        data.gridRows[cell.Row].requiredEntryDirection[cell.Col] = cell.EntryDir;
+                        reserved?.Add((cell.Row, cell.Col));
+                    }
+                    return true;
+                }
+                case BlockType.Arrow:
+                {
+                    var placed = PlaceArrowCells(paths, excluded, reversedByCell, recipe.Instances, rng);
+                    if (placed.Count == 0) { return false; }
+                    foreach (var cell in placed)
+                    {
+                        data.gridRows[cell.Row].blockType[cell.Col] = BlockType.Arrow;
+                        data.gridRows[cell.Row].forcedExitDirection[cell.Col] = cell.ExitDir;
+                        reserved?.Add((cell.Row, cell.Col));
+                    }
+                    return true;
+                }
+                case BlockType.ForbiddenForPair:
+                {
+                    var placed = PlaceForbiddenCells(paths, excluded, palette, recipe.Instances, rng);
+                    if (placed.Count == 0) { return false; }
+                    foreach (var cell in placed)
+                    {
+                        data.gridRows[cell.Row].blockType[cell.Col] = BlockType.ForbiddenForPair;
+                        data.gridRows[cell.Row].pairId[cell.Col] = cell.ForbiddenPairId;
+
+                        if (recipe.NameTwoColours)
+                        {
+                            // Any colour except the one that actually covers this cell in the
+                            // intended solution -- forbidding that would make the level unsolvable.
+                            int second = PickAnotherColour(palette, rng,
+                                cell.ForbiddenPairId, OwnerOfCell(paths, palette, cell.Row, cell.Col));
+                            data.gridRows[cell.Row].secondPairId[cell.Col] = second;
+                        }
+                        reserved?.Add((cell.Row, cell.Col));
+                    }
+                    return true;
+                }
+                case BlockType.AllowedForPairs:
+                {
+                    var placed = PlacePermittedCells(paths, excluded, palette, recipe.Instances, rng);
+                    if (placed.Count == 0) { return false; }
+                    foreach (var cell in placed)
+                    {
+                        data.gridRows[cell.Row].blockType[cell.Col] = BlockType.AllowedForPairs;
+                        data.gridRows[cell.Row].pairId[cell.Col] = cell.AllowedPairId;
+
+                        if (recipe.NameTwoColours)
+                        {
+                            // The cell's own colour is already named, so any other will do -- this
+                            // deliberately LOOSENS the rule, admitting a second path that the
+                            // one-colour form refused.
+                            int second = PickAnotherColour(palette, rng, cell.AllowedPairId, 0);
+                            data.gridRows[cell.Row].secondPairId[cell.Col] = second;
+                        }
+                        reserved?.Add((cell.Row, cell.Col));
+                    }
+                    return true;
+                }
+                case BlockType.Checkpoint:
+                {
+                    var placed = PlaceCheckpointCells(paths, excluded, palette, recipe.Instances, rng);
+                    if (placed.Count == 0) { return false; }
+                    foreach (var cell in placed)
+                    {
+                        data.gridRows[cell.Row].blockType[cell.Col] = BlockType.Checkpoint;
+                        data.gridRows[cell.Row].pairId[cell.Col] = cell.CheckpointPairId;
+                        reserved?.Add((cell.Row, cell.Col));
+                    }
+                    return true;
+                }
+                default:
+                    return true;
+            }
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/Build 6x6 pack (100)")]
+        public static void BuildAdvancedPack6x6() { BuildAdvancedPack(6, 100, 10, 900, 9); }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)")]
+        public static void BuildAdvancedPack7x7() { BuildAdvancedPack(7, 100, 10, 900, 10); }
+
+        /// <summary>
+        /// Does a TWO-mechanic board exist at a workable rate? The standard escalation in puzzle
+        /// design is A, B, then A+B, and §6.31 measured that three types together does not work
+        /// here -- 0 of 175 boards had all three load-bearing. Two has never been measured, and the
+        /// deficit-climb construction changes the odds: lay A until the board is nearly pinned, let
+        /// B finish it, and both are load-bearing because neither alone sufficed.
+        ///
+        /// Answers whether the pack gets a real combination tier or just its hardest single-mechanic
+        /// boards at the top.
+        /// </summary>
+        /// <summary>
+        /// How the colour deficit changes what the mechanics have to do. Two questions at once,
+        /// because they turned out to be the same question: can a level need SEVERAL cells of a
+        /// rule, and can it need TWO rules?
+        ///
+        /// At a one-colour deficit both answers were no -- 22 of 30 boards needed a single cell, and
+        /// two rules were both load-bearing on 4 boards in 1600. The suspicion is that this is not a
+        /// property of the mechanics but of how little ambiguity one colour down leaves behind: the
+        /// first cell pins the board, so nothing remains for a second cell or a second rule.
+        /// </summary>
+        /// <summary>
+        /// Can a WALL be the second constraint on a board that already carries a cell rule?
+        ///
+        /// The earlier "two rules cannot share a board" result -- 4 usable boards in 1600 -- was
+        /// measured only on pairs of CELL rules, every one of which restricts entry to cells. One
+        /// kept subsuming the other, which is unsurprising given they do the same kind of work.
+        ///
+        /// A wall blocks an EDGE regardless of colour or direction. It is a different kind of
+        /// constraint, so the earlier conclusion does not obviously extend to it, and it was never
+        /// tested. This settles whether "some cells arrow, some edges walled" is a level the
+        /// generator can actually make.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE wall + rule pairing")]
+        public static void ProbeWallPairing()
+        {
+            const int size = 6;
+            const int cells = size * size;
+            const int attemptsPer = 400;
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            BlockType[] partners =
+            {
+                BlockType.Arrow, BlockType.OneWay, BlockType.Checkpoint, BlockType.ForbiddenForPair
+            };
+
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
+            bool cancelled = false;
+
+            try
+            {
+                for (int i = 0; i < partners.Length && !cancelled; i++)
+                {
+                    System.Random rng = new System.Random(7700 + i);
+                    int built = 0, bothNeeded = 0;
+                    Dictionary<string, int> shapes = new Dictionary<string, int>();
+
+                    for (int a = 0; a < attemptsPer && !cancelled; a++)
+                    {
+                        throttle.Tick();
+
+                        if ((a % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Wall + rule pairing",
+                                partners[i] + " + Wall  -  " + a + "/" + attemptsPer
+                                    + "  -  " + bothNeeded + " with both load-bearing"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + a / (float)attemptsPer) / partners.Length))
+                        { cancelled = true; break; }
+
+                        MechanicRecipe recipe = new MechanicRecipe(partners[i], 0, 6);
+                        recipe.SecondIsWalls = true;
+                        recipe.ColourDeficit = 1 + (a % 3);
+
+                        int colours = Mathf.Max(3, cells / 9) + (a % 3);
+                        if (!TryBuildMechanicDependentBoard(size, usable, cells, colours, recipe, rng,
+                                out LevelData data))
+                        {
+                            continue;
+                        }
+                        built++;
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        try
+                        {
+                            if (AllCellsOfTypeAreNecessary(grid, rows, cols, partners[i])
+                                && AllWallsAreNecessary(grid, rows, cols))
+                            {
+                                bothNeeded++;
+                                string shape = CountCellsOfType(data, partners[i]) + "+"
+                                             + CountWalls(data) + "w";
+                                shapes[shape] = shapes.ContainsKey(shape) ? shapes[shape] + 1 : 1;
+                            }
+                        }
+                        finally { DestroyBlockGrid(grid); }
+                    }
+
+                    report.Append("  ").Append(partners[i]).Append(" + Wall: built ").Append(built)
+                          .Append(", both load-bearing ").Append(bothNeeded)
+                          .Append(" / ").Append(attemptsPer);
+                    if (shapes.Count > 0)
+                    {
+                        report.Append("   shapes:");
+                        List<string> keys = new List<string>(shapes.Keys);
+                        keys.Sort();
+                        for (int k = 0; k < keys.Count; k++)
+                        {
+                            report.Append(' ').Append(keys[k]).Append('x').Append(shapes[keys[k]]);
+                        }
+                    }
+                    report.AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            Debug.Log("Wall + rule pairing, " + attemptsPer + " attempts per partner, "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ":\n" + report
+                + "  reference -- two CELL rules managed 4 boards in 1600 attempts");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE colour deficit")]
+        public static void ProbeColourDeficit()
+        {
+            const int size = 6;
+            const int cells = size * size;
+            const int attemptsPer = 300;
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
+            bool cancelled = false;
+
+            try
+            {
+                for (int deficit = 1; deficit <= 3 && !cancelled; deficit++)
+                {
+                    System.Random rng = new System.Random(600 + deficit);
+                    Dictionary<int, int> cellCounts = new Dictionary<int, int>();
+                    int singles = 0;
+
+                    for (int a = 0; a < attemptsPer && !cancelled; a++)
+                    {
+                        throttle.Tick();
+                        if ((a % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Colour deficit probe",
+                                "deficit " + deficit + "  -  one rule  -  " + a + "/" + attemptsPer
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (deficit - 1) / 3f))
+                        { cancelled = true; break; }
+
+                        MechanicRecipe recipe = new MechanicRecipe(BlockType.Checkpoint, 0, 6);
+                        recipe.ColourDeficit = deficit;
+                        int colours = Mathf.Max(3, cells / 9) + (a % 3);
+
+                        if (!TryBuildMechanicDependentBoard(size, usable, cells, colours, recipe, rng,
+                                out LevelData data))
+                        {
+                            continue;
+                        }
+                        singles++;
+                        int used = CountCellsOfType(data, BlockType.Checkpoint);
+                        cellCounts[used] = cellCounts.ContainsKey(used) ? cellCounts[used] + 1 : 1;
+                    }
+
+                    System.Random rng2 = new System.Random(900 + deficit);
+                    int builtPairs = 0, bothNeeded = 0;
+
+                    for (int a = 0; a < attemptsPer && !cancelled; a++)
+                    {
+                        throttle.Tick();
+                        if ((a % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Colour deficit probe",
+                                "deficit " + deficit + "  -  two rules  -  " + a + "/" + attemptsPer
+                                    + "  -  " + bothNeeded + " with both needed"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (deficit - 0.5f) / 3f))
+                        { cancelled = true; break; }
+
+                        MechanicRecipe recipe = new MechanicRecipe(
+                            BlockType.OneWay, BlockType.Checkpoint, 6, deficit);
+                        int colours = Mathf.Max(3, cells / 9) + (a % 3);
+
+                        if (!TryBuildMechanicDependentBoard(size, usable, cells, colours, recipe, rng2,
+                                out LevelData data))
+                        {
+                            continue;
+                        }
+                        builtPairs++;
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        try
+                        {
+                            if (AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.OneWay)
+                                && AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Checkpoint))
+                            {
+                                bothNeeded++;
+                            }
+                        }
+                        finally { DestroyBlockGrid(grid); }
+                    }
+
+                    report.Append("  deficit ").Append(deficit)
+                          .Append(":  one-rule boards ").Append(singles).Append(" -> cells needed");
+                    List<int> keys = new List<int>(cellCounts.Keys);
+                    keys.Sort();
+                    for (int k = 0; k < keys.Count; k++)
+                    {
+                        report.Append(' ').Append(keys[k]).Append('x').Append(cellCounts[keys[k]]);
+                    }
+                    report.Append("   |  two-rule built ").Append(builtPairs)
+                          .Append(", both load-bearing ").Append(bothNeeded)
+                          .AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            Debug.Log("Colour deficit probe, " + attemptsPer + " attempts per cell, "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ":\n" + report);
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE two-mechanic yield")]
+        public static void ProbeTwoMechanicYield()
+        {
+            const int size = 6;
+            const int cells = size * size;
+            const int attemptsPer = 400;
+
+            (BlockType A, BlockType B)[] pairs =
+            {
+                (BlockType.OneWay, BlockType.Checkpoint),
+                (BlockType.Arrow, BlockType.ForbiddenForPair),
+                (BlockType.Checkpoint, BlockType.ForbiddenForPair),
+                (BlockType.OneWay, BlockType.Arrow),
+            };
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
+            bool cancelled = false;
+
+            try
+            {
+                for (int i = 0; i < pairs.Length && !cancelled; i++)
+                {
+                    System.Random rng = new System.Random(31337 + i);
+                    int built = 0, bothNecessary = 0;
+                    Dictionary<string, int> shapes = new Dictionary<string, int>();
+
+                    for (int a = 0; a < attemptsPer; a++)
+                    {
+                        throttle.Tick();
+
+                        if ((a % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Two-mechanic yield",
+                                pairs[i].A + " + " + pairs[i].B + "  -  " + a + "/" + attemptsPer
+                                    + "  -  " + bothNecessary + " with both load-bearing"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + a / (float)attemptsPer) / pairs.Length))
+                        { cancelled = true; break; }
+
+                        MechanicRecipe recipe = new MechanicRecipe(pairs[i].A, pairs[i].B, 4, 1);
+                        int colours = Mathf.Max(3, cells / 9) + (a % 3);
+
+                        if (!TryBuildMechanicDependentBoard(size, usable, cells, colours,
+                                recipe, rng, out LevelData data))
+                        {
+                            continue;
+                        }
+                        built++;
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        try
+                        {
+                            if (AllCellsOfTypeAreNecessary(grid, rows, cols, pairs[i].A)
+                                && AllCellsOfTypeAreNecessary(grid, rows, cols, pairs[i].B))
+                            {
+                                bothNecessary++;
+                                string shape = CountCellsOfType(data, pairs[i].A) + "+"
+                                             + CountCellsOfType(data, pairs[i].B);
+                                shapes[shape] = shapes.ContainsKey(shape) ? shapes[shape] + 1 : 1;
+                            }
+                        }
+                        finally { DestroyBlockGrid(grid); }
+                    }
+
+                    report.Append("  ").Append(pairs[i].A).Append(" + ").Append(pairs[i].B)
+                          .Append(": built ").Append(built)
+                          .Append(", both load-bearing ").Append(bothNecessary)
+                          .Append(" / ").Append(attemptsPer).Append(" attempts");
+                    if (shapes.Count > 0)
+                    {
+                        report.Append("   shapes:");
+                        List<string> keys = new List<string>(shapes.Keys);
+                        keys.Sort();
+                        for (int k = 0; k < keys.Count; k++)
+                        {
+                            report.Append(' ').Append(keys[k]).Append('x').Append(shapes[keys[k]]);
+                        }
+                    }
+                    report.AppendLine();
+                }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
+
+            total.Stop();
+            Debug.Log("Two-mechanic yield, " + attemptsPer + " attempts per pair, "
+                + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ":\n" + report
+                + "  single-mechanic reference: ~40 kept per 288 generated at 6x6");
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE Advanced yield")]
+        public static void ProbeAdvancedYield() { BuildAdvancedPack(6, 24, 4, 260, 9); }
 
         /// <summary>
         /// Picks <paramref name="count"/> boards spread evenly across the SCORE RANGE, ascending.

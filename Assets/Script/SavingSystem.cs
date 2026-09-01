@@ -89,6 +89,17 @@ public struct SaveData
     public int[] advancedCompletedLevelAttempts;
     public float[] advancedCompletedLevelSeconds;
 
+    // Per-PACK progress. Classic ships as five packs of 100 (one per board size) and Advanced is
+    // going the same way, so progress can no longer be keyed by mode alone -- finishing 5x5 level 20
+    // would otherwise mark 7x7 level 20 complete.
+    //
+    // An array of keyed entries rather than a dictionary because JsonUtility serialises arrays of
+    // serialisable structs and does not serialise dictionaries at all. The legacy linear campaigns
+    // keep the flat fields above and are NOT migrated into this: a returning player mid-way through
+    // the old Classic run keeps their place, which is the same reason Classic kept the original
+    // field names when the two modes split.
+    public PackProgress[] packProgress;
+
     public AudioData audioData;
 
     /// <summary>Highest level finished in <paramref name="mode"/>.</summary>
@@ -138,6 +149,136 @@ public struct SaveData
         if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelSeconds = value; }
         else { completedLevelSeconds = value; }
     }
+
+    // ---- progress by KEY -------------------------------------------------------------------
+    //
+    // One entry point for both storage shapes. The legacy linear campaigns keep the flat fields
+    // above and are addressed as "Classic" / "Advanced"; every pack lives in packProgress under
+    // "Classic7x7" and the like. Callers should never branch on this themselves -- doing so is
+    // exactly how LevelScreenController ended up reading Classic's progress while Advanced was on
+    // screen, and how a pack write nearly landed in a new entry instead of the legacy field.
+
+    private const string LegacyClassicKey = "Classic";
+    private const string LegacyAdvancedKey = "Advanced";
+
+    // Every setter below resolves PackIndex into a local before indexing, and that is load-bearing
+    // rather than style. Written as `packProgress[PackIndex(key)].moves = value`, C# evaluates the
+    // ARRAY REFERENCE first, then calls PackIndex -- which allocates a larger array and assigns it
+    // to the field. The indexer then writes through the reference captured a moment earlier, so on
+    // a save that has never held a pack that reference is null and the assignment throws.
+    // Splitting the call out makes the growth happen first and the write land on the new array.
+
+    public int CompletedLevelForKey(string key)
+    {
+        if (key == LegacyClassicKey) { return completedLevel; }
+        if (key == LegacyAdvancedKey) { return advancedCompletedLevel; }
+
+        int found = FindPack(key);
+        return found < 0 ? 0 : packProgress[found].completedLevel;
+    }
+
+    public void SetCompletedLevelForKey(string key, int value)
+    {
+        if (key == LegacyClassicKey) { completedLevel = value; return; }
+        if (key == LegacyAdvancedKey) { advancedCompletedLevel = value; return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].completedLevel = value;
+    }
+
+    public int[] MovesForKey(string key)
+    {
+        if (key == LegacyClassicKey) { return completedlevelMoves; }
+        if (key == LegacyAdvancedKey) { return advancedCompletedLevelMoves; }
+
+        int found = FindPack(key);
+        return found < 0 ? null : packProgress[found].moves;
+    }
+
+    public void SetMovesForKey(string key, int[] value)
+    {
+        if (key == LegacyClassicKey) { completedlevelMoves = value; return; }
+        if (key == LegacyAdvancedKey) { advancedCompletedLevelMoves = value; return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].moves = value;
+    }
+
+    public int[] AttemptsForKey(string key)
+    {
+        if (key == LegacyClassicKey) { return completedLevelAttempts; }
+        if (key == LegacyAdvancedKey) { return advancedCompletedLevelAttempts; }
+
+        int found = FindPack(key);
+        return found < 0 ? null : packProgress[found].attempts;
+    }
+
+    public void SetAttemptsForKey(string key, int[] value)
+    {
+        if (key == LegacyClassicKey) { completedLevelAttempts = value; return; }
+        if (key == LegacyAdvancedKey) { advancedCompletedLevelAttempts = value; return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].attempts = value;
+    }
+
+    public float[] SecondsForKey(string key)
+    {
+        if (key == LegacyClassicKey) { return completedLevelSeconds; }
+        if (key == LegacyAdvancedKey) { return advancedCompletedLevelSeconds; }
+
+        int found = FindPack(key);
+        return found < 0 ? null : packProgress[found].seconds;
+    }
+
+    public void SetSecondsForKey(string key, float[] value)
+    {
+        if (key == LegacyClassicKey) { completedLevelSeconds = value; return; }
+        if (key == LegacyAdvancedKey) { advancedCompletedLevelSeconds = value; return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].seconds = value;
+    }
+
+    /// <summary>Index of an existing pack entry, or -1. Does not create -- reads must not mutate.</summary>
+    private int FindPack(string key)
+    {
+        if (packProgress == null) { return -1; }
+        for (int i = 0; i < packProgress.Length; i++)
+        {
+            if (packProgress[i].key == key) { return i; }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// The entry for <paramref name="key"/>, created empty if this pack has never been played.
+    /// Returns an index rather than the struct because PackProgress is a value type -- handing back
+    /// a copy would silently discard every write.
+    /// </summary>
+    public int PackIndex(string key)
+    {
+        if (packProgress == null) { packProgress = new PackProgress[0]; }
+
+        for (int i = 0; i < packProgress.Length; i++)
+        {
+            if (packProgress[i].key == key) { return i; }
+        }
+
+        PackProgress[] grown = new PackProgress[packProgress.Length + 1];
+        System.Array.Copy(packProgress, grown, packProgress.Length);
+        grown[packProgress.Length] = new PackProgress { key = key };
+        packProgress = grown;
+        return packProgress.Length - 1;
+    }
+}
+
+/// <summary>Everything remembered about one pack: how far the player got, and the telemetry
+/// §6.32 added so difficulty can eventually be fitted against real play rather than a prior.</summary>
+[System.Serializable]
+public struct PackProgress
+{
+    public string key;              // "Classic7x7", "Advanced6x6"
+    public int completedLevel;
+    public int[] moves;
+    public int[] attempts;
+    public float[] seconds;
 }
 
 [System.Serializable]

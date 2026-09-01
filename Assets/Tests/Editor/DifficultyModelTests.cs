@@ -302,6 +302,132 @@ namespace FreeFlow.Tests
             }
         }
 
+        /// <summary>FourByFour with one cell's type and pair overridden.</summary>
+        private static LevelData FourByFourWith(int row, int col, BlockType type, int pairId,
+            Direction requiredEntry = Direction.None)
+        {
+            LevelData data = FourByFour();
+            data.gridRows[row].blockType[col] = type;
+            data.gridRows[row].pairId[col] = pairId;
+            data.gridRows[row].requiredEntryDirection[col] = requiredEntry;
+            return data;
+        }
+
+        private static bool SolvesByDeduction(LevelData data)
+        {
+            Block[,] grid = LevelGenerator.BuildBlockGrid(data, out int rows, out int cols);
+            try { return HumanSolver.Rate(grid, rows, cols, 8).Solved; }
+            finally { LevelGenerator.DestroyBlockGrid(grid); }
+        }
+
+        private static bool CanRate(LevelData data, out string reason)
+        {
+            Block[,] grid = LevelGenerator.BuildBlockGrid(data, out int rows, out int cols);
+            try { return HumanSolver.CanRate(grid, rows, cols, out reason); }
+            finally { LevelGenerator.DestroyBlockGrid(grid); }
+        }
+
+        [Test]
+        public void ACheckpointForTheWrongColour_IsUnsolvable()
+        {
+            // (0,1) is covered by row 0's colour in the only solution. A checkpoint there naming
+            // row 1's colour cannot ever be satisfied. Before the solver understood checkpoints it
+            // reported this board solved -- a completion rule it simply did not read.
+            int wrongPair = (int)PairColorType.Blue;   // row 1
+            Assert.IsFalse(SolvesByDeduction(FourByFourWith(0, 1, BlockType.Checkpoint, wrongPair)));
+        }
+
+        [Test]
+        public void ACheckpointForTheRightColour_StillSolves()
+        {
+            int rightPair = (int)PairColorType.Red;    // row 0, which covers (0,1)
+            Assert.IsTrue(SolvesByDeduction(FourByFourWith(0, 1, BlockType.Checkpoint, rightPair)));
+        }
+
+        [Test]
+        public void AOneWayFacingAcrossTheFlow_IsUnsolvable()
+        {
+            // Every path here runs along its row, so a cell that may only be entered while moving
+            // DOWN can never be entered at all. Deliberately picks an axis rather than a left/right
+            // sense, so the test does not depend on which way round the direction enum reads.
+            Assert.IsFalse(SolvesByDeduction(
+                FourByFourWith(0, 2, BlockType.OneWay, 0, Direction.Down)));
+        }
+
+        [Test]
+        public void CanRate_AcceptsAPlainBoard()
+        {
+            Assert.IsTrue(CanRate(FourByFour(), out string reason), reason);
+        }
+
+        [Test]
+        public void CanRate_RefusesABridge()
+        {
+            // Two paths on one cell, where State.Owner holds a single pair id -- and it also breaks
+            // the corner dual law, whose proof needs an interior cell to have exactly two
+            // connections.
+            Assert.IsFalse(CanRate(FourByFourWith(1, 1, BlockType.Bridge, 0), out string reason));
+            StringAssert.Contains("bridge", reason);
+        }
+
+        [Test]
+        public void CanRate_RefusesASharedDestination()
+        {
+            LevelData data = FourByFour();
+            data.gridRows[0].secondPairId[0] = (int)PairColorType.Blue;   // (0,0) is Red's dot too
+
+            Assert.IsFalse(CanRate(data, out string reason));
+            StringAssert.Contains("shared destination", reason);
+        }
+
+        [Test]
+        public void PackProgress_WritesToAFreshSave()
+        {
+            // The bug this guards threw a NullReferenceException on the very first level anyone
+            // completed in a pack. `packProgress[PackIndex(key)].moves = value` evaluates the array
+            // reference BEFORE calling PackIndex, so the write went through the null reference the
+            // expression had already captured rather than the array PackIndex had just allocated.
+            SaveData data = new SaveData();          // packProgress is null, as on a fresh save
+
+            data.SetMovesForKey("Classic7x7", new[] { 4, 5, 6 });
+            data.SetAttemptsForKey("Classic7x7", new[] { 1, 2, 3 });
+            data.SetSecondsForKey("Classic7x7", new[] { 1.5f });
+            data.SetCompletedLevelForKey("Classic7x7", 3);
+
+            Assert.AreEqual(3, data.CompletedLevelForKey("Classic7x7"));
+            Assert.AreEqual(new[] { 4, 5, 6 }, data.MovesForKey("Classic7x7"));
+            Assert.AreEqual(new[] { 1, 2, 3 }, data.AttemptsForKey("Classic7x7"));
+            Assert.AreEqual(1, data.packProgress.Length, "one entry, not one per setter call");
+        }
+
+        [Test]
+        public void PackProgress_KeepsPacksApart()
+        {
+            SaveData data = new SaveData();
+            data.SetCompletedLevelForKey("Classic5x5", 20);
+            data.SetCompletedLevelForKey("Classic7x7", 4);
+
+            Assert.AreEqual(20, data.CompletedLevelForKey("Classic5x5"));
+            Assert.AreEqual(4, data.CompletedLevelForKey("Classic7x7"),
+                "finishing 5x5 level 20 must not mark 7x7 level 20 complete");
+            Assert.AreEqual(0, data.CompletedLevelForKey("Classic9x9"), "unplayed packs read as zero");
+        }
+
+        [Test]
+        public void PackProgress_LeavesTheLegacyCampaignsOnTheirOriginalFields()
+        {
+            // A returning player mid-way through the old linear run must keep their place, so the
+            // legacy keys still map to the flat fields rather than migrating into packProgress.
+            SaveData data = new SaveData { completedLevel = 37, advancedCompletedLevel = 12 };
+
+            Assert.AreEqual(37, data.CompletedLevelForKey("Classic"));
+            Assert.AreEqual(12, data.CompletedLevelForKey("Advanced"));
+
+            data.SetCompletedLevelForKey("Classic", 38);
+            Assert.AreEqual(38, data.completedLevel, "written back to the original field");
+            Assert.IsNull(data.packProgress, "and no pack entry invented for a legacy key");
+        }
+
         [Test]
         public void TurningTheCornerDualOff_DoesNotChangeACleanBoardsVerdict()
         {

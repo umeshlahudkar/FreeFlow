@@ -42,6 +42,24 @@ namespace FreeFlow.UI
         [SerializeField] private int classicLevelCount;
         [SerializeField] private int advancedLevelCount;
 
+        [Header("Packs")]
+        // Board sizes that have a generated pack, and how many levels each holds. A pack is a
+        // self-contained run the player CHOOSES -- 5x5 through 9x9 for Classic -- rather than a
+        // stage of one long campaign, so each ramps from the easiest board that size can produce to
+        // the hardest and there is no ordering between them.
+        [SerializeField] private int[] classicPackSizes = { 5, 6, 7, 8, 9 };
+        [SerializeField] private int[] advancedPackSizes = { 6 };
+        [SerializeField] private int packLevelCount = 100;
+
+        // Which pack the level screen is showing. 0 means the LEGACY linear campaign -- the older
+        // Classic 1-100 and Advanced 1-45 -- which still exists and still has its own progress.
+        [SerializeField] private int currentPackSize = 6;
+
+        // Which campaign to open on. Serialised because nothing calls SetMode yet: without it the
+        // mode is fixed at Classic in code and the Advanced packs cannot be reached at all, which
+        // reads in play as "the mechanics are missing" when they are simply in the other folder.
+        [SerializeField] private GameMode startingMode = GameMode.Classic;
+
         [Header("Pause screen")]
         [SerializeField] GameObject pauseScreen;
 
@@ -61,9 +79,38 @@ namespace FreeFlow.UI
 
         /// <summary>How many levels the CURRENT mode has. Every caller that used to ask for a
         /// single campaign total wants this.</summary>
+        /// <summary>Board size of the pack on screen, or 0 for the legacy linear campaign.</summary>
+        public int CurrentPackSize { get { return currentPackSize; } }
+
+        /// <summary>Pack sizes available in <paramref name="mode"/>, for a pack-select screen.</summary>
+        public int[] PackSizesFor(GameMode mode)
+        {
+            return mode == GameMode.Advanced ? advancedPackSizes : classicPackSizes;
+        }
+
         public int TotalLevelCount
         {
-            get { return CurrentMode == GameMode.Advanced ? advancedLevelCount : classicLevelCount; }
+            get
+            {
+                if (currentPackSize > 0) { return packLevelCount; }
+                return CurrentMode == GameMode.Advanced ? advancedLevelCount : classicLevelCount;
+            }
+        }
+
+        /// <summary>
+        /// Identifies whose progress this is. Packs are keyed by mode AND size, because finishing
+        /// 5x5 level 20 must not mark 7x7 level 20 complete; the legacy campaigns keep the bare mode
+        /// name and, through <see cref="SaveData"/>, their original fields -- so a returning player
+        /// mid-way through the old run keeps their place.
+        /// </summary>
+        public string ProgressKey
+        {
+            get
+            {
+                return currentPackSize > 0
+                    ? CurrentMode.ToString() + currentPackSize + "x" + currentPackSize
+                    : CurrentMode.ToString();
+            }
         }
 
         public int LevelCountFor(GameMode mode)
@@ -78,6 +125,11 @@ namespace FreeFlow.UI
         /// </summary>
         private string LevelResourcePath(int levelNumber)
         {
+            if (currentPackSize > 0)
+            {
+                return "Levels/" + CurrentMode + "/" + currentPackSize + "x" + currentPackSize
+                     + "/Level_" + levelNumber;
+            }
             return "Levels/" + CurrentMode + "/Level_" + levelNumber;
         }
 
@@ -89,6 +141,27 @@ namespace FreeFlow.UI
         {
             if (CurrentMode == mode) { return; }
             CurrentMode = mode;
+
+            // A pack size that exists in one mode may not in the other -- Classic has 5x5 through
+            // 9x9, Advanced only what has been generated so far -- so fall back rather than leave
+            // the level screen pointing at a folder with nothing in it.
+            int[] available = PackSizesFor(mode);
+            if (currentPackSize > 0 && System.Array.IndexOf(available, currentPackSize) < 0)
+            {
+                currentPackSize = available.Length > 0 ? available[0] : 0;
+            }
+
+            levelScreenController.SpawnLevelButtons(TotalLevelCount);
+        }
+
+        /// <summary>
+        /// Switches the level screen to another pack. <paramref name="packSize"/> is a board size,
+        /// or 0 for the legacy linear campaign.
+        /// </summary>
+        public void SetPack(int packSize)
+        {
+            if (currentPackSize == packSize) { return; }
+            currentPackSize = packSize;
             levelScreenController.SpawnLevelButtons(TotalLevelCount);
         }
 
@@ -96,6 +169,17 @@ namespace FreeFlow.UI
 
         private void Start()
         {
+            CurrentMode = startingMode;
+
+            int[] available = PackSizesFor(CurrentMode);
+            if (currentPackSize > 0 && System.Array.IndexOf(available, currentPackSize) < 0)
+            {
+                Debug.LogWarning("UIController: " + CurrentMode + " has no " + currentPackSize + "x"
+                    + currentPackSize + " pack; falling back to "
+                    + (available.Length > 0 ? available[0] + "x" + available[0] : "the linear campaign") + ".");
+                currentPackSize = available.Length > 0 ? available[0] : 0;
+            }
+
             levelScreenController.SpawnLevelButtons(TotalLevelCount);
         }
 
@@ -116,7 +200,19 @@ namespace FreeFlow.UI
                 {
                     Resources.UnloadAsset(currentLevelDataAsset);
                 }
-                currentLevelDataAsset = Resources.Load<SingleLevelDataSO>(LevelResourcePath(levelNumber));
+                string path = LevelResourcePath(levelNumber);
+                currentLevelDataAsset = Resources.Load<SingleLevelDataSO>(path);
+
+                // A missing asset used to surface as a NullReferenceException one line down, which
+                // says nothing about the cause. A mis-set pack size or a pack that was never
+                // generated is the likely reason, so name the path.
+                if (currentLevelDataAsset == null)
+                {
+                    Debug.LogError("No level asset at Resources/" + path
+                        + " -- check the pack exists for " + CurrentMode + " at this board size.");
+                    return;
+                }
+
                 currentLevelData = currentLevelDataAsset.levelData;
 
                 levelScreenController.gameObject.SetActive(false);

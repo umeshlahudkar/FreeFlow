@@ -129,6 +129,7 @@ namespace FreeFlow.GamePlay
             public Dictionary<int, Block> Target;
             public HashSet<int> Finished;
             public HashSet<int> Banned;     // edge keys; see BanKey
+            public List<(Block Cell, int PairId)> Checkpoints;
             public bool UseCornerDual;
             public int Filled;
             public int Usable;
@@ -148,6 +149,7 @@ namespace FreeFlow.GamePlay
                     Target = Target,
                     Finished = new HashSet<int>(Finished),
                     Banned = new HashSet<int>(Banned),
+                    Checkpoints = Checkpoints,          // authored, never mutated
                     UseCornerDual = UseCornerDual,
                     Filled = Filled,
                     Usable = Usable
@@ -183,6 +185,52 @@ namespace FreeFlow.GamePlay
         /// guessing may go before the board is reported unsolved -- a board needing more than a
         /// handful of assumptions is past what a person will reason through anyway.
         /// </summary>
+        /// <summary>
+        /// Whether this solver models every rule on <paramref name="grid"/>, and so whether its
+        /// rating means anything at all.
+        ///
+        /// <b>Ask before rating an Advanced board.</b> Rating one it does not understand does not
+        /// produce a rough answer, it produces a confident answer about a different puzzle -- and
+        /// <see cref="DifficultyModel"/> takes 77% of its score from this class.
+        ///
+        /// Supported: Blocked, Wall, One-Way, Arrow, ForbiddenForPair, AllowedForPairs, Checkpoint.
+        /// The first six are admission predicates on a single-occupant cell, which is exactly the
+        /// shape <see cref="LegalMoves"/> already has; a checkpoint is a completion condition, and
+        /// full coverage makes it cheap to check (the cell is owned by someone, the rule is that it
+        /// be owned by the named pair).
+        ///
+        /// Refused, and for structural reasons rather than missing work:
+        ///   - <b>Bridge</b> -- two paths occupy one cell, and <c>State.Owner</c> holds a single
+        ///     pair id per cell. It also invalidates the corner dual law outright, whose proof rests
+        ///     on an interior cell having exactly two connections; a bridge has four.
+        ///   - <b>Shared Destination</b> -- one cell is an endpoint for two pairs, so seeding it
+        ///     double-counts <c>Filled</c> and the last pair registered overwrites the owner.
+        /// </summary>
+        public static bool CanRate(Block[,] grid, int rowCount, int colCount, out string reason)
+        {
+            for (int r = 0; r < rowCount; r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    Block cell = grid[r, c];
+                    if (cell == null) { continue; }
+
+                    if (cell.BlockType == BlockType.Bridge)
+                    {
+                        reason = "bridge at (" + r + "," + c + "): two occupants per cell";
+                        return false;
+                    }
+                    if (cell.IsSharedGoal)
+                    {
+                        reason = "shared destination at (" + r + "," + c + "): one cell, two endpoints";
+                        return false;
+                    }
+                }
+            }
+            reason = string.Empty;
+            return true;
+        }
+
         /// <param name="assumeNoSelfTouch">Whether the corner dual law may be used. It is valid
         /// ONLY on boards whose solution has no link touching itself, so a caller that has not
         /// established that must pass false -- see <see cref="CornerDualScan"/>. Leaving it true on
@@ -207,6 +255,7 @@ namespace FreeFlow.GamePlay
                 Target = new Dictionary<int, Block>(),
                 Finished = new HashSet<int>(),
                 Banned = new HashSet<int>(),
+                Checkpoints = CollectCheckpoints(grid, rowCount, colCount),
                 UseCornerDual = assumeNoSelfTouch,
                 Filled = 0,
                 Usable = 0
@@ -269,7 +318,10 @@ namespace FreeFlow.GamePlay
 
             if (state.Filled >= state.Usable && state.Finished.Count == state.Head.Count)
             {
-                return true;
+                // Coverage and connection are not the whole win condition once checkpoints exist:
+                // every cell is owned by someone, and the rule is that these ones be owned by the
+                // pair they name.
+                return CheckpointsSatisfied(state);
             }
 
             if (depth >= maxAssumptions) { return false; }
@@ -425,11 +477,28 @@ namespace FreeFlow.GamePlay
                     {
                         Block n = Step(state, cell, Directions[d]);
                         if (n == null) { continue; }
+
                         int owner = state.Owner[n.Row_ID, n.Coloum_ID];
+
+                        // An empty neighbour stays permissive: any colour might arrive, so there is
+                        // no pair to test the rules against. Where the pair IS known -- a head, or a
+                        // colour's target dot -- the connection only counts if that colour could
+                        // really make it, which is what keeps the count honest on a board of
+                        // one-ways and arrows.
                         if (owner == 0) { free++; continue; }
                         if (state.Finished.Contains(owner)) { continue; }
-                        if (IsHeadOf(state, n, owner)) { free++; headPair = owner; continue; }
-                        if (state.Target.ContainsKey(owner) && state.Target[owner] == n) { free++; }
+
+                        Direction toward = BoardTopology.Opposite(Directions[d]);
+                        if (IsHeadOf(state, n, owner))
+                        {
+                            if (Admits(state, n, toward, cell, owner)) { free++; headPair = owner; }
+                            continue;
+                        }
+                        if (state.Target.ContainsKey(owner) && state.Target[owner] == n
+                            && Admits(state, cell, Directions[d], n, owner))
+                        {
+                            free++;
+                        }
                     }
 
                     if (free != 2 || headPair == 0 || state.Finished.Contains(headPair)) { continue; }
@@ -607,7 +676,8 @@ namespace FreeFlow.GamePlay
             return true;
         }
 
-        /// <summary>Cheap contradiction check: an unfinished path with nowhere to go.</summary>
+        /// <summary>Cheap contradiction checks: an unfinished path with nowhere to go, or a
+        /// checkpoint already taken by the wrong colour.</summary>
         private static bool Consistent(State state)
         {
             foreach (KeyValuePair<int, Block> kv in state.Head)
@@ -615,6 +685,71 @@ namespace FreeFlow.GamePlay
                 if (state.Finished.Contains(kv.Key)) { continue; }
                 if (LegalMoves(state, kv.Key).Count == 0) { return false; }
             }
+
+            // A checkpoint claimed by another colour can never be un-claimed, so this branch is
+            // dead the moment it happens -- worth catching early rather than at completion.
+            for (int i = 0; i < state.Checkpoints.Count; i++)
+            {
+                Block cell = state.Checkpoints[i].Cell;
+                int owner = state.Owner[cell.Row_ID, cell.Coloum_ID];
+                if (owner != 0 && owner != state.Checkpoints[i].PairId) { return false; }
+            }
+            return true;
+        }
+
+        private static bool CheckpointsSatisfied(State state)
+        {
+            for (int i = 0; i < state.Checkpoints.Count; i++)
+            {
+                Block cell = state.Checkpoints[i].Cell;
+                if (state.Owner[cell.Row_ID, cell.Coloum_ID] != state.Checkpoints[i].PairId)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static List<(Block Cell, int PairId)> CollectCheckpoints(Block[,] grid, int rows, int cols)
+        {
+            List<(Block, int)> found = new List<(Block, int)>();
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+                    Block cell = grid[r, c];
+                    if (cell != null && cell.BlockType == BlockType.Checkpoint)
+                    {
+                        found.Add((cell, cell.PairId));
+                    }
+                }
+            }
+            return found;
+        }
+
+        /// <summary>The direction a path was travelling when it entered <paramref name="cell"/>,
+        /// or None where it started there. Arrow cells need it: theirs is the one rule that relates
+        /// the incoming direction to the outgoing one.</summary>
+        private static Direction EntryDirectionOf(State state, Block cell)
+        {
+            int enter = state.EnterDir[cell.Row_ID, cell.Coloum_ID];
+            return enter == 0 ? Direction.None : Directions[enter - 1];
+        }
+
+        /// <summary>
+        /// Whether <paramref name="pairId"/> may actually move out of <paramref name="from"/> into
+        /// <paramref name="to"/>, by the same three predicates gameplay and PuzzleSolver use.
+        ///
+        /// Without these the solver walks the wrong way through a One-Way, ignores an Arrow's forced
+        /// exit, and strolls into a cell forbidden to that colour -- rating a puzzle nobody is
+        /// playing. Geometry (bounds, walls, blocked) is <see cref="Step"/>'s job and is checked
+        /// before this.
+        /// </summary>
+        private static bool Admits(State state, Block from, Direction dir, Block to, int pairId)
+        {
+            if (!from.CanExitFrom(EntryDirectionOf(state, from), dir)) { return false; }
+            if (!to.CanEnterFrom(dir)) { return false; }
+            if (!to.CanEnter(pairId)) { return false; }
             return true;
         }
 
@@ -653,6 +788,7 @@ namespace FreeFlow.GamePlay
             {
                 Block n = Step(state, head, Directions[d]);
                 if (n == null) { continue; }
+                if (!Admits(state, head, Directions[d], n, pairId)) { continue; }
                 if (n == target) { moves.Add(n); continue; }
                 if (state.Owner[n.Row_ID, n.Coloum_ID] != 0) { continue; }
                 if (state.Banned.Contains(state.BanKey(head, n))) { continue; }

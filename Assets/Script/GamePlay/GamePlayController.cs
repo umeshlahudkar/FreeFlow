@@ -735,12 +735,12 @@ namespace FreeFlow.GamePlay
             int totalLevelCount = UIController.Instance.TotalLevelCount;
             if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
 
-            GameMode mode = UIController.Instance.CurrentMode;
+            string key = UIController.Instance.ProgressKey;
             SaveData data = SavingSystem.Instance.Load();
 
-            int[] attempts = EnsureLength(data.AttemptsFor(mode), totalLevelCount);
+            int[] attempts = EnsureLength(data.AttemptsForKey(key), totalLevelCount);
             attempts[currentLevel - 1]++;
-            data.SetAttemptsFor(mode, attempts);
+            data.SetAttemptsForKey(key, attempts);
 
             SavingSystem.Instance.Save(data);
         }
@@ -766,34 +766,26 @@ namespace FreeFlow.GamePlay
             SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
             int totalLevelCount = UIController.Instance.TotalLevelCount;
-            GameMode mode = UIController.Instance.CurrentMode;
 
-            // Progress is kept per mode: Classic 1 and Advanced 1 are different boards, so one
-            // shared array would have each campaign overwriting the other's move counts.
-            int[] modeMoves = data.MovesFor(mode);
+            // Progress is kept per PACK, not per mode: Classic 5x5 level 20 and Classic 7x7 level 20
+            // are different boards, so one shared array would have each pack overwriting the other's
+            // record. The legacy linear campaigns keep their own key and their original fields.
+            string key = UIController.Instance.ProgressKey;
 
-            // sized once to the total level count, rather than growing by one slot (and
-            // copying the whole array) on every single level completion
-            if (modeMoves == null || modeMoves.Length < totalLevelCount)
-            {
-                int[] resized = new int[totalLevelCount];
-                if (modeMoves != null) { System.Array.Copy(modeMoves, resized, modeMoves.Length); }
-                modeMoves = resized;
-                data.SetMovesFor(mode, modeMoves);
-            }
-
-            modeMoves[currentLevel - 1] = moves;
+            int[] packMoves = EnsureLength(data.MovesForKey(key), totalLevelCount);
+            packMoves[currentLevel - 1] = moves;
+            data.SetMovesForKey(key, packMoves);
 
             // Time on the attempt that actually finished. Pelánek's entire Sudoku evaluation
             // regresses difficulty metrics against exactly this number, so it is what any future
             // fitting of DifficultyModel's weights will need.
-            float[] modeSeconds = EnsureLength(data.SecondsFor(mode), totalLevelCount);
-            modeSeconds[currentLevel - 1] = Time.unscaledTime - attemptStartTime;
-            data.SetSecondsFor(mode, modeSeconds);
+            float[] packSeconds = EnsureLength(data.SecondsForKey(key), totalLevelCount);
+            packSeconds[currentLevel - 1] = Time.unscaledTime - attemptStartTime;
+            data.SetSecondsForKey(key, packSeconds);
 
-            if (currentLevel > data.CompletedLevelFor(mode))
+            if (currentLevel > data.CompletedLevelForKey(key))
             {
-                data.SetCompletedLevelFor(mode, currentLevel);
+                data.SetCompletedLevelForKey(key, currentLevel);
             }
 
             SavingSystem.Instance.Save(data);

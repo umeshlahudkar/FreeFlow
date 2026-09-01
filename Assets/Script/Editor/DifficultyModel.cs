@@ -69,6 +69,14 @@ namespace FreeFlow.GamePlay
             /// every other field is meaningless.</summary>
             public bool Valid;
 
+            /// <summary>Whether <see cref="HumanSolver"/> models every rule on this board. False
+            /// leaves <see cref="Human"/> null, drops the two deduction terms from the blend, and
+            /// makes the board unfit for selection -- see <see cref="UnrateableReason"/>.</summary>
+            public bool Rateable = true;
+
+            /// <summary>Which rule the deduction model does not understand; empty when it does.</summary>
+            public string UnrateableReason = string.Empty;
+
             /// <summary>
             /// Whether the board is fit to ship at all, which is a SEPARATE question from how hard
             /// it is. <see cref="Score"/> ranks; this filters, and it must be applied first --
@@ -89,7 +97,8 @@ namespace FreeFlow.GamePlay
             {
                 if (!Valid) { return "INVALID (unsolvable or unrated)"; }
                 return "score=" + Score.ToString("0.0") + (WellFormed ? "" : " [MALFORMED]")
-                    + "  | " + Human
+                    + (Rateable ? "" : "  [UNRATEABLE: " + UnrateableReason + "]")
+                    + "  | " + (Human == null ? "not rated" : Human.ToString())
                     + "  | " + (Relaxation == null ? "relaxation not run" : Relaxation.ToString())
                     + "  | tangle=" + Tangle.ToString("0")
                     + "  | " + Structure;
@@ -143,8 +152,18 @@ namespace FreeFlow.GamePlay
                 // check has to run FIRST and hand its verdict to the deduction model. Get this
                 // order wrong and a self-touching board reports UNSOLVED rather than merely
                 // unrated, which reads as "impossible" when it means "rule not applicable".
-                profile.Human = HumanSolver.Rate(grid, rows, cols, maxAssumptions,
-                    profile.Structure.SelfTouches == 0);
+                // The deduction model is only meaningful where it models every rule on the board.
+                // On an Advanced board it does not understand, rating would not give a rough answer
+                // -- it would give a confident answer about a different puzzle, and this blend takes
+                // 77% of its score from those terms.
+                profile.Rateable = HumanSolver.CanRate(grid, rows, cols, out string why);
+                profile.UnrateableReason = why;
+
+                if (profile.Rateable)
+                {
+                    profile.Human = HumanSolver.Rate(grid, rows, cols, maxAssumptions,
+                        profile.Structure.SelfTouches == 0);
+                }
             }
             finally { LevelGenerator.DestroyBlockGrid(grid); }
 
@@ -153,7 +172,8 @@ namespace FreeFlow.GamePlay
             if (includeRelaxation) { profile.Relaxation = RelaxationMetrics.Measure(data); }
             profile.Score = Blend(profile);
             profile.Valid = true;
-            profile.WellFormed = profile.Structure.Passed
+            profile.WellFormed = profile.Rateable
+                && profile.Structure.Passed
                 && profile.Human.Solved
                 && profile.Human.Dependency > 0f;
             return profile;
@@ -164,6 +184,15 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public static float Blend(Profile profile)
         {
+            // No deduction terms on a board the solver does not model. Tangle alone is a thin
+            // ranking, which is the honest consequence rather than a workaround: such a board
+            // cannot pass WellFormed either.
+            if (profile.Human == null)
+            {
+                float onlyTangle = Mathf.Clamp01(profile.Tangle / TangleFullScale);
+                return onlyTangle * 100f;
+            }
+
             float refutation = Mathf.Clamp01(profile.Human.Assumptions / AssumptionsFullScale);
 
             // Inverted deliberately. A board offering many simultaneous deductions is EASY, and
