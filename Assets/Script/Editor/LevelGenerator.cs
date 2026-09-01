@@ -3800,8 +3800,15 @@ namespace FreeFlow.GamePlay
             {
                 for (int i = 0; i < rules.Length; i++)
                 {
+                    // Blocked-plus-rule boards are entered TWICE against the bare form's once.
+                    // Holes remove cells before the partition is even built, so those boards are
+                    // markedly harder to pin and lose the pool race badly: at equal weight only 4
+                    // of 100 shipped levels carried both, though half the recipes asked for it.
+                    // Weighting the attempts is the cheapest correction -- the pool cap still stops
+                    // any one recipe running away with the pack.
                     MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, 6);
                     withHoles.ColourDeficit = d;
+                    recipeList.Add(withHoles);
                     recipeList.Add(withHoles);
 
                     MechanicRecipe bare = new MechanicRecipe(rules[i], 0, 6);
@@ -3873,7 +3880,10 @@ namespace FreeFlow.GamePlay
                     if (recipe.Instances == 0 && blockedOnlyKept >= blockedOnlyCap) { continue; }
                     // Capped per rule AND per deficit: a rule that is plentiful at deficit 1 must
                     // not fill the pool and leave the escalation half with nothing at deficit 3.
-                    string bucket = recipe.Name + "@" + recipe.ColourDeficit;
+                    // Blocked-plus-rule and bare boards are capped SEPARATELY, so weighting the
+                    // attempts above cannot simply be undone by one form filling the other's cap.
+                    string bucket = recipe.Name + "@" + recipe.ColourDeficit
+                                  + (recipe.BlockedCells > 0 ? "+holes" : string.Empty);
                     if (recipe.Instances > 0
                         && keptPerMechanic.TryGetValue(bucket, out int already)
                         && already >= perMechanicCap)

@@ -1143,6 +1143,11 @@ MonoBehaviour:
   gameplayScreen: {fileID: 1279531204}
   classicLevelCount: 100
   advancedLevelCount: 45
+  classicPackSizes: 0500000006000000070000000800000009000000
+  advancedPackSizes: 06000000
+  packLevelCount: 100
+  currentPackSize: 6
+  startingMode: 1
   pauseScreen: {fileID: 686318759}
   settingScreen: {fileID: 1269529197}
 --- !u!1 &273343614
