@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 using FreeFlow.Enums;
 using FreeFlow.GamePlay;
@@ -33,6 +34,11 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI gameplayMechanicText;
 
         [SerializeField] private GameObject gameplayScreen;
+
+        // Turned off on any level with no stored answer -- the legacy Advanced 1-45 boards predate
+        // the column and carry none. Left visible but not interactable rather than hidden, so the
+        // header does not reshuffle itself between levels.
+        [SerializeField] private Button hintButton;
 
         [Header("Level Data")]
         // Counts are authored metadata, not derived from a loaded array -- each level's grid data
@@ -228,6 +234,12 @@ namespace FreeFlow.UI
                 UpdateMechanicLabel(currentLevelData);
                 UpdateFilledCells();
                 UpdateMovesCount(0);
+
+                // After GenerateBoard, which is what hands the level's answer over.
+                if (hintButton != null)
+                {
+                    hintButton.interactable = GamePlayController.Instance.HintAvailable;
+                }
             }
         }
 
@@ -480,6 +492,23 @@ namespace FreeFlow.UI
                 boardGenerator.ResetBoard();
 
                 gameOverScreen.Deactivate(0.25f, ()=>LoadNextLevel());
+            }
+        }
+
+        /// <summary>
+        /// Joins one pair along the level's own answer. One hint, one pair, no limit on how many
+        /// times it can be used -- the only cost is the move it adds, and a player who taps it for
+        /// every pair has asked to be shown the board rather than to play it.
+        ///
+        /// A hint that finds nothing to do is silent by design: the board is either already correct
+        /// or has no stored answer, and in the second case the button is not interactable anyway.
+        /// </summary>
+        public void OnHintButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.TryApplyHint();
             }
         }
 

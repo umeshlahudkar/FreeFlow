@@ -18,7 +18,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 | 5 — Difficulty analyzer | ✅ Done | `DifficultyAnalyzer` built, tested, and wired into `LevelGenerator` as the actual acceptance gate — see §6 for the achievable-range finding this surfaced |
 | 6 — Required-mechanic validator | ✅ Done | `RequiredMechanicValidator` built and tested (a real mathematical correction to the spec's naive reading surfaced along the way, see §6) — wired into `LevelGenerator` as a HARD REJECT (§6.18) for Blocked, Wall, One-Way, Arrow, Forbidden, Permitted, Checkpoint and Bridge. Shared Destination is deliberately exempt — it is dot identity, not a strippable rule, so there is no board without it to compare against (§6.22) |
 | 7 — Content generation (rescoped: 200-level campaign) | 🟡 Partial | **50/200 levels built — the entire Learning Phase, all nine mechanics taught** (1–10 Basic+Blocked, 11–15 Wall, 16–20 One-Way, 21–25 Arrow, 26–30 Forbidden, 31–35 Permitted, 36–40 Bridge, 41–45 Checkpoint, 46–50 Shared Destination). Levels 1–10 keep the strict full-coverage rule as the tutorial; 11+ relax it so wrong routes exist and mechanics can matter — every mechanic instance load-bearing, every level uniquely solvable, boards 6×6–7×7 — see §6.6–6.22. Remaining: levels 51–200 (Mastery), which recombines rather than introduces — see §7 |
-| 8 — Hint system | ⬜ Not started | |
+| 8 — Hint system | ✅ Done | One hint, one pair: `HintPath` turns the level's stored answer back into an ordered route and `GamePlayController.TryApplyHint` draws it. Verified across all 600 shipped levels (§6.41) |
 | 9 — Player skill system + save-data expansion | ⬜ Not started | |
 | 10 — Daily challenge | ⬜ Not started | |
 | 11 — Campaign/world UI + stars/rewards + statistics | ⬜ Not started | |
@@ -793,7 +793,7 @@ Bulk-generate-and-validate regression tests (spec §42), no-level-ships-without-
 
 ## 7. Where the project actually stands
 
-**Classic ships as five packs of 100, one per board size — 5×5 through 9×9, 500 levels.** The player picks a pack; each ramps on its own from the easiest board that size can produce to the hardest. Every level is uniquely solvable, structurally well-formed, has at least one deduction available from the opening position, and carries its own stored solution for the hint system. 160 tests pass.
+**Classic ships as five packs of 100, one per board size — 5×5 through 9×9, 500 levels; Advanced has its 6×6 pack of 100 with all nine mechanics.** The player picks a pack; each ramps on its own from the easiest board that size can produce to the hardest. Every level is uniquely solvable, structurally well-formed, has at least one deduction available from the opening position, and carries its own stored solution for the hint system. 160 tests pass.
 
 The older linear Classic 1–50 still exists and is still what the game loads, because **none of the packs are reachable in play yet** — see the open questions. Difficulty, the problem that survived six rounds of playtesting, was closed in §6.35; §6.37–6.38 cover the pack structure and the two colour-count corrections that came out of play.
 
@@ -1631,13 +1631,105 @@ The probe runs at 24 levels; the pack runs at 100. Both of these are invisible a
 
 Extending `HumanSolver` to model Bridge (multi-occupant cells) and Shared Destination (one cell, two endpoints) would let both be ranked and take full part in the escalation half. It is real work — `State.Owner` holds one pair id per cell — and it is the single change that would most widen what Advanced can be.
 
+### 6.40 Instance floors, wall pairing, and where the Advanced generator actually stands
+
+#### One cell of a rule reads as a quirk, not a rule
+
+Play on the first full 6×6 pack: *"some levels I played which has only one arrow."* The data agreed — `Arrow: 1 cell ×6`, and `Wall: 1 cell ×6` too. A single arrow is a peculiarity of that one board; it does not teach the player that arrows exist.
+
+Checkpoint and One-Way had already been given a floor of two for exactly this reason, because those were the two named at the time. The argument was never carried across to the rest, and only playing them surfaced it.
+
+Every rule now starts its climb at **two** cells, walls at **three**, and Bridge and Shared Destination ask their spec for **two**. Walls get three rather than two because `PlaceWalls` grows a *connected* barrier (§6.17) — two edges can only ever make an L, and three is where a T or a longer run becomes possible.
+
+**This is not padding, and the distinction matters.** `MinInstances` sets where the climb starts, not what survives: `AllCellsOfTypeAreNecessary` still requires every cell of the type to be individually load-bearing, so a board where one arrow would have sufficed is rejected as decorative rather than shipped with a spare. Raising the floor *selects for* boards that genuinely need two; it cannot invent them. The evidence is the rejection count — decorative rose from 891 to 1522 on a comparable run, which is precisely those boards being thrown out.
+
+#### Both permission rules always supported two colours; we were using one
+
+`Block.NamesPair` checks `secondPairId`, and the border art draws a slice per named colour. The generator only ever set `pairId`. Both forms are now generated, and both are worth having because **they pull in opposite directions**: a second *forbidden* colour refuses one more path and tightens the board, a second *permitted* colour admits one more and loosens it. So the pair covers boards the one-colour form over-constrains as well as ones it under-constrains.
+
+The two-colour form is a variant, not a rule: it keeps its own pool cap so both get generated, but shares the player-facing run. Giving it a run of its own split six rules into eight groups and starved each.
+
+#### Wall + rule pairing: the same answer, and a measurement bug in my favour
+
+"Two rules cannot share a board" had been measured only on pairs of CELL rules — One-Way+Checkpoint, Arrow+Forbidden, Checkpoint+Forbidden, One-Way+Arrow. Every one of those restricts entry to cells, so one subsuming the other is close to predictable. A wall blocks an EDGE regardless of colour or direction, which is a different kind of constraint entirely, and it had never been tested. Prompted by *"in some other level some have arrow some will have Walls."*
+
+| pair | both load-bearing |
+|---|---|
+| Arrow + Wall | 0 / 400 |
+| One-Way + Wall | 0 / 400 |
+| Checkpoint + Wall | 5 / 400 — *shapes `2+0w`* |
+| Forbidden + Wall | 1 / 400 — *shape `2+2w`* |
+
+**The 5 are not pairings at all.** Their shape is `2+0w`: two checkpoints and *zero walls*. `AllWallsAreNecessary` passes vacuously on a board with no walls, so the check counted checkpoint-only boards as successful pairings. Corrected, the real figure is **1 genuine wall+rule board in 1600** — statistically identical to the 4-in-1600 for cell pairs.
+
+So the conclusion extends to walls, now tested rather than assumed. My reason for expecting walls to differ was plausible and wrong: the binding constraint is not *what kind* of thing a rule restricts, but that once a board is pinned, whatever pinned it leaves nothing for anything else to do.
+
+**The general lesson is about the measurement, not the mechanic.** A predicate that quantifies over a set is vacuously true on the empty set, and the number it produces is silently wrong in the direction you were hoping for. Any "all X are necessary" check needs a companion assertion that there *were* some X.
+
+#### Blocked cells alongside a rule: a yield problem, not a design limit
+
+Only **4 of 100** shipped levels carried blocked cells with a rule, though half the recipes asked for it. Holes remove cells before the partition is built, so those boards are markedly harder to pin and lost the pool race at equal weight.
+
+Fixed with two changes, and one alone would not have worked: blocked-plus-rule recipes are entered **twice** against the bare form's once, **and** capped separately. Weighting alone would have been undone by the bare form filling the shared cap — the fix would have looked applied and done nothing.
+
+#### Where the generator actually stands
+
+| pack | state |
+|---|---|
+| 6×6 | **Ready and proven** — 100 levels built, verified, committed |
+| 7×7 | Wired (`BuildAdvancedPack(7, 100, 10, 900, 10)`), never run |
+| 5×5, 8×8, 9×9 | **No entry point at all** |
+
+Two things block the rest:
+
+**The instance ceiling is hard-coded at 6** on every recipe. Harmless at 6×6, where boards settle on two to four cells. At 9×9 a board may legitimately need eight to become unique, and it is discarded as a generation failure — which would read as "9×9 will not generate" rather than "the ceiling was too low". The same shape of error as the 8×8 colour-count claim.
+
+**The colour ratio is not guessable per size.** `cellsPerColour` is 9 at 6×6 and 10 at 7×7, both from measurement. Classic had to measure 8×8 and 9×9 the hard way, and got 8×8 wrong the first time by probing too small a sample.
+
+**5×5 is genuinely doubtful.** Classic already hit a material ceiling there — 226 distinct boards in 4000 attempts, 93% duplicates when pushed. Advanced demands strictly more: ambiguous first, then pinned by a mechanic whose every cell is load-bearing, on 25 cells carrying 2 holes and a 2-cell rule floor. It may not have the room.
+
+#### Proposed, not implemented: scale the window with the board
+
+Floor `cells / 18`, ceiling `cells / 6` — so 6×6 keeps 2 and 6, while 9×9 gets 4 and 13. This sets the *window*, not the count: the number is still whatever the board needs, and every cell still faces the necessity gate.
+
+Two exceptions:
+
+- **Permitted must NOT scale up.** It refuses everyone *not* named, so its strength grows with colour count — on a 9×9 with ten colours a single permitted cell is roughly three times the constraint it is on a 6×6. Raising its floor there would push boards into unsolvability, and the failures would show up as poor yield rather than as anything obviously wrong.
+- **Shared Destination is bounded by arithmetic**, not judgement: each cell is the endpoint for two to four colours, so a board with C colours holds at most C/2 of them.
+
+### 6.41 The hint system, and why reading the stored answer is a search
+
+One hint, one pair: the button joins the lowest-numbered pair that is not already drawn correctly, along the route the level's own answer gives it. No limit on taps, no economy, no second kind of hint.
+
+**The stored column is a colouring, not a route, and that is the whole difficulty.** `solutionPairId` says which pair covers each cell and nothing about the order they are visited in. The obvious reconstruction — from a dot, step to whichever neighbour is also mine — is wrong on ordinary boards, not exotic ones: a Flow path routinely runs alongside itself, and then two cells are neighbours on the grid while being many steps apart along the path. The failure is silent and it is the worst shape a hint bug can have — a route that joins the pair while skipping its own cells, on a board that only completes when every cell is covered, so the player is told the answer and the answer does not work.
+
+`HintPath` backtracks instead, and requires the route to use **every** cell the answer gave the pair. That requirement is what makes the reconstruction unambiguous rather than merely lucky; the two dots being adjacent is then just another branch to reject rather than a special case. Each step is checked against the board's own predicates — walls, one-way entry, an arrow's forced exit, a bridge's straight-through-only — minus `CanAcceptEntry`, which asks who is drawn there *now*: the route is a property of the level, not of the board mid-play.
+
+**Bridges needed one extra rule, and only measurement showed it was needed.** The column holds one pair id per cell, so at a crossing only one of the two paths is recorded there — the other pair's cells are left split in two by a cell it does in fact pass straight through. Its route has to cross a cell the answer gave to someone else, which is the single exception to "only my own cells". This was nearly written off as a legacy-only concern: `HumanSolver` refuses Bridge, so the assumption was that no pack level carries one. **Four of the 100 shipped Advanced levels do** (12, 23, 34, 45), and without the exception the hint would have failed on exactly those four.
+
+**The route traces itself rather than appearing.** Drawn instantly, a whole route arrives at once and the player has to work out afterwards which pair moved and where it went — play feedback on the first build was exactly that. It now draws a cell at a time, the leaving cell's bar growing out to the shared edge and then the entered cell's bar in from it, with the touch pointer riding the head of the line: the same two calls per step a drag commits, only spaced over frames. About 0.7 s for a route, clamped per step so a two-cell pair does not finish before the eye finds it and a twenty-cell one does not make the player wait.
+
+Two things that follow from it rather than being decoration. The board is closed to input while a route draws (`GameState.Waiting`), because a drag over cells the route has not reached yet would be editing a line still being laid down — which also makes a second tap a no-op for free. And nothing is registered in `pairSegments` until the last cell lands, so a route interrupted half-way counts as nothing rather than as a wrongly-drawn pair; `ResetGameplay` stops the trace, since its next frame would otherwise draw onto cells that are being destroyed.
+
+**Taking cells back is a trim, not a wipe.** Cells on the route that another pair is holding are trimmed to the cell before the one taken — the same thing a drag stealing a cell already does — rather than clearing that pair's whole line. It runs as its own pass before anything is drawn, because trimming resets a cell's bars by direction regardless of who owns them, so interleaving the two passes would let a later trim erase a bar the hint had just drawn.
+
+**Two design choices worth stating.** The hint targets pairs that are not already *correct*, not pairs that are not already *joined*: a pair joined by the wrong route still blocks the level, and skipping it would make the hint look broken to the player who most needs it. And it counts as a move, because it changes the board exactly as a drag would and the move count is the record of what finishing took.
+
+**Verified two ways.** Offline, every one of the **600 shipped levels — 3,776 pairs — reconstructs a route, and each level's routes together cover every usable cell**, which is the property that makes hinting every pair finish the board. In play, seven levels including all four bridge levels were hinted to completion (36/36 cells, win screen fired), one of them after a deliberately wrong partial route had been drawn first, so the trimming path was exercised rather than assumed; the animated version was then re-run on a bridge level and caught mid-trace to confirm it draws progressively rather than snapping. 181 tests pass, 12 of them new.
+
+**One thing to know before verifying this in the Editor again:** an unfocused Editor does not tick play mode unless Run In Background is on, so the trace simply does not advance and reads as a hang. `Application.runInBackground = true` at runtime is enough; `Time.timeScale` slows the trace for a screenshot. Neither is a code change — the first build of this was verified by calling `TryApplyHint` in a loop, which worked precisely because nothing needed frames.
+
+**Where it does not work, by design:** the legacy Advanced 1-45 campaign carries no stored answer at all (0 of 45), so the button turns itself off there rather than solving on device — which §6.24's own measurement rules out at 49.5 ms average and 771 ms worst on desktop. Backfilling those levels is possible with the generator's `FillStoredSolution`, but they are the Bridge and Shared Destination boards, where the column is inherently partial.
+
 ### Open questions, current
 
 - **Difficulty is SOLVED for 7×7 and confirmed in play (§6.35).** The note below was written when it was not, and its two "blocked" axes have both moved: board size is no longer the constraint (8×8 is cheaper to generate than 7×7, §6.31), and mechanic density is an Advanced-mode question rather than a difficulty one. What remains genuinely open is carried forward below.
 - ~~The 5×5 and 6×6 blocks have not had the §6.35 treatment.~~ **Done — the whole campaign now ramps (§6.36).**
 - **`DifficultyModel.Measure` caps at `maxAssumptions = 14`, and that cap is hard against the ceiling.** A board needing 15 reports unsolved, fails `WellFormed`, and is discarded — so selection actively rejects the hardest boards the generator makes. 9×9's level 100 measures exactly 14. On the hardest pack we own, the cap is throwing away the best material. Raising it costs only solve time.
 - **9×9 was never probed below 9 colours**, and the range was chosen by analogy rather than measured — the same error that put the first 8×8 pack at 10–12 colours until play caught it. 7 and 8 colours would give 11.6 and 10.1 cells each, longer paths than anything shipped. Probing is cheap; building might be days.
-- **THE PACKS ARE NOT REACHABLE IN GAME.** 500 built across five sizes, verified, and inert. `UIController.LevelResourcePath` returns `Levels/{Mode}/Level_{n}`, which resolves to the old Classic 1–50; the packs are at `Levels/Classic/{size}x{size}/`. Fixing the path is one line, but five things assume one list of levels per mode: there is no "current pack" concept, `classicLevelCount` is a single serialised int, **progress is keyed by mode only** (so finishing 5×5 level 20 would mark 7×7 level 20 done), there is no pack-select UI, and `SetMode()` is still never called so Advanced has never been reachable either. The save-data part is where the care is needed — it must not reset existing progress, the same constraint that made Classic keep the original field names.
+- **Advanced generates for 6×6 and 7×7 only (§6.40).** 5×5, 8×8 and 9×9 have no entry point, the instance ceiling is hard-coded at 6 and will silently discard boards a 9×9 legitimately needs, and each size's colour ratio has to be measured rather than guessed. 5×5 may not have the room at all.
+- **Classic packs ARE reachable now; Advanced 6×6 is the one on screen.** `LevelResourcePath` takes a pack dimension and progress is keyed per pack. What is still missing is a pack-select and mode-select UI: `SetPack` and `SetMode` exist and nothing calls them, so switching packs means editing `currentPackSize` / `startingMode` in the Inspector. `startingMode` is committed as Advanced, which is right for testing and wrong for release.
+- **The old linear Classic 1–100 and Advanced 1–45 still exist**, keep their own progress under the legacy keys, and are reachable by setting the pack size to 0. `UIController.LevelResourcePath` returns `Levels/{Mode}/Level_{n}`, which resolves to the old Classic 1–50; the packs are at `Levels/Classic/{size}x{size}/`. Fixing the path is one line, but five things assume one list of levels per mode: there is no "current pack" concept, `classicLevelCount` is a single serialised int, **progress is keyed by mode only** (so finishing 5×5 level 20 would mark 7×7 level 20 done), there is no pack-select UI, and `SetMode()` is still never called so Advanced has never been reachable either. The save-data part is where the care is needed — it must not reset existing progress, the same constraint that made Classic keep the original field names.
 - **Three design decisions gate that work**, and they are not engineering ones: whether the old Classic 1–50 survive alongside the packs or are retired; how mode and pack compose, given Advanced's 45 levels are not organised by board size; and whether packs unlock or are all open from the start.
 - **Sizing a generation run: measure every stage, do not extrapolate from one.** Three estimates, two badly wrong, and the same cause each time — the stage not front of mind was left out. Gathering N *canonically distinct* boards is often the dominant cost and gets slower as the pool fills; the scoring pass is dominated by relaxation. The estimate that landed was measured end to end first.
 - **Levels 51–200 (Mastery), for the record as it stood before the above.** Measured, not estimated.
@@ -1669,5 +1761,6 @@ Extending `HumanSolver` to model Bridge (multi-occupant cells) and Shared Destin
 - **The four newest mechanics have never been played.** Bridge, Checkpoint, Shared Destination and Permitted (levels 31–50) are verified by the solver but not by a human. Every previous playtest found something the gates did not — Level 1's empty cells, Level 7, Level 11, Level 14's walls — so this is worth doing before generating 150 more.
 - **Board size: 8×8 is available now at 12 colours; 9×9+ needs more colours, not a better solver.** See the table above. The open question is whether 8×8 actually plays harder, given its shorter average path, and whether adding colours past 12 is worth the art cost.
 - **`DifficultyAnalyzer.Score` still is not a difficulty target** and all 50 levels score in a narrow 43–56 band regardless of how they actually play. Something better is needed before difficulty can be *ordered* rather than merely bounded — the level-select UI and daily-challenge selection both want a number that means something.
-- **Phases 8–13 are untouched** (hints, save-data versioning, daily challenge, campaign/world UI, mobile polish, QA gate). Hints are the natural next one: they read the stored per-level solution and need no new solving.
+- ~~Phases 8–13 are untouched.~~ **Phase 8 (hints) is built (§6.41).** Phases 9–13 remain: save-data versioning, daily challenge, campaign/world UI, mobile polish, QA gate. The pack-select and mode-select UI (`SetPack`/`SetMode` exist and nothing calls them) is the one blocking the packs being reachable in play at all, so it is the natural next one.
+- **The legacy Advanced 1–45 levels carry no stored answer**, so the hint button is off there. Backfilling with `FillStoredSolution` is a menu item away, but those are the Bridge and Shared Destination boards, where one pair id per cell cannot record a crossing fully — worth deciding whether to backfill or retire them alongside the "do the old campaigns survive the packs" question below.
 - **Art/UI scope** remains a separate parallel content task; nothing in this plan covers world themes, statistics screens, or daily-challenge screens.

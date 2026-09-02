@@ -113,6 +113,11 @@ namespace FreeFlow.GamePlay
 
             NormalizeWalls(rowSize, coloumSize);
 
+            // The level's own answer, for the hint system. Handed over here rather than read by
+            // GamePlayController itself, because this is already the one place that knows every
+            // column of the level data and turns it into a live board.
+            GamePlayController.Instance.SetSolution(data);
+
             // Placement is a second pass: every block has to exist before the board can be
             // measured and laid out, and LayoutBoard is the same code path a screen resize
             // goes through, so there is only one copy of the arithmetic.

@@ -1,6 +1,7 @@
 using FreeFlow.Enums;
 using FreeFlow.UI;
 using FreeFlow.Util;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -56,6 +57,24 @@ namespace FreeFlow.GamePlay
         public Block[,] grid;
         public int gridRow;
         public int gridCol;
+
+        // The level's own answer -- one pair id per cell, 0 where nothing covers it -- or null on a
+        // level that never recorded one. Handed over when the board is built rather than derived
+        // here; see LevelData.solutionPairId for why it is stored rather than solved for on demand,
+        // and HintPath for how an ordered route is recovered from it.
+        private int[,] solutionPairId;
+
+        // The hint's route being traced onto the board, or null when none is. Held so a second tap
+        // cannot start a route while one is still drawing, and so tearing the board down can stop it.
+        private Coroutine hintRoutine;
+
+        // How long a hinted route takes to draw itself, and the per-step bounds that keep that
+        // honest at both ends: a two-cell pair should not finish before the eye finds it, and a
+        // twenty-cell one should not make the player wait. The total is a target, the bounds win --
+        // so a long route runs a little over budget rather than becoming a blur.
+        private const float HintDrawSeconds = 0.7f;
+        private const float MinHintStepSeconds = 0.05f;
+        private const float MaxHintStepSeconds = 0.14f;
         // Dots scaled up when the player grabs a pair.
         private List<Block> highlightedBlock = new List<Block>();
 
@@ -514,6 +533,17 @@ namespace FreeFlow.GamePlay
             hasSelectExistingFromLast = false;
             selectedBlocks.Clear();
 
+            CheckForLevelComplete();
+        }
+
+        /// <summary>
+        /// Ends the level if the board now satisfies both halves of the win condition, and refreshes
+        /// the checkpoint warning if it does not. Called after anything that changes what is drawn --
+        /// a released drag, or a hint -- because "the level is finished" is a property of the board,
+        /// not of what caused the last change to it.
+        /// </summary>
+        private void CheckForLevelComplete()
+        {
             int count = GetPairCompleteCount();
             UIController.Instance.UpdateFilledCells();
 
@@ -1750,6 +1780,345 @@ namespace FreeFlow.GamePlay
 
 
         /// <summary>
+        /// Hands over the answer this level shipped with, at board build time. Null on a level that
+        /// never recorded one, which is what turns the hint button off rather than any separate
+        /// notion of hints being disabled.
+        /// </summary>
+        public void SetSolution(LevelData data)
+        {
+            solutionPairId = HintPath.ReadSolution(data);
+        }
+
+        /// <summary>Whether this board can be hinted at all -- see <see cref="SetSolution"/>.</summary>
+        public bool HintAvailable
+        {
+            get { return grid != null && solutionPairId != null; }
+        }
+
+        /// <summary>
+        /// Draws one pair the way the level's own answer says it goes, and reports whether it did.
+        ///
+        /// One pair per tap, and always the lowest-numbered one that is not already correct, so
+        /// repeated taps walk the board in a predictable order rather than jumping about. "Not
+        /// already correct" rather than "not yet joined" on purpose: a pair joined by the wrong route
+        /// still blocks the level, since every cell has to end up covered, and leaving it alone would
+        /// make the hint look broken to the player who most needs it.
+        ///
+        /// The hint counts as a move. It changes the board exactly as a drag would, and the move
+        /// count is the record of what it took to finish -- a hint that cost nothing would quietly
+        /// make a hinted completion indistinguishable from an unaided one.
+        /// </summary>
+        public bool TryApplyHint()
+        {
+            if (gameState != GameState.Playing || !HintAvailable) { return false; }
+
+            // Mid-drag the board is half-edited and selectedBlocks owns cells that are not in any
+            // segment yet; a hint landing in the middle of that would be drawing against state the
+            // pointer is still moving. Likewise while an earlier hint is still drawing itself.
+            if (isClicked || hintRoutine != null) { return false; }
+
+            List<Block> path;
+            int pairId = NextPairNeedingHint(out path);
+            if (pairId == 0) { return false; }
+
+            // Redrawn from scratch rather than extended: a partly-drawn route may share no cells at
+            // all with the answer, and joining the pair is only true if what ends up on the board is
+            // the whole answer. Both clearing passes run now, before the first frame of the draw, so
+            // the route is never animated into a cell somebody else is still holding.
+            ClearPairDrawing(pairId);
+            ClearConflictingPaths(path, pairId);
+
+            hintRoutine = StartCoroutine(DrawHintPathOverTime(pairId, path));
+            return true;
+        }
+
+        /// <summary>
+        /// The lowest-numbered pair whose drawn cells are not already exactly its cells in the
+        /// answer, with <paramref name="path"/> set to the route it should take. 0 when every pair
+        /// is already right -- which is the board being solved, or the last hint having finished it.
+        /// </summary>
+        private int NextPairNeedingHint(out List<Block> path)
+        {
+            path = null;
+
+            List<int> pairIds = new List<int>(BoardTopology.CollectDots(grid, gridRow, gridCol).Keys);
+            pairIds.Sort();
+
+            for (int i = 0; i < pairIds.Count; i++)
+            {
+                int pairId = pairIds[i];
+                List<Block> candidate = HintPath.Build(grid, gridRow, gridCol, solutionPairId, pairId);
+
+                if (candidate == null)
+                {
+                    // A level whose stored answer does not describe a route this pair can take is a
+                    // content defect, not a player-facing one, and it would otherwise show up only
+                    // as a hint button that does nothing on one particular level.
+                    Debug.LogWarning("Hint: pair " + pairId + " has no route in this level's stored"
+                        + " solution; skipping it.");
+                    continue;
+                }
+
+                if (PairMatchesSolution(pairId, candidate)) { continue; }
+
+                path = candidate;
+                return pairId;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="pairId"/> is already drawn as <paramref name="path"/> -- joined,
+        /// and occupying exactly those cells and no others. Compared as a SET rather than in order,
+        /// because a player who drew inward from both dots holds the same route as two segments
+        /// meeting in the middle, and that is the same answer drawn differently, not a wrong one.
+        /// </summary>
+        private bool PairMatchesSolution(int pairId, List<Block> path)
+        {
+            if (!IsPairSatisfied(pairId)) { return false; }
+
+            List<List<Block>> segments = SegmentsOf(pairId);
+            if (segments == null) { return false; }
+
+            HashSet<Block> drawn = new HashSet<Block>();
+            for (int i = 0; i < segments.Count; i++)
+            {
+                for (int j = 0; j < segments[i].Count; j++) { drawn.Add(segments[i][j]); }
+            }
+
+            if (drawn.Count != path.Count) { return false; }
+
+            for (int i = 0; i < path.Count; i++)
+            {
+                if (!drawn.Contains(path[i])) { return false; }
+            }
+
+            return true;
+        }
+
+        /// <summary>Drops every segment of <paramref name="pairId"/> and what they drew.</summary>
+        private void ClearPairDrawing(int pairId)
+        {
+            List<List<Block>> segments = SegmentsOf(pairId);
+            if (segments == null) { return; }
+
+            for (int i = segments.Count - 1; i >= 0; i--)
+            {
+                ClearSegmentVisuals(segments[i]);
+                segments.RemoveAt(i);
+            }
+
+            pairSegments.Remove(pairId);
+        }
+
+        /// <summary>
+        /// Takes back every cell of <paramref name="path"/> that another pair is currently using, so
+        /// the hint has somewhere to draw. Each loser is trimmed to the cell before the one taken,
+        /// which is exactly what a drag stealing a cell already does -- clearing their whole line
+        /// would throw away work the hint has no quarrel with.
+        ///
+        /// Runs as its own pass BEFORE anything is drawn. Trimming resets a cell's bars by
+        /// direction regardless of who owns them, so interleaving the two would let a later trim
+        /// erase a bar the hint had just drawn.
+        /// </summary>
+        private void ClearConflictingPaths(List<Block> path, int pairId)
+        {
+            for (int i = 0; i < path.Count; i++)
+            {
+                Block cell = path[i];
+                if (cell.OccupantCount == 0) { continue; }
+
+                // Two pairs are meant to end on a shared destination, so nobody is in the way there.
+                if (cell.IsSharedGoal) { continue; }
+
+                int[] others = new int[cell.OccupantCount];
+                for (int k = 0; k < others.Length; k++) { others[k] = cell.GetOccupantPairId(k); }
+
+                if (cell.BlockType == BlockType.Bridge)
+                {
+                    // A bridge holds one path per axis, so only an occupant crossing the same way is
+                    // in the way. CanAcceptEntry is the board's own answer to that, asked again after
+                    // each trim rather than worked out from the outside -- which lane an occupant
+                    // holds is not visible from here.
+                    Direction travel = i < path.Count - 1
+                        ? AdjacentDirection(cell, path[i + 1])
+                        : AdjacentDirection(path[i - 1], cell);
+
+                    for (int k = 0; k < others.Length; k++)
+                    {
+                        if (cell.CanAcceptEntry(travel, pairId)) { break; }
+                        if (others[k] == 0 || others[k] == pairId) { continue; }
+                        TrimSegmentBefore(others[k], cell);
+                    }
+
+                    continue;
+                }
+
+                for (int k = 0; k < others.Length; k++)
+                {
+                    if (others[k] == 0 || others[k] == pairId) { continue; }
+                    TrimSegmentBefore(others[k], cell);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Shortens <paramref name="otherPairId"/>'s path so it stops before <paramref name="cell"/>.
+        /// </summary>
+        private void TrimSegmentBefore(int otherPairId, Block cell)
+        {
+            List<Block> segment = SegmentContaining(otherPairId, cell);
+            if (segment == null) { return; }
+
+            int index = GetBlockIndex(segment, cell);
+
+            if (index <= 0)
+            {
+                // The cell is that pair's own starting dot, so there is nothing before it to trim
+                // back to and the whole segment goes. Only reachable on level data that hands one
+                // pair's dot to another pair's route, but half-clearing a line would hide that.
+                ClearSegmentVisuals(segment);
+                DetachSegment(otherPairId, segment);
+                return;
+            }
+
+            ResetBlockToRemove(segment, index - 1);
+        }
+
+        /// <summary>
+        /// Draws <paramref name="path"/> a cell at a time, as though a finger were tracing it: each
+        /// step grows the leaving cell's bar out to the shared edge, then the entered cell's bar in
+        /// from that edge, with the touch pointer riding along. The bars, occupancy and wash are the
+        /// same ones <see cref="ProcessBlockStep"/> commits -- only their timing differs, so a hinted
+        /// line ends up indistinguishable from a drawn one.
+        ///
+        /// <b>Why an animation and not a snap.</b> Drawn instantly, a whole route appears at once and
+        /// the player has to work out afterwards which pair moved and where it went. Traced, the
+        /// route reads as a route -- which is the thing a hint is supposed to teach.
+        ///
+        /// The board is closed for input while it draws (<see cref="GameState.Waiting"/>), because a
+        /// drag over cells the route has not reached yet would be editing a line that is still being
+        /// laid down. Nothing is registered in <see cref="pairSegments"/> until the last cell, so a
+        /// half-drawn route counts as nothing rather than as a wrong pair.
+        /// </summary>
+        private IEnumerator DrawHintPathOverTime(int pairId, List<Block> path)
+        {
+            gameState = GameState.Waiting;
+
+            PairColorType type = HintColorType(path);
+            SetTouchPointerImage(GetColor(type));
+            MoveTouchPointer(CellScreenPosition(path[0]));
+
+            int steps = path.Count - 1;
+            float perStep = steps > 0
+                ? Mathf.Clamp(HintDrawSeconds / steps, MinHintStepSeconds, MaxHintStepSeconds)
+                : 0f;
+            float halfStep = perStep * 0.5f;
+
+            for (int i = 0; i < steps; i++)
+            {
+                Block from = path[i];
+                Block to = path[i + 1];
+
+                // The board can be torn down mid-draw (level change, retry). ResetGameplay stops this
+                // coroutine, but a frame boundary can fall between the two, so the cells are checked
+                // rather than assumed.
+                if (from == null || to == null) { break; }
+
+                Direction dir = AdjacentDirection(from, to);
+                if (dir == Direction.None) { continue; }
+
+                Vector3 fromCenter = CellScreenPosition(from);
+                Vector3 toCenter = CellScreenPosition(to);
+                Vector3 edge = (fromCenter + toCenter) * 0.5f;
+
+                from.HighlightBlockDirection(dir, type, pairId);
+                from.SetDirectionFillAmount(dir, 0f);
+                yield return GrowBar(from, dir, halfStep, fromCenter, edge);
+
+                Direction entry = OppositeDirection(dir);
+                to.HighlightBlockDirection(entry, type, pairId, growFromFarEdge: true);
+                yield return GrowBar(to, entry, halfStep, edge, toCenter);
+
+                UIController.Instance.UpdateFilledCells();
+            }
+
+            for (int i = 0; i < path.Count; i++)
+            {
+                if (path[i] != null) { path[i].RefreshPathWash(); }
+            }
+
+            ResetTouchPointer();
+
+            pairSegments[pairId] = new List<List<Block>> { path };
+
+            moves++;
+            UIController.Instance.UpdateMovesCount(moves);
+            AudioManager.Instance.PlayPairCompleteSound();
+
+            hintRoutine = null;
+
+            // Only if the board is still where the draw left it: pausing mid-draw is legal, and
+            // handing play back here would take the pause screen's own state away from it.
+            if (gameState == GameState.Waiting) { gameState = GameState.Playing; }
+
+            CheckForLevelComplete();
+        }
+
+        /// <summary>
+        /// Fills one direction bar from nothing to fully connected over <paramref name="duration"/>,
+        /// walking the touch pointer from <paramref name="pointerFrom"/> to
+        /// <paramref name="pointerTo"/> as it goes. Which end the bar grows from was already decided
+        /// by the <see cref="Block.HighlightBlockDirection"/> call that claimed it.
+        /// </summary>
+        private IEnumerator GrowBar(Block cell, Direction dir, float duration,
+            Vector3 pointerFrom, Vector3 pointerTo)
+        {
+            float elapsed = 0f;
+
+            while (elapsed < duration && cell != null)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+
+                cell.SetDirectionFillAmount(dir, t);
+                MoveTouchPointer(Vector3.Lerp(pointerFrom, pointerTo, t));
+
+                yield return null;
+            }
+
+            if (cell != null) { cell.SetDirectionFillAmount(dir, 1f); }
+            MoveTouchPointer(pointerTo);
+        }
+
+        /// <summary>Where <paramref name="cell"/>'s centre sits on screen, in the same coordinates
+        /// <see cref="MoveTouchPointer"/> expects.</summary>
+        private Vector3 CellScreenPosition(Block cell)
+        {
+            RectTransform rect = cell != null ? cell.transform as RectTransform : null;
+            if (rect == null) { return Vector3.zero; }
+
+            return RectTransformUtility.WorldToScreenPoint(null, rect.position);
+        }
+
+        /// <summary>
+        /// The colour a hinted route is drawn in. Taken from the dot it starts at, except that a
+        /// shared destination shows the FIRST pair's colour and would give the wrong one for any
+        /// other pair ending there -- HintPath already starts a route at the plain dot where there
+        /// is one, so that case only survives here as a fallback.
+        /// </summary>
+        private PairColorType HintColorType(List<Block> path)
+        {
+            Block start = path[0];
+            if (!start.IsSharedGoal) { return start.PairColorType; }
+
+            Block end = path[path.Count - 1];
+            return end.IsSharedGoal ? start.PairColorType : end.PairColorType;
+        }
+
+
+        /// <summary>
         /// Resets the gameplay state to its initial conditions
         /// </summary>
         public void ResetGameplay()
@@ -1758,6 +2127,15 @@ namespace FreeFlow.GamePlay
             BeginAttempt();
 
             gameState = GameState.Waiting;
+
+            // A route still tracing itself belongs to the board being left behind, and its next
+            // frame would draw onto cells that are about to be destroyed.
+            if (hintRoutine != null)
+            {
+                StopCoroutine(hintRoutine);
+                hintRoutine = null;
+                ResetTouchPointer();
+            }
 
             StopInvalidFeedback();
             ClearUnmetCheckpointFeedback();
@@ -1777,6 +2155,10 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public void ResetBlocks()
         {
+            // The answer describes the board that is about to be destroyed, so it goes with it --
+            // the next level hands over its own in GenerateBoard.
+            solutionPairId = null;
+
             if (grid == null) { return; }
 
             for (int i = 0; i < gridRow; i++)
