@@ -14,6 +14,7 @@ public class SavingSystem : Singleton<SavingSystem>
         if (!File.Exists(filePath))
         {
             SaveData data = new();
+            data.schemaVersion = SaveData.CurrentSchemaVersion;
             data.completedLevel = 0;
 
             data.audioData.isMusicMute = false;
@@ -36,7 +37,19 @@ public class SavingSystem : Singleton<SavingSystem>
         if(File.Exists(filePath))
         {
             string jsonData = File.ReadAllText(filePath);
-            return JsonUtility.FromJson<SaveData>(jsonData);
+            SaveData data = JsonUtility.FromJson<SaveData>(jsonData);
+
+            // A save written before schemaVersion existed reads as 0 (JsonUtility's int default),
+            // which is indistinguishable from "genuinely on version 0" -- exactly the property a
+            // migration seam needs. Written back immediately so a returning player is only ever
+            // migrated once, not on every load.
+            if (data.schemaVersion < SaveData.CurrentSchemaVersion)
+            {
+                SaveData.Migrate(ref data);
+                Save(data);
+            }
+
+            return data;
         }
         return default;
     }
@@ -54,6 +67,27 @@ public class SavingSystem : Singleton<SavingSystem>
 [System.Serializable]
 public struct SaveData
 {
+    // Bumped whenever a change to this struct needs more than "leave the new field at its
+    // JsonUtility default" -- a rename, a unit change, a value that has to be recomputed from
+    // what an old save already has. Nothing yet needs that (every field added since this struct
+    // shipped -- packProgress, the telemetry arrays, and everything below -- defaults safely, the
+    // same pattern GAME_EXPANSION_PLAN §4.4 established for LevelData), so schemaVersion 0->1
+    // is a no-op migration. The seam exists so the NEXT structural change has a real place to
+    // convert old data instead of inventing versioning under pressure. See SaveData.Migrate.
+    public const int CurrentSchemaVersion = 1;
+    public int schemaVersion;
+
+    /// <summary>Brings a save from whatever <see cref="schemaVersion"/> it was written at up to
+    /// <see cref="CurrentSchemaVersion"/>. Called once, by <c>SavingSystem.Load</c>, before the
+    /// data reaches any gameplay code -- callers should never need to know a save was old.</summary>
+    public static void Migrate(ref SaveData data)
+    {
+        // 0 -> 1: added schemaVersion itself, per-mechanic skill tracking, and per-level hint
+        // counts. All three are additive fields JsonUtility already defaulted to null/0/false on
+        // load, so there is nothing to transform -- only the version number itself needs setting.
+        data.schemaVersion = CurrentSchemaVersion;
+    }
+
     // Classic's progress deliberately keeps the ORIGINAL field name. JsonUtility fills any field
     // missing from an existing save with its default, so a save written before the two modes
     // existed would silently reset whichever campaign got renamed. Classic is the default mode and
@@ -96,6 +130,13 @@ public struct SaveData
     // the old Classic run keeps their place, which is the same reason Classic kept the original
     // field names when the two modes split.
     public PackProgress[] packProgress;
+
+    // Per-mechanic skill: completions and attempts, pooled across every pack and mode that
+    // mechanic appears in. See RecordMechanicAttempt/RecordMechanicCompletion and
+    // GAME_EXPANSION_PLAN's Phase 9 note on why this is a completion-ratio proxy rather than a
+    // per-puzzle rating. Additive, so an existing save gets an empty array and starts everyone
+    // at "unseen" rather than losing anything.
+    public MechanicSkill[] mechanicSkills;
 
     public AudioData audioData;
 
@@ -204,6 +245,109 @@ public struct SaveData
         packProgress[index].seconds = value;
     }
 
+    /// <summary>How many times the hint button has been used on each level. Null until a hint is
+    /// first taken on that pack. The legacy linear campaigns never gained this column -- their
+    /// levels predate the hint system's stored answer and never enable the button at all (see
+    /// GAME_EXPANSION_PLAN §6.41), so there is nothing for them to record.</summary>
+    public int[] HintsForKey(string key)
+    {
+        if (key == LegacyClassicKey || key == LegacyAdvancedKey) { return null; }
+
+        int found = FindPack(key);
+        return found < 0 ? null : packProgress[found].hints;
+    }
+
+    public void SetHintsForKey(string key, int[] value)
+    {
+        if (key == LegacyClassicKey || key == LegacyAdvancedKey) { return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].hints = value;
+    }
+
+    // ---- per-mechanic skill --------------------------------------------------------------
+    //
+    // A first pass, deliberately as simple as DifficultyAnalyzer's own first-pass weights
+    // (GAME_EXPANSION_PLAN Phase 5): completions per attempt, 0-100, per mechanic and overall.
+    // Not a Glicko2-style rating against each puzzle's own difficulty -- the doc's own §6.32
+    // aspiration -- because that needs a per-level difficulty rating to play against, and
+    // DifficultyAnalyzer.Score is explicitly NOT that yet (see the open questions). This is the
+    // honest, immediately-available proxy: a mechanic the player finishes almost every attempt on
+    // is one they have mastered, and one that eats many attempts per completion is not.
+    //
+    // Classic carries no mechanic at all, so its attempts/completions land under BasicFlowKey
+    // (LevelMechanics.BasicFlowKey) -- pure routing is tracked as its own skill, not omitted.
+    // A board combining several mechanics (Advanced, once it ships more than one per level)
+    // counts as an attempt/completion of EACH mechanic it contains; that double-counts a single
+    // play across several rows on purpose, the same way DifficultyAnalyzer's necessity checks
+    // treat each mechanic instance as its own question.
+
+    /// <summary>Index of <paramref name="mechanic"/>'s entry, creating it at 0/0 if this is the
+    /// first time it has been seen. Mirrors <see cref="PackIndex"/> for the same reason: growing
+    /// the array and indexing it must happen in that order, not in one expression.</summary>
+    private int MechanicIndex(string mechanic)
+    {
+        if (mechanicSkills == null) { mechanicSkills = new MechanicSkill[0]; }
+
+        for (int i = 0; i < mechanicSkills.Length; i++)
+        {
+            if (mechanicSkills[i].mechanic == mechanic) { return i; }
+        }
+
+        MechanicSkill[] grown = new MechanicSkill[mechanicSkills.Length + 1];
+        System.Array.Copy(mechanicSkills, grown, mechanicSkills.Length);
+        grown[mechanicSkills.Length] = new MechanicSkill { mechanic = mechanic };
+        mechanicSkills = grown;
+        return mechanicSkills.Length - 1;
+    }
+
+    public void RecordMechanicAttempt(string mechanic)
+    {
+        int index = MechanicIndex(mechanic);     // must resolve BEFORE indexing -- see above
+        mechanicSkills[index].attempts++;
+    }
+
+    public void RecordMechanicCompletion(string mechanic)
+    {
+        int index = MechanicIndex(mechanic);     // must resolve BEFORE indexing -- see above
+        mechanicSkills[index].completions++;
+    }
+
+    /// <summary>0-100 completion rate for one mechanic, or 0 before it has been attempted --
+    /// indistinguishable from "attempted and always failed to finish", which cannot actually
+    /// happen (an abandoned attempt never completes, but it also never regresses the rate below
+    /// what finished attempts already earned).</summary>
+    public float MechanicSkillRating(string mechanic)
+    {
+        if (mechanicSkills == null) { return 0f; }
+
+        for (int i = 0; i < mechanicSkills.Length; i++)
+        {
+            if (mechanicSkills[i].mechanic != mechanic) { continue; }
+            if (mechanicSkills[i].attempts == 0) { return 0f; }
+            return 100f * mechanicSkills[i].completions / mechanicSkills[i].attempts;
+        }
+
+        return 0f;
+    }
+
+    /// <summary>0-100 completion rate pooled across every mechanic seen so far, including
+    /// <see cref="FreeFlow.GamePlay.LevelMechanics.BasicFlowKey"/>. The single number a
+    /// level-select or daily-challenge screen wants when it asks "how good is this player",
+    /// per GAME_EXPANSION_PLAN Phase 10's own stated need.</summary>
+    public float OverallSkillRating()
+    {
+        if (mechanicSkills == null || mechanicSkills.Length == 0) { return 0f; }
+
+        int totalAttempts = 0, totalCompletions = 0;
+        for (int i = 0; i < mechanicSkills.Length; i++)
+        {
+            totalAttempts += mechanicSkills[i].attempts;
+            totalCompletions += mechanicSkills[i].completions;
+        }
+
+        return totalAttempts == 0 ? 0f : 100f * totalCompletions / totalAttempts;
+    }
+
     /// <summary>Index of an existing pack entry, or -1. Does not create -- reads must not mutate.</summary>
     private int FindPack(string key)
     {
@@ -246,6 +390,20 @@ public struct PackProgress
     public int completedLevel;
     public int[] attempts;
     public float[] seconds;
+    public int[] hints;             // how many times the hint button was used, per level
+}
+
+/// <summary>One mechanic's lifetime attempts/completions, pooled across every pack and mode it
+/// appears in. <see cref="mechanic"/> is one of the stable keys LevelMechanics.Keys returns
+/// (e.g. "Bridge", or LevelMechanics.BasicFlowKey for mechanic-free boards) -- never a display
+/// string, so a future re-wording of the HUD label cannot silently split one mechanic's history
+/// into two entries.</summary>
+[System.Serializable]
+public struct MechanicSkill
+{
+    public string mechanic;
+    public int attempts;
+    public int completions;
 }
 
 [System.Serializable]

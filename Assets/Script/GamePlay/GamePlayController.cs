@@ -64,6 +64,13 @@ namespace FreeFlow.GamePlay
         // and HintPath for how an ordered route is recovered from it.
         private int[,] solutionPairId;
 
+        // Which of the nine mechanics the level currently loaded actually contains, set alongside
+        // solutionPairId in SetSolution -- see LevelMechanics for why this is the same detection
+        // the HUD's mechanic label uses. Consulted twice per attempt: once immediately, to credit
+        // the attempt itself (RecordMechanicAttempts), and again on completion (SaveLevelData) --
+        // never recomputed in between, since a level's mechanics cannot change mid-attempt.
+        private MechanicFlags currentMechanics;
+
         // The hint's route being traced onto the board, or null when none is. Held so a second tap
         // cannot start a route while one is still drawing, and so tearing the board down can stop it.
         private Coroutine hintRoutine;
@@ -812,6 +819,18 @@ namespace FreeFlow.GamePlay
             if (currentLevel > data.CompletedLevelForKey(key))
             {
                 data.SetCompletedLevelForKey(key, currentLevel);
+            }
+
+            // Same mechanic set RecordMechanicAttempts credited when this attempt began --
+            // currentMechanics is only ever set by SetSolution, once per attempt, so it still
+            // describes the level that was just finished. SkillKeys rather than Keys: on a
+            // mechanic-free Classic board this folds in the pack's board size, since that -- not
+            // mechanic count -- is what actually makes a Classic level harder (see LevelMechanics).
+            string[] mechanicKeys = LevelMechanics.SkillKeys(
+                currentMechanics, UIController.Instance.CurrentMode, UIController.Instance.CurrentPackSize);
+            for (int i = 0; i < mechanicKeys.Length; i++)
+            {
+                data.RecordMechanicCompletion(mechanicKeys[i]);
             }
 
             SavingSystem.Instance.Save(data);
@@ -1783,6 +1802,30 @@ namespace FreeFlow.GamePlay
         public void SetSolution(LevelData data)
         {
             solutionPairId = HintPath.ReadSolution(data);
+
+            currentMechanics = LevelMechanics.Identify(data);
+            RecordMechanicAttempts();
+        }
+
+        /// <summary>
+        /// Credits this attempt to every mechanic the level being loaded actually contains (or, on
+        /// a mechanic-free Classic board, to that pack's board-size bucket -- see
+        /// LevelMechanics.SkillKeys for why size and not a flat label). Runs once per attempt,
+        /// exactly when SetSolution does -- which is also once per attempt, the same as
+        /// BeginAttempt's per-level count, so the two can never drift apart.
+        /// </summary>
+        private void RecordMechanicAttempts()
+        {
+            if (UIController.Instance == null) { return; }
+
+            string[] mechanicKeys = LevelMechanics.SkillKeys(
+                currentMechanics, UIController.Instance.CurrentMode, UIController.Instance.CurrentPackSize);
+            SaveData data = SavingSystem.Instance.Load();
+            for (int i = 0; i < mechanicKeys.Length; i++)
+            {
+                data.RecordMechanicAttempt(mechanicKeys[i]);
+            }
+            SavingSystem.Instance.Save(data);
         }
 
         /// <summary>Whether this board can be hinted at all -- see <see cref="SetSolution"/>.</summary>
@@ -1825,7 +1868,32 @@ namespace FreeFlow.GamePlay
             ClearConflictingPaths(path, pairId);
 
             hintRoutine = StartCoroutine(DrawHintPathOverTime(pairId, path));
+            RecordHintUsed();
             return true;
+        }
+
+        /// <summary>
+        /// Credits one hint tap to the level currently playing, the same per-level/per-pack shape
+        /// <see cref="BeginAttempt"/> already uses for attempts. Counted the moment the hint
+        /// commits to a pair -- not when the coroutine finishes drawing it -- since a player who
+        /// tears down the board mid-trace (ResetGameplay stops the routine, see its own doc
+        /// comment) still asked for the hint and still got the move it cost.
+        /// </summary>
+        private void RecordHintUsed()
+        {
+            if (UIController.Instance == null) { return; }
+            int currentLevel = UIController.Instance.CurrentLevel;
+            int totalLevelCount = UIController.Instance.TotalLevelCount;
+            if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
+
+            string key = UIController.Instance.ProgressKey;
+            SaveData data = SavingSystem.Instance.Load();
+
+            int[] hints = EnsureLength(data.HintsForKey(key), totalLevelCount);
+            hints[currentLevel - 1]++;
+            data.SetHintsForKey(key, hints);
+
+            SavingSystem.Instance.Save(data);
         }
 
         /// <summary>

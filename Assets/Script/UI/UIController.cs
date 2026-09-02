@@ -35,9 +35,9 @@ namespace FreeFlow.UI
 
         [SerializeField] private GameObject gameplayScreen;
 
-        // Turned off on any level with no stored answer -- the legacy Advanced 1-45 boards predate
-        // the column and carry none. Left visible but not interactable rather than hidden, so the
-        // header does not reshuffle itself between levels.
+        // Turned off on any level with no stored answer (nothing shipped today lacks one, but the
+        // column has always been optional -- see LevelData.solutionPairId). Left visible but not
+        // interactable rather than hidden, so the header does not reshuffle itself between levels.
         [SerializeField] private Button hintButton;
 
         [Header("Level Data")]
@@ -57,8 +57,10 @@ namespace FreeFlow.UI
         [SerializeField] private int[] advancedPackSizes = { 6 };
         [SerializeField] private int packLevelCount = 100;
 
-        // Which pack the level screen is showing. 0 means the LEGACY linear campaign -- the older
-        // Classic 1-100 and Advanced 1-45 -- which still exists and still has its own progress.
+        // Which pack the level screen is showing. 0 meant the legacy linear campaign (the original
+        // Classic 1-100 and Advanced 1-45); those level assets are now deleted, so 0 is a dead
+        // setting, not a working fallback -- LevelResourcePath still builds a path for it, but
+        // Resources.Load finds nothing there. Nothing in the shipped UI sets this to 0.
         [SerializeField] private int currentPackSize = 6;
 
         // Which campaign to open on. Serialised because nothing calls SetMode yet: without it the
@@ -197,10 +199,15 @@ namespace FreeFlow.UI
         {
             if (levelNumber <= TotalLevelCount)
             {
+                // Set BEFORE ResetGameplay -- it calls BeginAttempt, which records the new
+                // attempt against UIController.Instance.CurrentLevel. Reading it after ResetGameplay
+                // used to record every level-select jump (as opposed to a retry or "next", which
+                // both already point currentLevel at the right level before calling LoadLevel)
+                // against whatever level had been playing before, not the one being opened.
+                currentLevel = levelNumber;
+
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
-
-                currentLevel = levelNumber;
 
                 if (currentLevelDataAsset != null)
                 {
@@ -250,96 +257,28 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Names the mechanics present in <paramref name="data"/>, read straight off the level's
-        /// own cells and constraints. Derived rather than authored on purpose: a hand-written
-        /// label would be one more field to forget when a board changes, and this cannot
-        /// disagree with what the player is looking at. Levels with no mechanic read "Basic",
-        /// and a board carrying more than one lists them all.
+        /// Names the mechanics present in <paramref name="data"/>, read straight off
+        /// <see cref="LevelMechanics.Identify"/> -- the same detection the per-mechanic skill
+        /// tracker uses (see <c>GamePlayController.SetSolution</c>), so the HUD label can never
+        /// disagree with what stats are actually being recorded for this board. Levels with no
+        /// mechanic read "Basic", and a board carrying more than one lists them all.
         /// </summary>
         private static string DescribeMechanics(LevelData data)
         {
-            bool blocked = false, walls = false, checkpoint = false, forbidden = false;
-            bool oneWay = false;
-            bool arrow = false, bridge = false;
-            bool sharedGoal = false, permitted = false;
-
-            if (data.gridRows != null)
-            {
-                for (int i = 0; i < data.gridRows.Length; i++)
-                {
-                    GridRow row = data.gridRows[i];
-
-                    if (row.blockType != null)
-                    {
-                        for (int j = 0; j < row.blockType.Length; j++)
-                        {
-                            switch (row.blockType[j])
-                            {
-                                case BlockType.Blocked: blocked = true; break;
-                                case BlockType.Checkpoint: checkpoint = true; break;
-                                case BlockType.ForbiddenForPair: forbidden = true; break;
-                                case BlockType.AllowedForPairs: permitted = true; break;
-                                case BlockType.OneWay: oneWay = true; break;
-                                case BlockType.Arrow: arrow = true; break;
-                                case BlockType.Bridge: bridge = true; break;
-                            }
-                        }
-                    }
-
-                    // secondPairId is the only one of the three a permission rule also reads, so
-                    // it is the only one that needs the guard -- see Block.SecondIdNamesAPair.
-                    if (row.secondPairId != null)
-                    {
-                        for (int j = 0; j < row.secondPairId.Length; j++)
-                        {
-                            if (row.secondPairId[j] == 0) { continue; }
-
-                            bool namesAPair = row.blockType != null
-                                           && j < row.blockType.Length
-                                           && Block.SecondIdNamesAPair(row.blockType[j]);
-                            if (!namesAPair) { sharedGoal = true; }
-                        }
-                    }
-
-                    if (HasAnyNonZero(row.thirdPairId) || HasAnyNonZero(row.fourthPairId))
-                    {
-                        sharedGoal = true;
-                    }
-
-                    if (row.wallMask != null)
-                    {
-                        for (int j = 0; j < row.wallMask.Length; j++)
-                        {
-                            if (row.wallMask[j] != 0) { walls = true; }
-                        }
-                    }
-                }
-            }
+            MechanicFlags flags = LevelMechanics.Identify(data);
 
             string description = string.Empty;
-            AppendMechanic(ref description, blocked, "Blocked cell");
-            AppendMechanic(ref description, walls, "Wall");
-            AppendMechanic(ref description, oneWay, "One-way");
-            AppendMechanic(ref description, arrow, "Arrow");
-            AppendMechanic(ref description, forbidden, "Forbidden cell");
-            AppendMechanic(ref description, permitted, "Permitted colours");
-            AppendMechanic(ref description, bridge, "Bridge");
-            AppendMechanic(ref description, sharedGoal, "Shared destination");
-            AppendMechanic(ref description, checkpoint, "Checkpoint");
+            AppendMechanic(ref description, (flags & MechanicFlags.Blocked) != 0, "Blocked cell");
+            AppendMechanic(ref description, (flags & MechanicFlags.Wall) != 0, "Wall");
+            AppendMechanic(ref description, (flags & MechanicFlags.OneWay) != 0, "One-way");
+            AppendMechanic(ref description, (flags & MechanicFlags.Arrow) != 0, "Arrow");
+            AppendMechanic(ref description, (flags & MechanicFlags.Forbidden) != 0, "Forbidden cell");
+            AppendMechanic(ref description, (flags & MechanicFlags.Permitted) != 0, "Permitted colours");
+            AppendMechanic(ref description, (flags & MechanicFlags.Bridge) != 0, "Bridge");
+            AppendMechanic(ref description, (flags & MechanicFlags.SharedDestination) != 0, "Shared destination");
+            AppendMechanic(ref description, (flags & MechanicFlags.Checkpoint) != 0, "Checkpoint");
 
             return description.Length > 0 ? description : "Basic";
-        }
-
-        private static bool HasAnyNonZero(int[] values)
-        {
-            if (values == null) { return false; }
-
-            for (int i = 0; i < values.Length; i++)
-            {
-                if (values[i] != 0) { return true; }
-            }
-
-            return false;
         }
 
         private static void AppendMechanic(ref string description, bool present, string name)
