@@ -138,6 +138,56 @@ public struct SaveData
     // at "unseen" rather than losing anything.
     public MechanicSkill[] mechanicSkills;
 
+    // -- daily challenge ---------------------------------------------------------------------
+    //
+    // Which level DailyChallengeSelector picked for the currently-cached day, and streak
+    // bookkeeping. dailyChallengeCachedDay/dailyChallengeLastCompletedDay use 0 as "never" rather
+    // than a separate bool: DailyChallengeSelector.Epoch is fixed in the past far enough that day
+    // 0 (the epoch date itself) can never be "today" again in real play, so 0 is unambiguous.
+    //
+    // The pick is cached rather than recomputed on every visit so a player who plays other levels
+    // between opening the daily challenge and finishing it does not have the board change under
+    // them because their skill rating moved.
+    //
+    // playerSalt makes the pick per-install rather than shared: without it, every player in the
+    // same skill band would see the identical level on the same day (there being no backend to
+    // make that meaningful anyway). 0 means "not yet assigned" -- see EnsurePlayerSalt, which is
+    // the only thing allowed to set it, and only ever ONCE per save, since changing it later would
+    // silently reshuffle every future day's pick for a player who already has a rhythm going.
+    public int playerSalt;
+    public int dailyChallengeCachedDay;
+    public FreeFlow.Enums.GameMode dailyChallengeMode;
+    public int dailyChallengePackSize;
+    public int dailyChallengeLevel;
+
+    public int dailyChallengeLastCompletedDay;
+    public int dailyChallengeStreak;
+    public int dailyChallengesCompletedTotal;
+
+    /// <summary>Adopts <paramref name="candidateSalt"/> as this save's permanent per-install salt
+    /// if none is set yet, otherwise does nothing -- the salt is assigned once, ever, not
+    /// refreshed. Takes the candidate as a parameter rather than generating one itself so this
+    /// struct stays plain C# with no Unity RNG dependency; the caller (UIController) is expected
+    /// to pass a value that is never 0, since 0 is what "unset" looks like.</summary>
+    public void EnsurePlayerSalt(int candidateSalt)
+    {
+        if (playerSalt == 0) { playerSalt = candidateSalt; }
+    }
+
+    /// <summary>Credits one daily-challenge completion for <paramref name="dayIndex"/> -- the day
+    /// the challenge was PICKED for (SaveData.dailyChallengeCachedDay at load time), not
+    /// necessarily the day it happens to be finished on if a session runs past midnight. Idempotent
+    /// for the same day, so retrying an already-completed daily challenge cannot inflate the
+    /// streak or the lifetime count.</summary>
+    public void RecordDailyChallengeCompletion(int dayIndex)
+    {
+        if (dayIndex == dailyChallengeLastCompletedDay) { return; }
+
+        dailyChallengeStreak = (dailyChallengeLastCompletedDay == dayIndex - 1) ? dailyChallengeStreak + 1 : 1;
+        dailyChallengeLastCompletedDay = dayIndex;
+        dailyChallengesCompletedTotal++;
+    }
+
     public AudioData audioData;
 
     /// <summary>Highest level finished in <paramref name="mode"/>.</summary>

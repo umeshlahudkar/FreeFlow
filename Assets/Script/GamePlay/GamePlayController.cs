@@ -560,8 +560,13 @@ namespace FreeFlow.GamePlay
             {
                 ClearUnmetCheckpointFeedback();
                 GameState = GameState.Ending;
-                UIController.Instance.ActivateLevelCompleteScreen(moves);
+
+                // Persist BEFORE showing the screen -- on a daily-challenge completion, the screen
+                // reads the streak SaveLevelData just updated (see ActivateLevelCompleteScreen's
+                // own doc comment); reading it the other way round would show last completion's
+                // count instead of this one's.
                 SaveLevelData();
+                UIController.Instance.ActivateLevelCompleteScreen(moves);
             }
             else
             {
@@ -831,6 +836,15 @@ namespace FreeFlow.GamePlay
             for (int i = 0; i < mechanicKeys.Length; i++)
             {
                 data.RecordMechanicCompletion(mechanicKeys[i]);
+            }
+
+            // Credited to the day the challenge was PICKED for (dailyChallengeCachedDay), not
+            // whatever "now" is -- a session that happens to cross midnight should still count for
+            // the day it was opened on. RecordDailyChallengeCompletion is itself idempotent per
+            // day, so retrying an already-completed daily challenge cannot inflate the streak.
+            if (UIController.Instance.IsDailyChallenge)
+            {
+                data.RecordDailyChallengeCompletion(data.dailyChallengeCachedDay);
             }
 
             SavingSystem.Instance.Save(data);

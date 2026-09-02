@@ -78,7 +78,21 @@ namespace FreeFlow.UI
         private SingleLevelDataSO currentLevelDataAsset;
         private int currentLevel;
 
+        // Whether the level currently loaded is today's daily challenge rather than an ordinary
+        // pack level, even though it is the SAME LevelData asset either way -- see LoadDailyChallenge.
+        // Reset to false at the top of every LoadLevel call, then set true again immediately after
+        // by LoadDailyChallenge, so a plain LoadLevel (picking a level from the pack grid) can never
+        // leave a stale daily-challenge flag set. Retry deliberately re-arms it (see
+        // OnGameOverScreenRetryButtonClick/OnPauseScreenRetryButtonClick) since a retry is a
+        // continuation of the same attempt, not a return to normal browsing.
+        private bool isDailyChallenge;
+
         public int CurrentLevel { get { return currentLevel; } }
+
+        /// <summary>Whether the level in play is today's daily challenge. Read by
+        /// GamePlayController.SaveLevelData to credit a completion to the streak, and by
+        /// ActivateLevelCompleteScreen to show it.</summary>
+        public bool IsDailyChallenge { get { return isDailyChallenge; } }
 
         /// <summary>Which campaign is being played. Classic is the default and the front door;
         /// see <see cref="GameMode"/> for why the two are separate level sets rather than a
@@ -199,6 +213,11 @@ namespace FreeFlow.UI
         {
             if (levelNumber <= TotalLevelCount)
             {
+                // Any DIRECT call defaults to "not the daily challenge" -- LoadDailyChallenge
+                // re-arms this immediately after calling here, once the level it picked has
+                // actually loaded. See the field's own doc comment for why retry has to restore it.
+                isDailyChallenge = false;
+
                 // Set BEFORE ResetGameplay -- it calls BeginAttempt, which records the new
                 // attempt against UIController.Instance.CurrentLevel. Reading it after ResetGameplay
                 // used to record every level-select jump (as opposed to a retry or "next", which
@@ -248,6 +267,64 @@ namespace FreeFlow.UI
                     hintButton.interactable = GamePlayController.Instance.HintAvailable;
                 }
             }
+        }
+
+        /// <summary>
+        /// Loads today's daily challenge -- a real level from an existing pack, picked once per
+        /// calendar day and cached so it does not change under the player mid-session (see
+        /// DailyChallengeSelector). Classic only for now: it is the default mode and the one whose
+        /// packs vary by board size, which is what DailyChallengeSelector rotates through day to
+        /// day; Advanced ships one pack size so far, which would make "rotate through pack sizes"
+        /// a no-op for it.
+        ///
+        /// Deliberately reuses the pack's own LevelData rather than a separate daily-only asset --
+        /// completing it also completes that pack level, which is correct (it IS that level), and
+        /// avoids a second content pipeline for one level a day.
+        /// </summary>
+        public void LoadDailyChallenge()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            bool dataChanged = false;
+
+            // Assigned once, ever, on whichever device first opens the daily challenge -- see
+            // SaveData.playerSalt and EnsurePlayerSalt. Range's upper bound is exclusive, so this
+            // can never generate the 0 that means "unset".
+            if (data.playerSalt == 0)
+            {
+                data.EnsurePlayerSalt(UnityEngine.Random.Range(1, int.MaxValue));
+                dataChanged = true;
+            }
+
+            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+
+            DailyChallengeSelector.Pick pick;
+            if (data.dailyChallengeCachedDay == today)
+            {
+                pick = new DailyChallengeSelector.Pick
+                {
+                    mode = data.dailyChallengeMode,
+                    packSize = data.dailyChallengePackSize,
+                    levelNumber = data.dailyChallengeLevel,
+                };
+            }
+            else
+            {
+                pick = DailyChallengeSelector.Select(today, GameMode.Classic, PackSizesFor(GameMode.Classic),
+                    packLevelCount, data.OverallSkillRating(), data.playerSalt);
+
+                data.dailyChallengeCachedDay = today;
+                data.dailyChallengeMode = pick.mode;
+                data.dailyChallengePackSize = pick.packSize;
+                data.dailyChallengeLevel = pick.levelNumber;
+                dataChanged = true;
+            }
+
+            if (dataChanged) { SavingSystem.Instance.Save(data); }
+
+            SetMode(pick.mode);
+            SetPack(pick.packSize);
+            LoadLevel(pick.levelNumber);
+            isDailyChallenge = true; // after LoadLevel, which resets this at its own top
         }
 
         private void UpdateMechanicLabel(LevelData data)
@@ -314,6 +391,18 @@ namespace FreeFlow.UI
             }
         }
 
+        /// <summary>Gets called when the Daily Challenge button is clicked from the main menu --
+        /// jumps straight to gameplay, skipping the pack grid entirely, since there is exactly
+        /// one level to play today. See LoadDailyChallenge.</summary>
+        public void OnDailyChallengeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                LoadDailyChallenge();
+            }
+        }
+
         public void OnLevelScreenBackButtonClick()
         {
             if (InputManager.Instance.CanInput())
@@ -347,9 +436,14 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
+                bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
-                pauseScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
+                pauseScreen.Deactivate(0.25f, () =>
+                {
+                    LoadLevel(currentLevel);
+                    if (wasDailyChallenge) { isDailyChallenge = true; }
+                });
             }
         }
 
@@ -384,6 +478,10 @@ namespace FreeFlow.UI
         /// <summary>
         /// Activates level complete screen,
         /// Updates move count on level screen
+        ///
+        /// Called AFTER GamePlayController.SaveLevelData (see CheckForLevelComplete) specifically
+        /// so that on a daily-challenge completion, the streak line below reads the count
+        /// SaveLevelData just persisted rather than the value from before this completion.
         /// </summary>
         /// <param name="movesCount"></param>
         public void ActivateLevelCompleteScreen(int movesCount)
@@ -391,6 +489,12 @@ namespace FreeFlow.UI
             gameOverScreen.SetActive(true);
             gameOverMsgText.text = "Congrats!, You Completed the level in " + movesCount + " moves.";
             gameOverLevelText.text = "Level " + currentLevel;
+
+            if (isDailyChallenge)
+            {
+                SaveData data = SavingSystem.Instance.Load();
+                gameOverMsgText.text += "\nDaily Challenge complete! " + data.dailyChallengeStreak + "-day streak.";
+            }
 
             gameOverScreen.Activate();
         }
@@ -400,10 +504,15 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
+                bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.Deactivate(0.25f, () => LoadLevel(currentLevel));
+                gameOverScreen.Deactivate(0.25f, () =>
+                {
+                    LoadLevel(currentLevel);
+                    if (wasDailyChallenge) { isDailyChallenge = true; }
+                });
             }
         }
 
