@@ -15,7 +15,6 @@ public class SavingSystem : Singleton<SavingSystem>
         {
             SaveData data = new();
             data.completedLevel = 0;
-            data.completedlevelMoves = null;
 
             data.audioData.isMusicMute = false;
             data.audioData.isSoundMute = false;
@@ -55,16 +54,14 @@ public class SavingSystem : Singleton<SavingSystem>
 [System.Serializable]
 public struct SaveData
 {
-    // Classic's progress deliberately keeps the ORIGINAL field names. JsonUtility fills any field
+    // Classic's progress deliberately keeps the ORIGINAL field name. JsonUtility fills any field
     // missing from an existing save with its default, so a save written before the two modes
     // existed would silently reset whichever campaign got renamed. Classic is the default mode and
-    // the one a returning player is most likely mid-way through, so it inherits the old fields and
+    // the one a returning player is most likely mid-way through, so it inherits the old field and
     // the old progress; Advanced starts empty, which is correct -- it did not exist before.
     public int completedLevel;
-    public int[] completedlevelMoves;
 
     public int advancedCompletedLevel;
-    public int[] advancedCompletedLevelMoves;
 
     // Play telemetry, per level, per mode.
     //
@@ -114,18 +111,6 @@ public struct SaveData
         else { completedLevel = value; }
     }
 
-    /// <summary>Per-level move counts for <paramref name="mode"/>. Null until that mode is played.</summary>
-    public int[] MovesFor(FreeFlow.Enums.GameMode mode)
-    {
-        return mode == FreeFlow.Enums.GameMode.Advanced ? advancedCompletedLevelMoves : completedlevelMoves;
-    }
-
-    public void SetMovesFor(FreeFlow.Enums.GameMode mode, int[] value)
-    {
-        if (mode == FreeFlow.Enums.GameMode.Advanced) { advancedCompletedLevelMoves = value; }
-        else { completedlevelMoves = value; }
-    }
-
     /// <summary>How many times each level has been STARTED, completed or not. Null until played.</summary>
     public int[] AttemptsFor(FreeFlow.Enums.GameMode mode)
     {
@@ -162,10 +147,10 @@ public struct SaveData
     private const string LegacyAdvancedKey = "Advanced";
 
     // Every setter below resolves PackIndex into a local before indexing, and that is load-bearing
-    // rather than style. Written as `packProgress[PackIndex(key)].moves = value`, C# evaluates the
-    // ARRAY REFERENCE first, then calls PackIndex -- which allocates a larger array and assigns it
-    // to the field. The indexer then writes through the reference captured a moment earlier, so on
-    // a save that has never held a pack that reference is null and the assignment throws.
+    // rather than style. Written as `packProgress[PackIndex(key)].attempts = value`, C# evaluates
+    // the ARRAY REFERENCE first, then calls PackIndex -- which allocates a larger array and assigns
+    // it to the field. The indexer then writes through the reference captured a moment earlier, so
+    // on a save that has never held a pack that reference is null and the assignment throws.
     // Splitting the call out makes the growth happen first and the write land on the new array.
 
     public int CompletedLevelForKey(string key)
@@ -183,23 +168,6 @@ public struct SaveData
         if (key == LegacyAdvancedKey) { advancedCompletedLevel = value; return; }
         int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
         packProgress[index].completedLevel = value;
-    }
-
-    public int[] MovesForKey(string key)
-    {
-        if (key == LegacyClassicKey) { return completedlevelMoves; }
-        if (key == LegacyAdvancedKey) { return advancedCompletedLevelMoves; }
-
-        int found = FindPack(key);
-        return found < 0 ? null : packProgress[found].moves;
-    }
-
-    public void SetMovesForKey(string key, int[] value)
-    {
-        if (key == LegacyClassicKey) { completedlevelMoves = value; return; }
-        if (key == LegacyAdvancedKey) { advancedCompletedLevelMoves = value; return; }
-        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
-        packProgress[index].moves = value;
     }
 
     public int[] AttemptsForKey(string key)
@@ -276,7 +244,6 @@ public struct PackProgress
 {
     public string key;              // "Classic7x7", "Advanced6x6"
     public int completedLevel;
-    public int[] moves;
     public int[] attempts;
     public float[] seconds;
 }

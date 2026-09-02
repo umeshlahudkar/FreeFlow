@@ -155,10 +155,9 @@ namespace FreeFlow.UI
                         button.ThisTransform.localPosition = new Vector3(currentX, currentY);
 
                         bool isCompleted = (level <= completedLevels);
-                        int levelCompletionMoves = isCompleted ? data.completedlevelMoves[level - 1] : 0;
                         Color color = isCompleted ? completeLevel : unlockedLevel;
 
-                        button.SetDetails(level, color, levelCompletionMoves);
+                        button.SetDetails(level, color);
                         pageButtons.Add(button);
 
                         currentX += buttonWidth + horizontalSpacing;

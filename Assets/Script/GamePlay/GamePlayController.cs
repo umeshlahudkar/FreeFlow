@@ -802,10 +802,6 @@ namespace FreeFlow.GamePlay
             // record. The legacy linear campaigns keep their own key and their original fields.
             string key = UIController.Instance.ProgressKey;
 
-            int[] packMoves = EnsureLength(data.MovesForKey(key), totalLevelCount);
-            packMoves[currentLevel - 1] = moves;
-            data.SetMovesForKey(key, packMoves);
-
             // Time on the attempt that actually finished. Pelánek's entire Sudoku evaluation
             // regresses difficulty metrics against exactly this number, so it is what any future
             // fitting of DifficultyModel's weights will need.

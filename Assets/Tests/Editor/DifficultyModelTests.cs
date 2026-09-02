@@ -384,18 +384,16 @@ namespace FreeFlow.Tests
         public void PackProgress_WritesToAFreshSave()
         {
             // The bug this guards threw a NullReferenceException on the very first level anyone
-            // completed in a pack. `packProgress[PackIndex(key)].moves = value` evaluates the array
-            // reference BEFORE calling PackIndex, so the write went through the null reference the
-            // expression had already captured rather than the array PackIndex had just allocated.
+            // completed in a pack. `packProgress[PackIndex(key)].attempts = value` evaluates the
+            // array reference BEFORE calling PackIndex, so the write went through the null reference
+            // the expression had already captured rather than the array PackIndex had just allocated.
             SaveData data = new SaveData();          // packProgress is null, as on a fresh save
 
-            data.SetMovesForKey("Classic7x7", new[] { 4, 5, 6 });
             data.SetAttemptsForKey("Classic7x7", new[] { 1, 2, 3 });
             data.SetSecondsForKey("Classic7x7", new[] { 1.5f });
             data.SetCompletedLevelForKey("Classic7x7", 3);
 
             Assert.AreEqual(3, data.CompletedLevelForKey("Classic7x7"));
-            Assert.AreEqual(new[] { 4, 5, 6 }, data.MovesForKey("Classic7x7"));
             Assert.AreEqual(new[] { 1, 2, 3 }, data.AttemptsForKey("Classic7x7"));
             Assert.AreEqual(1, data.packProgress.Length, "one entry, not one per setter call");
         }
