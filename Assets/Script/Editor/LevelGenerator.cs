@@ -4074,8 +4074,11 @@ namespace FreeFlow.GamePlay
             // single cell usually pins it, at three there is real work left for several.
             int deficit = Mathf.Max(2, colours - Mathf.Max(1, recipe.ColourDeficit));
 
+            // Unbalanced: StructuralGates demands a real spread between the shortest and longest
+            // path, and a probe found "too uniform" as the dominant rejection reason regardless of
+            // colour ratio. See TryGeneratePathPartitionUnbalanced's own doc comment.
             List<List<(int Row, int Col)>> paths =
-                TryGeneratePathPartition(size, usable, usableCount, deficit, rng);
+                TryGeneratePathPartitionUnbalanced(size, usable, usableCount, deficit, rng);
             if (paths == null) { return false; }
 
             LevelData candidate = BuildPlainLevelData(size, usable, paths, rng);
@@ -4347,8 +4350,15 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Advanced/Build 6x6 pack (100)")]
         public static void BuildAdvancedPack6x6() { BuildAdvancedPack(6, 100, 10, 900, 9); }
 
+        // cellsPerColour=7, not the originally-wired 10: the 10 call hits the pipeline's
+        // 200,000-attempt cap at a 0.023% yield and fails outright (see GAME_EXPANSION_PLAN
+        // §6.44). 7 was MEASURED, not guessed -- a colour-ratio sweep after fixing a
+        // length-equalising bias in the shared partition builder (also §6.44) found it the best
+        // combination of yield (~3.3h estimated to a 900-board pool) and a mean path length close
+        // to Classic's own measured 7x7 reference. Still a small-sample estimate; re-measure with
+        // ProbeColourRatioSweep7x7 first if this configuration is ever revisited.
         [MenuItem("FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)")]
-        public static void BuildAdvancedPack7x7() { BuildAdvancedPack(7, 100, 10, 900, 10); }
+        public static void BuildAdvancedPack7x7() { BuildAdvancedPack(7, 100, 10, 900, 7); }
 
         /// <summary>
         /// Does a TWO-mechanic board exist at a workable rate? The standard escalation in puzzle
@@ -4684,6 +4694,204 @@ namespace FreeFlow.GamePlay
 
         [MenuItem("FreeFlow/Level Generator/Advanced/PROBE Advanced yield")]
         public static void ProbeAdvancedYield() { BuildAdvancedPack(6, 24, 4, 260, 9); }
+
+        /// <summary>
+        /// Same probe, at 7x7, before committing to a full 900-candidate/100-level run.
+        /// cellsPerColour=10 here is an EXTRAPOLATION from 6x6's measured 9 (see
+        /// GAME_EXPANSION_PLAN §6.40) and from Classic's own 7x7 pack (which measured 4-7 colours,
+        /// §6.38) -- not a separate measurement for the Advanced pipeline specifically, which adds
+        /// mechanic-necessity gates Classic's pipeline does not have. This is exactly the kind of
+        /// unverified analogy that put the first 8x8 Classic pack at the wrong colour count twice
+        /// (§6.38) -- probe before trusting it.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE Advanced yield 7x7")]
+        public static void ProbeAdvancedYield7x7() { BuildAdvancedPack(7, 24, 4, 260, 10); }
+
+        /// <summary>
+        /// Cheap colour-ratio sweep for the Advanced pipeline, run BEFORE another full
+        /// BuildAdvancedPack probe. The 7x7 probe at cellsPerColour=10 cost 24284.7s (6.75h) to
+        /// gather only 46 of a 260 target -- it hit the pipeline's hard 200,000-attempt cap, not
+        /// the pool target, at a raw yield of 0.023%. A full pack at that rate would need roughly
+        /// 3.9M attempts (~5.5 days) to reach a 900-board pool. That is a wrong configuration, not
+        /// a patience problem -- re-running the same call longer will not fix it.
+        ///
+        /// This samples a BOUNDED number of attempts per candidate cellsPerColour value (no
+        /// 200,000-attempt pipeline cap, no disk writes) and reports exactly where attempts die:
+        /// generated / duplicate / unsound (broken down by StructuralGates' own failure reason) /
+        /// decorative / kept, plus ms-per-kept-board. That breakdown is what a single pass/fail
+        /// number from a full probe cannot show -- see GAME_EXPANSION_PLAN §6.38, which made this
+        /// exact kind of colour-count mistake twice for Classic before probing properly.
+        ///
+        /// Deliberately reuses BuildAdvancedPack's own recipe list and per-attempt logic (copied,
+        /// not shared) rather than refactoring the production method -- this is a throwaway
+        /// diagnostic, and changing the code path every real pack build uses to accommodate it
+        /// would risk the exact class of bug this project has hit before (§0's gotchas).
+        /// </summary>
+        public static void ProbeColourRatioSweep(int size, int[] cellsPerColourValues, int attemptsPerValue)
+        {
+            int cells = size * size;
+            int holes = Mathf.Max(2, cells / 12);
+
+            BlockType[] rules =
+            {
+                BlockType.OneWay, BlockType.Arrow, BlockType.ForbiddenForPair,
+                BlockType.AllowedForPairs, BlockType.Checkpoint
+            };
+
+            StringBuilder summary = new StringBuilder();
+            summary.Append("Colour-ratio sweep, ").Append(size).Append("x").Append(size)
+                .Append(", ").Append(attemptsPerValue).Append(" attempts per value:\n");
+
+            for (int v = 0; v < cellsPerColourValues.Length; v++)
+            {
+                int cellsPerColour = cellsPerColourValues[v];
+
+                List<MechanicRecipe> recipeList = new List<MechanicRecipe>();
+                recipeList.Add(new MechanicRecipe(BlockType.Normal, holes, 0));
+                for (int d = 1; d <= 3; d++)
+                {
+                    for (int i = 0; i < rules.Length; i++)
+                    {
+                        MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, 6);
+                        withHoles.ColourDeficit = d;
+                        recipeList.Add(withHoles);
+                        recipeList.Add(withHoles);
+
+                        MechanicRecipe bare = new MechanicRecipe(rules[i], 0, 6);
+                        bare.ColourDeficit = d;
+                        recipeList.Add(bare);
+                    }
+                    recipeList.Add(MechanicRecipe.Walls(holes, 6, d));
+                    recipeList.Add(MechanicRecipe.Walls(0, 6, d));
+                    recipeList.Add(MechanicRecipe.TwoColour(BlockType.ForbiddenForPair, 0, 6, d));
+                    recipeList.Add(MechanicRecipe.TwoColour(BlockType.AllowedForPairs, 0, 6, d));
+                }
+                MechanicRecipe[] recipes = recipeList.ToArray();
+
+                System.Random rng = new System.Random(20260915 + size * 1000 + cellsPerColour);
+                System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+
+                int generated = 0, duplicates = 0, decorative = 0, kept = 0;
+                int selfTouch = 0, shortLink = 0, uniformSpread = 0, badCoverage = 0;
+                long pathCellsTotal = 0, pairsTotal = 0;
+                HashSet<string> seen = new HashSet<string>();
+                bool cancelled = false;
+
+                for (int attempt = 0; attempt < attemptsPerValue; attempt++)
+                {
+                    if ((attempt % 50) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Colour-ratio sweep " + size + "x" + size + "  -  cellsPerColour=" + cellsPerColour,
+                            attempt + "/" + attemptsPerValue + "  kept " + kept,
+                            (float)(v * attemptsPerValue + attempt) / (cellsPerColourValues.Length * attemptsPerValue)))
+                    { cancelled = true; break; }
+
+                    MechanicRecipe recipe = recipes[attempt % recipes.Length];
+
+                    bool[,] usable = PlaceBlockedCells(size, recipe.BlockedCells, true, rng);
+                    int usableCount = 0;
+                    for (int r = 0; r < size; r++)
+                    {
+                        for (int c = 0; c < size; c++) { if (usable[r, c]) { usableCount++; } }
+                    }
+
+                    int colours = Mathf.Max(3, usableCount / cellsPerColour) + (attempt % ColourSweepWidth);
+                    if (colours > MaxDistinctColors) { continue; }
+
+                    LevelData data;
+                    if (recipe.Instances == 0)
+                    {
+                        if (!TryGenerateUniqueByRefinement(size, usable, usableCount, colours,
+                                MaxDistinctColors, 2000000, 3, rng,
+                                out data, out int finalColours, out int splits, colours))
+                        { continue; }
+                    }
+                    else if (!TryBuildMechanicDependentBoard(size, usable, usableCount, colours,
+                                 recipe, rng, out data))
+                    { continue; }
+                    generated++;
+
+                    Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                    try
+                    {
+                        string key = LevelCanonicalizer.ComputeCanonicalKey(grid, rows, cols);
+                        if (!seen.Add(key)) { duplicates++; continue; }
+
+                        PuzzleSolver.SolveResult solved = PuzzleSolver.Solve(grid, rows, cols,
+                            new PuzzleSolver.SolverOptions(8000000, 2));
+                        if (solved.Status != PuzzleSolver.SolveStatus.Solved
+                            || solved.SolutionsFound != 1 || !solved.SearchExhausted)
+                        { continue; } // not unique -- rare enough by construction not to need its own tally here
+
+                        if (!StoredSolutionMatchesSolver(data, solved, rows, cols)) { continue; }
+
+                        int liveCells = 0;
+                        for (int r = 0; r < rows; r++)
+                        {
+                            for (int c = 0; c < cols; c++)
+                            {
+                                if (grid[r, c] != null && grid[r, c].BlockType != BlockType.Blocked) { liveCells++; }
+                            }
+                        }
+
+                        StructuralGates.Report gate = StructuralGates.Evaluate(solved, liveCells);
+                        if (!gate.Passed)
+                        {
+                            if (gate.SelfTouches > 0) { selfTouch++; }
+                            else if (gate.ShortestPath < StructuralGates.MinPathCells) { shortLink++; }
+                            else if (gate.LengthSpread < StructuralGates.DefaultMinLengthSpread) { uniformSpread++; }
+                            else { badCoverage++; }
+                            continue;
+                        }
+
+                        if (recipe.Instances > 0 && recipe.UsesWalls
+                            && !AllWallsAreNecessary(grid, rows, cols)) { decorative++; continue; }
+                        if (recipe.Instances > 0 && !recipe.UsesWalls
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.Type)) { decorative++; continue; }
+                        if (recipe.SecondType != BlockType.Normal
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.SecondType)) { decorative++; continue; }
+                        if (recipe.BlockedCells > 0
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked)) { decorative++; continue; }
+
+                        kept++;
+                        pathCellsTotal += liveCells;
+                        pairsTotal += solved.Solutions.Count;
+                    }
+                    finally { DestroyBlockGrid(grid); }
+                }
+
+                total.Stop();
+                int unsound = selfTouch + shortLink + uniformSpread + badCoverage;
+                double msPerKept = kept > 0 ? total.ElapsedMilliseconds / (double)kept : -1;
+                double meanPath = pairsTotal > 0 ? pathCellsTotal / (double)pairsTotal : 0;
+
+                summary.Append("  cellsPerColour=").Append(cellsPerColour)
+                    .Append("  meanPath=").Append(meanPath.ToString("0.0"))
+                    .Append("  attempts=").Append(attemptsPerValue)
+                    .Append("  generated=").Append(generated)
+                    .Append("  dup=").Append(duplicates)
+                    .Append("  unsound=").Append(unsound)
+                    .Append(" [selfTouch=").Append(selfTouch)
+                    .Append(" short=").Append(shortLink)
+                    .Append(" spread=").Append(uniformSpread)
+                    .Append(" cov=").Append(badCoverage).Append("]")
+                    .Append("  decorative=").Append(decorative)
+                    .Append("  kept=").Append(kept)
+                    .Append("  time=").Append((total.ElapsedMilliseconds / 1000f).ToString("0"))
+                    .Append("s  ms/kept=").Append(msPerKept >= 0 ? msPerKept.ToString("0") : "n/a")
+                    .AppendLine();
+
+                if (cancelled) { summary.Append("  (CANCELLED)\n"); EditorUtility.ClearProgressBar(); break; }
+            }
+
+            EditorUtility.ClearProgressBar();
+            Debug.Log(summary.ToString());
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE 7x7 colour ratio sweep")]
+        public static void ProbeColourRatioSweep7x7()
+        {
+            ProbeColourRatioSweep(7, new[] { 6, 7, 8, 9, 10, 12 }, 3000);
+        }
 
         /// <summary>
         /// Picks <paramref name="count"/> boards spread evenly across the SCORE RANGE, ascending.
@@ -7100,10 +7308,70 @@ namespace FreeFlow.GamePlay
         /// through belongs to exactly one path -- which matters because LevelData's own doc caps
         /// sharing at four colours for precisely that reason: a path ending in a cell claims the
         /// edge it arrived through, and a cell has four.
+        ///
         /// </summary>
         private static List<List<(int Row, int Col)>> TryGeneratePathPartition(int size, bool[,] usable,
             int usableCount, int pathCount, HashSet<(int Row, int Col)> bridges,
             HashSet<(int Row, int Col)> sharedGoals, System.Random rng)
+        {
+            return BuildPathPartitionCore(size, usable, usableCount, pathCount, bridges, sharedGoals, rng,
+                shortPathProtectionFloor: int.MaxValue);
+        }
+
+        /// <summary>
+        /// Advanced's mechanic-dependent board construction only, NOT a general-purpose entry
+        /// point -- see BuildPathPartitionCore's own doc comment for why this exists and what it
+        /// changes. Kept as a distinctly-NAMED method rather than an added parameter on
+        /// TryGeneratePathPartition's own overloads: two test files resolve those overloads via
+        /// reflection matched on an exact parameter list/count
+        /// (LevelGeneratorBridgeTests/LevelGeneratorSharedGoalTests), and an appended optional
+        /// parameter silently breaks or, worse, silently MISMATCHES that lookup rather than
+        /// failing loudly -- found the hard way, by a real test failure, before this method existed.
+        ///
+        /// <paramref name="shortPathProtectionFloor"/> defaults to a small protection band rather
+        /// than none at all -- an unconditional free-for-all (floor 0) was tried first and a probe
+        /// showed it just trades "too uniform" rejections for "too short" ones (a 2-cell link,
+        /// StructuralGates.MinPathCells) at low colour counts, since nothing stops one path
+        /// starving while others run long. Protecting only paths still under the floor, and letting
+        /// anything past it diverge freely, is the hybrid BuildPathPartitionCore's own doc comment
+        /// describes.
+        /// </summary>
+        private static List<List<(int Row, int Col)>> TryGeneratePathPartitionUnbalanced(int size,
+            bool[,] usable, int usableCount, int pathCount, System.Random rng,
+            int shortPathProtectionFloor = StructuralGates.MinPathCells + 2)
+        {
+            return BuildPathPartitionCore(size, usable, usableCount, pathCount, null, null, rng,
+                shortPathProtectionFloor);
+        }
+
+        /// <summary>
+        /// The shared implementation behind every TryGeneratePathPartition overload and
+        /// TryGeneratePathPartitionUnbalanced. See the public overloads' own doc comments for
+        /// Bridge/Shared-Destination node splitting; this comment covers only
+        /// <paramref name="shortPathProtectionFloor"/>.
+        ///
+        /// It replaces path.Count in the growth loop's tie-break with
+        /// <c>min(path.Count, shortPathProtectionFloor)</c> -- a "danger" value clamped at the
+        /// floor. Two paths already at or past the floor both read as exactly the floor, so ties
+        /// between two SAFE paths fall through to pure randomness (no bias); a path still short of
+        /// it reads as its real, smaller length, so it keeps winning ties against a safe path (and
+        /// against another short one, the shorter of the two wins, protecting whichever is more at
+        /// risk first). <c>int.MaxValue</c> recovers the original always-prefer-shortest behaviour
+        /// (every real length is below it, so the clamp never engages) -- this is what every
+        /// TryGeneratePathPartition overload passes, keeping Classic's and the shipped Advanced 6x6
+        /// pack's paths exactly as before. <c>0</c> is the opposite extreme, no protection at all.
+        ///
+        /// Needed because StructuralGates demands a real spread between the shortest and longest
+        /// path (see its own doc comment, and its citation of PuzzleMadison requiring "a deliberate
+        /// spread of link lengths"), and a probe on the Advanced pipeline found "too uniform" as the
+        /// dominant rejection reason at EVERY colour ratio tried -- the growth heuristic itself, not
+        /// the colour count, was fighting the gate. A second probe at floor 0 (no protection) showed
+        /// the failure mode just moves to "too short" at low colour counts instead -- the floor
+        /// exists to take the fix only as far as it needs to go.
+        /// </summary>
+        private static List<List<(int Row, int Col)>> BuildPathPartitionCore(int size, bool[,] usable,
+            int usableCount, int pathCount, HashSet<(int Row, int Col)> bridges,
+            HashSet<(int Row, int Col)> sharedGoals, System.Random rng, int shortPathProtectionFloor)
         {
             if (pathCount < 1) { return null; }
 
@@ -7228,11 +7496,16 @@ namespace FreeFlow.GamePlay
 
                             int freeNeighbours = CountFreeNeighbours(neighbours, taken, candidate);
 
-                            // Most-constrained node first; shortest path breaks ties; a random
-                            // pick breaks the rest, so repeated runs explore different boards.
+                            // Most-constrained node first; among equally-constrained candidates,
+                            // whichever path is more "in danger" of missing shortPathProtectionFloor
+                            // breaks ties (see BuildPathPartitionCore's own doc comment) -- clamping
+                            // both lengths at the floor means two paths already past it always read
+                            // as equal, so the random tie-break below is what decides between them.
+                            int thisDanger = Math.Min(path.Count, shortPathProtectionFloor);
+                            int bestDanger = Math.Min(bestPathLength, shortPathProtectionFloor);
                             bool better = freeNeighbours < bestFreeNeighbours
-                                || (freeNeighbours == bestFreeNeighbours && path.Count < bestPathLength);
-                            bool equal = freeNeighbours == bestFreeNeighbours && path.Count == bestPathLength;
+                                || (freeNeighbours == bestFreeNeighbours && thisDanger < bestDanger);
+                            bool equal = freeNeighbours == bestFreeNeighbours && thisDanger == bestDanger;
 
                             if (equal)
                             {

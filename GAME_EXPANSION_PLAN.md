@@ -6,6 +6,8 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
+> **Work in progress, interrupted mid-task: read [§6.44](#644-advanced-7x7-why-the-wired-call-fails-the-fix-and-where-this-stands--read-this-first-if-picking-up-the-7x7-pack) before touching Advanced 7x7.** The generator had a real bug (now fixed, 227/227 tests pass) and a good `cellsPerColour` has been measured (7, not the originally-wired 10) — but the actual 100-level pack has **not been generated yet**. §6.44 has the exact next command to run and why.
+
 ## Progress Log
 
 | Phase | Status | One-line summary |
@@ -1677,7 +1679,7 @@ Fixed with two changes, and one alone would not have worked: blocked-plus-rule r
 | pack | state |
 |---|---|
 | 6×6 | **Ready and proven** — 100 levels built, verified, committed |
-| 7×7 | Wired (`BuildAdvancedPack(7, 100, 10, 900, 10)`), never run |
+| 7×7 | **Investigated, not yet built — see §6.44.** The wired call (`cellsPerColour=10`) fails outright: 6.75h to gather 46 of a 260 probe target, hard-capped at 200,000 attempts. Root cause found and fixed (a length-equalising bias in the shared partition builder), `cellsPerColour=7` measured as the real pick (~3.3h estimated to a 900-pool, small sample). The 100-level pack itself has not been generated yet -- that is the next action. |
 | 5×5, 8×8, 9×9 | **No entry point at all** |
 
 Two things block the rest:
@@ -1766,6 +1768,79 @@ The spec's ask has three parts — date+version seeding, skill-based pool select
 **Verified two ways.** 15 new tests (`DailyChallengeSelectorTests`, `DailyChallengeStreakTests`) — pure logic, no scene needed — 221/221 total passing, including a 200-day sweep confirming the top skill band actually reaches a pack's final level (not just "somewhere in the top third"). In Play mode, against the developer's own real save (backed up, restored after): clicked the new button and confirmed via direct state inspection (a Game View screenshot came back blank again — the same unfocused-window artifact §6 Phase 4 already hit and documented, not a new problem) that it loaded Classic 6x6 level 20, cached that pick to `SaveData`, hid the main menu and pack grid, and showed gameplay; invoked completion and confirmed the streak went 0→1 and the game-over message read "Daily Challenge complete! 1-day streak."; retried and confirmed the flag survived the reload.
 
 **Explicitly not done, and why:** no UI shows the streak anywhere except the completion message — a persistent "N-day streak" readout (on the daily-challenge button itself, say) is presentation work with no functional gap behind it, closer to Phase 11's statistics screen than to this phase's job of making the mechanism correct. Advanced mode's daily challenge is not wired (see above). No push notification or any "come back today" prompt exists — out of scope for an offline single-player game with no notification infrastructure elsewhere in the project.
+
+### 6.44 Advanced 7x7: why the wired call fails, the fix, and where this stands — READ THIS FIRST if picking up the 7x7 pack
+
+**Session handoff note.** This work was interrupted mid-investigation to continue on a different machine. Everything needed to resume is in this section. The short version: `BuildAdvancedPack(7, 100, 10, 900, 10)` — the call §6.40 called "wired, never run" — **does not work as configured**, a real generator bug was found and fixed, and a good `cellsPerColour` was measured rather than guessed. **The fix is committed. The real 900/100 pack has NOT been generated yet** — that is the next action, spelled out at the end of this section.
+
+#### The original call fails, and not slowly
+
+Ran `BuildAdvancedPack(7, 24, 4, 260, 10)` (the existing small-probe pattern, `ProbeAdvancedYield()`'s 7x7 sibling, added as `ProbeAdvancedYield7x7()`). It took **24,284.7 seconds (6.75 hours)** to gather only **46 of a 260 pool target** — it hit the pipeline's hard 200,000-attempt cap, not the pool target, at a raw yield of 0.023%. The full call (`poolTarget=900`) hits the identical attempt cap at roughly the identical cost, then fails outright (`scored.Count < count`) since 46 « 100. This is a wrong configuration, not a patience problem — the doc's own §6.38 already made this exact mistake (extrapolating a colour ratio from a different pack rather than measuring) for Classic's 8×8, twice.
+
+#### Root cause: the growth heuristic actively fights StructuralGates
+
+Built `ProbeColourRatioSweep(size, cellsPerColourValues[], attemptsPerValue)` — a cheap, bounded sampler (no 200,000-attempt cap, no disk writes) that reports exactly where attempts die: generated/duplicate/unsound (broken down by `StructuralGates`' own failure reason)/decorative/kept, plus ms-per-kept. Menu item `FreeFlow/Level Generator/Advanced/PROBE 7x7 colour ratio sweep`. At `cellsPerColour ∈ {6,7,8,9,10,12}`, 3,000 attempts each (~15-20 min total, run headless via `unity run . -- -executeMethod FreeFlow.GamePlay.LevelGenerator.ProbeColourRatioSweep7x7` since the Unity Editor GUI was closed for this session — see "Running probes without the Editor open" below):
+
+**"Spread too uniform" (`StructuralGates.LengthSpread < 0.75`) was the dominant rejection reason at EVERY colour ratio tried**, not just the bad ones. Traced to the actual cause in `BuildPathPartitionCore`'s (formerly `TryGeneratePathPartition`'s) growth loop:
+```csharp
+bool better = freeNeighbours < bestFreeNeighbours
+    || (freeNeighbours == bestFreeNeighbours && path.Count < bestPathLength);
+```
+Warnsdorff's rule (`freeNeighbours`) is correct and untouched. The second clause is not: whenever two candidate moves are equally constrained, it **actively prefers extending whichever path is currently shortest** — a deliberate length-equalising bias baked into the one growth loop every generator call site shares (Classic's packs, the proven Advanced 6x6 pack, and Advanced's mechanic-dependent construction alike). `DistributeLengths` (the old snake-then-cut length-variation step) was fully deleted with the Hamiltonian-snake constructor it belonged to (§6.15) and never replaced — nothing in the current pipeline tries to vary path lengths; the growth heuristic actively resists it.
+
+#### The fix, and why it needed a second pass
+
+Added `shortPathProtectionFloor` to the shared partition builder: the tie-break now compares `min(path.Count, floor)` instead of raw `path.Count`. Two paths already at or past the floor both clamp to exactly the floor and read as equal, so ties between two SAFE paths fall through to pure randomness (no bias); a path still short of the floor keeps winning ties (protecting whichever is most at risk first). `int.MaxValue` recovers the original always-prefer-shortest behaviour exactly (every `TryGeneratePathPartition` overload passes this — **zero behaviour change for Classic or the shipped Advanced 6x6 pack**). A new, distinctly-named `TryGeneratePathPartitionUnbalanced` (default floor `StructuralGates.MinPathCells + 2` = 5) is the only thing that passes anything else, and only `TryBuildMechanicDependentBoard` (Advanced's mechanic construction) calls it.
+
+**First attempt used floor 0 (no protection at all) and made things worse in a different way**: "spread" dropped as predicted, but "too short" (`<3`-cell link) rose sharply at low colour counts, since nothing stopped one path starving while others ran long. Comparing all three configurations, same 3,000-attempt sample each:
+
+| cellsPerColour | Balanced (orig) kept / ms-per-kept | Unbalanced (floor 0) kept / ms-per-kept | **Hybrid (floor 5) kept / ms-per-kept** |
+|---|---|---|---|
+| 6 | 3 / 9,454 | 0 / n/a | **4 / 7,876** |
+| 7 | 1 / 65,959 | 2 / 24,296 | **5 / 13,220** |
+| 8 | 2 / 82,897 | 0 / n/a | 2 / 48,986 |
+| 9 | 3 / 107,279 | 3 / 86,353 | 1 / 346,265 |
+| 10 | 2 / 209,815 | 3 / 122,260 | **4 / 94,375** |
+| 12 | 0 / n/a | 1 / 363,174 | 0 / n/a |
+| **total kept, all 6 values** | **11** | 9 | **16** |
+
+The hybrid floor is the one actually shipped (it's the default). It isn't just "faster somewhere" — it has the highest total yield of the three, and by a real margin at cellsPerColour=7 (1→5 kept).
+
+**Reason found by reasoning about the numbers, not just picking the biggest table cell**: `cellsPerColour=6` is cheapest (ms/kept=7,876 → ~2h to a 900-pool) but its mean path (5.6) is shorter than Classic's own measured 7x7 reference (8.7, §6.38) — a materially easier board underneath whatever mechanic sits on it. **`cellsPerColour=7` is the better pick**: best raw yield (5/3000, also the most statistically reliable sample of the three fast options), ms/kept=13,220 → **≈3.3 hours extrapolated to a 900-board pool**, and mean path 7.6, close to the Classic reference. `cellsPerColour=10` (the original guess) is now viable too at ≈23.6 hours, but no longer the best option once actually measured.
+
+All sample sizes here are small (1-5 kept per 3,000 attempts) — real sampling noise, not a precise measurement. Treat the ≈3.3h estimate as a planning number, not a guarantee.
+
+#### A real regression caught before it shipped
+
+The first attempt at this fix added `shortPathProtectionFloor`/`balanceLengths` as an optional parameter directly on the existing `TryGeneratePathPartition` overloads. **This broke 10 of 227 tests** (`LevelGeneratorBridgeTests`, `LevelGeneratorSharedGoalTests`) — both resolve those overloads via reflection matched on an *exact* parameter list/count (`GetMethod(..., new[]{ typeof(int), typeof(bool[,]), ... }, null)` and `m.GetParameters().Length == 7`), and an appended parameter either breaks that lookup outright (`NullReferenceException` on a null `MethodInfo`) or, worse, silently resolves to the *wrong* overload. Fixed by keeping all three `TryGeneratePathPartition` overloads at their exact original signatures (delegating to a new, differently-named `BuildPathPartitionCore`), and giving the new behaviour its own method name (`TryGeneratePathPartitionUnbalanced`) instead of a bolted-on parameter. **227/227 tests pass** with the final version. Lesson for next time this file's shared methods change shape: grep the test folder for `GetMethod`/`GetParameters` against the method's name before assuming an added optional parameter is harmless.
+
+#### Running probes without the Editor open
+
+The Unity Editor GUI got closed partway through this session (crashed or closed independently — not something this session did), which also disconnects UnityMCP. Rather than reopen the GUI (which blocks on every generation call — see §0's own runbook note), the rest of this investigation ran via the **Unity CLI** (`unity` on PATH, installed, beta channel) in headless batch mode, which needs no live Editor and doesn't fight a GUI instance for the project lock:
+```bash
+# Compile-check + full test suite (fast, ~1s once warm):
+unity test . --mode EditMode --editor-version 6000.3.8f1 --output <path>.xml --format json
+
+# Run a generator menu-item method headlessly (no GUI, no lock conflict):
+unity run . --editor-version 6000.3.8f1 --timeout 5400 --format json -- \
+  -executeMethod FreeFlow.GamePlay.LevelGenerator.ProbeColourRatioSweep7x7 \
+  -logFile <path-to-a-log-file>
+
+# The actual next-action command -- the real 100-level pack, cellsPerColour=7 already wired in.
+# No --timeout (or a very large one): this is expected to run for hours, and that is fine.
+unity run . --editor-version 6000.3.8f1 --format json -- \
+  -executeMethod FreeFlow.GamePlay.LevelGenerator.BuildAdvancedPack7x7 \
+  -logFile <path-to-a-log-file>
+```
+`unity run`'s own stdout is mostly noise; the actual `Debug.Log`/`Debug.LogError` output — including a probe's final summary line — lands in whatever `-logFile` was given, not in the CLI's own JSON envelope. Grep that log file for the method's own log output. **Do not run `unity run`/`unity test` at the same time the Editor GUI has this project open** — same project-lock conflict as two GUI instances; check `tasklist` for `Unity.exe` and `Temp/UnityLockfile` first if unsure.
+
+#### The exact next action
+
+1. Run the real pack build: `FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)` (the menu item is already updated to `BuildAdvancedPack(7, 100, 10, 900, 7)` — `cellsPerColour=7`, everything else unchanged from the original wired call). Expect on the order of **3-4 hours**, possibly more (small-sample estimate, see above) — the user has explicitly said timing is not a constraint, correctness is what matters, so let it run to completion rather than capping it.
+2. This can run headless via the CLI exactly as above, with a longer `--timeout` (5400s was enough for the 3,000-attempt sweeps; the real run needs its own budget — 6+ hours, so pass e.g. `--timeout 43200` or omit `--timeout` and just wait).
+3. Verify the output the same way every prior pack was verified (§0's runbook): load each `Level_N.asset`, confirm `ValidateSolvability` reports a unique solution, confirm every mechanic instance is load-bearing (`RequiredMechanicValidator`), confirm no path ≤ 2 cells and no blocked cell on the outer ring. Do NOT trust the generation log alone.
+4. Only after that verification, treat the pack as shippable, `UIController`'s `advancedPackSizes`/relevant fields get 7 added, and this section's status moves from "next action" to "done" in a follow-up doc update.
+5. **Not yet decided**: whether `cellsPerColour=7`'s shorter-than-original mean path needs a second look once real levels exist to play, the same way §6.25's mechanics-are-seasoning finding only came from actually playing generated boards, not from any generation-time metric.
 
 ### Open questions, current
 
