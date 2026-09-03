@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **Work in progress, interrupted mid-task: read [§6.44](#644-advanced-7x7-why-the-wired-call-fails-the-fix-and-where-this-stands--read-this-first-if-picking-up-the-7x7-pack) before touching Advanced 7x7.** The generator had a real bug (now fixed, 227/227 tests pass, committed as `0b36ad6`) and a good `cellsPerColour` has been measured (7, not the originally-wired 10). **One more change sits uncommitted on top of that** — the gather loop's attempt cap raised for Advanced only — made on the machine this session ran on, but **not yet test-verified or committed**; run the test suite first, on whichever machine picks this up. The actual 100-level pack has **not been generated yet** either way. §6.44's last two subsections have the exact next commands and why.
+> **Advanced 7x7 is BUILT and committed (`4a698f8`), and held on one open decision: read [§6.44b](#644b-the-7x7-pack-is-built-and-verified-correctness-clean-difficulty-ordering-is-not) before touching it.** The generator's length-equalising bug is fixed (`0b36ad6`), and the Advanced-only attempt-cap raise (`1084f27`) is now **test-verified — 227/227 pass**. The 100-level pack is generated and clean on every correctness axis: 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, 579/579 pairs reconstructing a hint route, mean path 8.26. **What is NOT settled is difficulty ordering**: the three hardest levels are L13/L22/L25 at score 87, above L100's 83, and the gather returned 463 boards against a 900 pool target. §6.44b has the numbers and the three options; §6.44a has the MCP-machine traps worth reading before rebuilding.
 
 ## Progress Log
 
@@ -1846,16 +1846,236 @@ Missed on the first pass, then found by actually working through the arithmetic 
 ```bash
 unity test . --mode EditMode --editor-version 6000.3.8f1 --output <path>.xml --format json
 ```
-**Not yet committed, for the same reason** — do not push this to `origin` until that test run is green. Everything from §6.44's earlier work (the `shortPathProtectionFloor` fix, `ProbeColourRatioSweep`, `BuildAdvancedPack7x7`'s `cellsPerColour=7`) IS already committed and pushed (`0b36ad6`); only the attempt-cap raise is still local/uncommitted on top of that.
+**It WAS committed and pushed anyway, as `1084f27` on `origin/LevelGeneration`** — an earlier revision of this section said "not yet committed, do not push until the test run is green", which is now stale and was corrected on the machine that picked this up. The commit message carries the same "NOT test-verified" warning, so the outstanding item is unchanged: the verification, not the commit. Everything from §6.44's earlier work (the `shortPathProtectionFloor` fix, `ProbeColourRatioSweep`, `BuildAdvancedPack7x7`'s `cellsPerColour=7`) was already committed and pushed before it (`0b36ad6`).
+
+#### Not every machine has the `unity` CLI — three entry points, and how to tell which you have
+
+The commands above assume the `unity` CLI is on PATH. **It was on the machine §6.44's investigation ran on, and is not on the one that picked the work up** — so check first (`Get-Command unity` on Windows) rather than copying them. There are three ways into this project's generator, and they are not interchangeable:
+
+1. **`unity` CLI, headless** (`unity test .` / `unity run . -- -executeMethod …`) — what the commands above use. Needs the CLI installed and the Editor GUI closed.
+2. **`Unity.exe -batchmode` directly** — the same thing without the CLI wrapper, using the Hub's editor binary (`C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe`, plus `-projectPath`, `-executeMethod`, `-runTests`, `-logFile`). Also needs the GUI closed, since it takes the same project lock.
+3. **MCP for Unity, against the live Editor** (`execute_menu_item`, `read_console`, the `mcpforunity://tests` resource) — the only option that runs *inside* the open GUI. Its advantage for the pack build specifically is that `EditorUtility.DisplayCancelableProgressBar` is visible and Cancel works (§0: Cancel keeps whatever was already saved); headless runs give log lines only. The cost is that generation is a synchronous `[MenuItem]`, so the Editor is frozen for the run's whole duration.
+
+**MCP config lives at `.mcp.json` in the project root, not `.claude/mcp.json`.** The project had it at the latter, which Claude Code does not read, so the Unity tools silently never loaded while the server itself was running and healthy on `127.0.0.1:8080` — a live server is not evidence the tools are connected. Verified by handshaking the port directly (`initialize` returned `mcp-for-unity-server` v3.4.7) while no `mcp__UnityMCP__*` tools existed in the session. Also note Unity's own **"Configure Claude CLI" button fails with "Claude CLI not found" on a desktop-app-only install** — it shells out to a `claude` binary that only exists with the npm CLI install. That error is cosmetic; it does not affect the MCP connection, which the config file above establishes on its own. **MCP servers connect at session start only**, so adding the file needs a Claude Code restart before the tools appear.
 
 #### The exact next action
 
-0. **First**: run the test suite (see command just above) to verify the uncommitted `advancedMaxAttempts` change compiles and 227/227 still pass. If green, commit and push it before anything else — the real build below should run against committed code, not a local-only edit.
+0. **First**: run the test suite to verify the already-committed `advancedMaxAttempts` change (`1084f27`) compiles and 227/227 still pass. It is committed and pushed, so there is nothing to commit here — this is pure verification. If it comes back red, the fix or a revert goes on top; do not start the multi-hour build below against a red suite. **Check which Unity entry points this machine actually has before copying the commands above** — see "Not every machine has the `unity` CLI" below.
 1. Run the real pack build: `FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)` (the menu item is already updated to `BuildAdvancedPack(7, 100, 10, 900, 7)` — `cellsPerColour=7`, everything else unchanged from the original wired call). Expect on the order of **3-4 hours**, possibly more (small-sample estimate, see above) — the user has explicitly said timing is not a constraint, correctness is what matters, so let it run to completion rather than capping it.
 2. This can run headless via the CLI exactly as above, with a longer `--timeout` (5400s was enough for the 3,000-attempt sweeps; the real run needs its own budget — 6+ hours, so pass e.g. `--timeout 43200` or omit `--timeout` and just wait).
 3. Verify the output the same way every prior pack was verified (§0's runbook): load each `Level_N.asset`, confirm `ValidateSolvability` reports a unique solution, confirm every mechanic instance is load-bearing (`RequiredMechanicValidator`), confirm no path ≤ 2 cells and no blocked cell on the outer ring. Do NOT trust the generation log alone.
 4. Only after that verification, treat the pack as shippable, `UIController`'s `advancedPackSizes`/relevant fields get 7 added, and this section's status moves from "next action" to "done" in a follow-up doc update.
 5. **Not yet decided**: whether `cellsPerColour=7`'s shorter-than-original mean path needs a second look once real levels exist to play, the same way §6.25's mechanics-are-seasoning finding only came from actually playing generated boards, not from any generation-time metric.
+
+#### 6.44a Picking this up on the MCP machine: step 0 is DONE, and three traps found on the way
+
+**Step 0 is complete. `1084f27` is verified: 227/227 EditMode tests pass in 3.0s.** Run through MCP for Unity's
+`run_tests` against the live Editor (not the `unity` CLI, which this machine does not have). The
+`advancedMaxAttempts` change is confirmed correctly scoped by inspection as well as by the suite:
+`LevelGenerator.cs:3876` uses the new `advancedMaxAttempts = 1000000` for Advanced's gather loop, while
+Classic's `BuildSizePack` copy at `LevelGenerator.cs:2837` is still at its original `200000`. The commit
+message's "NOT test-verified" warning is now stale — the verification it asked for has been done.
+
+**Entry points on this machine: 2 of the 3 from the list above.** No `unity` CLI (`command -v unity` finds
+nothing), so every `unity test .` / `unity run .` command in §6.44 is uncopyable here. `Unity.exe` IS at the
+Hub path (`C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe`, matching the running Editor's
+6000.3.8f1), and MCP works against the live Editor once `.mcp.json` sits in the project root.
+
+##### Trap 1: a long synchronous `[MenuItem]` always "fails" over MCP, and the hint tells you to do the wrong thing
+
+`execute_menu_item` on the pack build never returns successfully, because the menu item blocks Unity's main
+thread for hours and the bridge cannot answer until it returns. Two different errors were seen for the same
+healthy run — `TimeoutError`, and later `Unity plugin session <guid> disconnected while awaiting
+command_result` (the Editor's own log shows the matching `[WebSocket] Receive loop error: The remote party
+closed the WebSocket connection`). **Both carry `hint: "retry"`, and retrying is exactly wrong** — the command
+already dispatched and is running, so a retry risks a second concurrent build. Confirm it started from
+outside Unity instead:
+
+1. `Editor.log` gains `[ExecuteMenuItem] Handling menu item command`, then `Start importing
+   Assets/Resources/Levels/Advanced/7x7` (the build creating its own output folder).
+2. The Editor process's CPU time climbs (`Get-Process -Id <pid> | Select CPU`).
+
+Note the progress bar keeps `Responding = True` throughout — `DisplayCancelableProgressBar` pumps enough
+events that the window is live and **Cancel genuinely works**, even though MCP is shut out.
+
+##### Trap 2: editing a `.cs` while the Editor is frozen does NOT get compiled, and the run will silently use the old value
+
+This nearly cost a full multi-hour run. `GenerationDutyCycle` was changed on disk while the build was running,
+the build was cancelled, and the constant was still `0.9` **in the loaded assembly** — Unity was blocked while
+the edit landed and is unfocused (`is_focused: false`), so the asset pipeline never noticed the file. A domain
+reload alone is not evidence of a recompile either. The fix and, more importantly, the check:
+
+```csharp
+// force it
+UnityEditor.AssetDatabase.Refresh();
+UnityEditor.Compilation.CompilationPipeline.RequestScriptCompilation();
+
+// then PROVE the loaded assembly has the new value, via execute_code + reflection
+foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies()) { var c = asm.GetType("FreeFlow.GamePlay.LevelGenerator"); if (c != null) { t = c; break; } }
+t.GetField("GenerationDutyCycle", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);   // must read 1, not 0.9
+```
+
+**Never start a long generation run on the strength of a disk edit alone. Read the constant back out of the
+live assembly first.**
+
+##### Trap 3: `tasklist` is not on PATH in this project's Git Bash
+
+A liveness check built on bare `tasklist` fails with `command not found`, which — in a watch loop whose stderr
+is discarded — reads identically to "the process died", producing a false crash report within one poll.
+Use `/c/Windows/System32/tasklist.exe //FI "PID eq <pid>" //NH` (or `ps -W`, whose WINPID is the 4th column).
+
+##### Watching a frozen Editor: the `Editor.log` byte-offset trick
+
+`BuildAdvancedPack` logs **nothing** on the happy path — the only `Debug.Log` in its 560-line body is the
+`survivors.Count < count` failure at `LevelGenerator.cs:4038`. The success line lives one level down, in
+`ScheduleAndWriteAdvancedPack` at `LevelGenerator.cs:3242` (`"Pack <label>: <n> levels written to <folder>"`).
+So during the hours-long gather there is no log output at all, and MCP cannot answer. What does work: record
+`wc -c < Editor.log` **before** firing, then read only what the run appended with `tail -c +<offset+1>`.
+Unity flushes `Debug.Log` to that file continuously, independent of the frozen main thread.
+
+A watch over that offset must cover every terminal state, since the gather phase is silent and silence is
+indistinguishable from progress. Three markers suffice: `levels written to` (success, also `Level_100.asset`
+appearing), `boards for [0-9]+ levels|schedule filled only|Pack .*: only [0-9]+` (failure **and** cancellation,
+which lands on the same `survivors.Count < count` branch), and the process disappearing (crash).
+
+##### The CPU duty-cycle throttle is now OFF, globally
+
+`GenerationDutyCycle` is `1f`, down from `0.9f`, by explicit request for attended runs. `CpuThrottle.Tick()`
+early-outs at `duty >= 1f`, so this disables the mechanism outright rather than sleeping zero. **This is a
+shared constant, not an Advanced-only setting** — it feeds Classic's `BuildSizePack` (2830) and the probe
+methods (4425, 4515, 4631) as well as `BuildAdvancedPack` (3839). To throttle one call site only, pass a
+different duty to that site's `CpuThrottle` rather than editing the constant. Restore `0.9f` before any
+unattended overnight run, per the original comment's reasoning about hardware thermal throttling.
+
+##### The ≈3.3h estimate was optimistic: measured ≈5-7h on this machine
+
+The cancelled first run is a real measurement, and a better one than the sweep it replaces — same code path as
+the actual pack build, on the machine actually running it. It ran **7m06s** (output folder created 22:24:29,
+failure line written 22:31:35) and reported:
+
+```
+Advanced pack 7x7: only 20 boards for 100 levels.
+Generated 470, 0 duplicates, 118 unsound, 332 with a decorative mechanic.
+```
+
+426s / 20 kept = **21,300 ms per kept board**, against the sweep's 13,220 ms/kept (§6.44) — 1.6× worse. That
+gap is unremarkable given the sweep's sample was 5 kept boards on a *different* machine; the plan's number was
+not wrong so much as noisy and optimistic. Extrapolated to the 900-board pool: **≈5.3h throttled, ≈4.8h
+unthrottled**, and both are floors, because `0 duplicates` at 470 generated means canonical dedup is not yet
+biting — it gets more expensive as the pool fills (§"Open questions"' own warning about per-stage estimates).
+Plan on **5-7 hours**.
+
+Two things in that breakdown are worth carrying forward. **`332/470 = 70.6% of generated boards were rejected
+as having a decorative mechanic** — by far the dominant loss, ahead of `unsound` at 25.1%. That is the same
+marginal-necessity problem the "Levels 51-200" note below diagnoses (removing one mechanic alone rarely opens a
+second solution once mechanics overlap), and it is the single biggest available lever on generation cost: an
+"at least K of M" rule would convert most of that 70.6% into keeps. **And `0 duplicates` at this pool depth**
+confirms uniqueness is not the binding constraint early on, exactly as that note found.
+
+#### 6.44b The 7x7 pack is BUILT and verified: correctness clean, difficulty ordering is not
+
+**Built in 14,883s (4.13h) unthrottled, 100 levels written.** Observed CPU duty 1.01, confirming the
+throttle removal took effect. Generation summary:
+
+```
+generated 15247, 0 duplicates, 4612 unsound, 0 not unique, 10172 decorative, 463 kept
+scored 463 -> 341 well-formed
+warm-up: Blocked x6 | run1 Wall x3 (32..62) | run2 Checkpoint x3 (43..87) | run3 Arrow x3 (54..71)
+run4 OneWay x3 (41..73) | run5 AllowedForPairs x3 (57..87) | run6 ForbiddenForPair x2 (56..87)
+consolidation x26 (24..81) | escalation x50 (36..91) | topped up to 100
+unranked: 8 structural levels, every 11
+```
+
+##### The pool target was missed, and that is the root cause of everything below
+
+`poolTarget` was 900; the gather returned **463** — it exited on the 1,000,000-attempt cap, not the target.
+Measured yield was **0.046% per attempt** against the sweep's projected 0.167% — **3.6x worse**, so even the
+raised cap fell ~2x short. The n=5 sweep sample was optimistic twice over (§6.44a already caught it being 1.6x
+optimistic on time; at scale it is 3.6x on yield). **A 900-board pool at this real yield needs ~2,000,000
+attempts, i.e. an ~8-9 hour run.** `advancedMaxAttempts` would have to roughly double again.
+
+The shortfall hit the rare mechanics hardest, exactly as §6.44 predicted. Pool mix: `BlockedOnly=225` of 463
+(48.6%), against `ForbiddenForPair` at **6 boards total** (2+1+2+1). `run 6: ForbiddenForPair x2` got two
+practice levels where the design asks for three, and `topped up to 100` fired.
+
+##### Correctness: clean, all four runbook checks pass
+
+Verified against the written assets, not the generation log (§0's rule), via `execute_code` in the live Editor:
+
+| check | result |
+|---|---|
+| assets present | 100/100 |
+| uniquely solvable (`SolutionsFound == 1` AND `SearchExhausted`) | **100/100** |
+| stored answer matches the solver's solution cell-for-cell | **100/100** |
+| stored solution present (`HintPath.ReadSolution` non-null) | 100/100 |
+| every pair reconstructs a hint route | **579/579 pairs** |
+| routes together cover every solution cell | 100/100 |
+| blocked cell on the outer ring | 0 levels |
+| path <= 2 cells | **1 level (L56)** |
+
+Uniqueness cost 5.4s for L1-50 and 12.4s for L51-100 — cheap enough to re-run on any future pack.
+
+**Mean path 8.26 over 579 pairs** — better than the 7.6 the sweep projected, close to Classic 7x7's 8.7, and
+above Flow Free's 8x8 benchmark of 7.1 on a smaller board. On the §6.35 axis (short paths = unchallenging)
+this pack is sound.
+
+**Mechanic census — sums to exactly 100, so no board carries two rules** (the "no two-rule boards" decision
+holds in the shipped output): AllowedForPairs 21, Checkpoint 14, Wall 12, Arrow 11, OneWay 11, Bridge 4,
+SharedDestination 4, ForbiddenForPair 3, plus 20 blocked/plain-only (L1-6 are the designed warm-up; the other
+14 are Blocked taking its share of consolidation/escalation).
+
+**Watch out for `secondPairId` when auditing.** It is dual-purpose — a second *dot* identity for Shared
+Destination, and a permission target for `ForbiddenForPair`/`AllowedForPairs` (`Block.SecondIdNamesAPair`
+disambiguates). Counting non-zero `secondPairId` as "shared destination" reports 18 levels; the true count is
+**4** (56, 67, 78, 89), pairing with the 4 Bridge levels (12, 23, 34, 45) to make the 8 unranked structural
+levels the log claims, placed every 11.
+
+##### The one structural defect: L56 has a 2-cell path
+
+L56 is a Shared Destination teaching level, paths `2,3,5,7,10,11,11` (sum 49, full board). The 2-cell pair is
+a dot adjacent to the shared destination cell. Structural boards are gathered by the older spec pipeline and
+are "gated on uniqueness and the structural gates alone", so `MinPathCells` is evidently not applied there.
+Low severity — it is an unranked teaching slot, where the design's own words are that it "only needs the board
+to be correct and simple" — but it does fail §6.44's runbook criterion, and §6.35's whole finding was that
+2-cell pairs are "two adjacent dots, one drag, nothing to work out".
+
+##### The real problem: the difficulty ramp is inverted, and the shallow pool caused it
+
+`difficultyScore` read off the shipped assets, by block of ten (the 8 unranked structural levels store 0 and
+drag their block's mean down by ~5-8):
+
+| block | mean | range |
+|---|---|---|
+| L1-10 | 45.8 | 23..67 |
+| L11-20 | 55.9 | 0..87 |
+| L21-30 | 48.8 | 0..87 |
+| L31-40 | 45.8 | 0..69 |
+| L41-50 | 52.5 | 0..78 |
+| L51-60 | 45.8 | 0..81 |
+| L61-70 | 47.7 | 0..56 |
+| L71-80 | 52.6 | 0..62 |
+| L81-90 | 61.3 | 0..74 |
+| L91-100 | **78.2** | 71..83 |
+
+**The three hardest levels in the pack are L13=87, L22=87 and L25=87 — all in the first quarter, all harder
+than L100=83 and L99=83.** Ten levels in 1-50 score above 70; seven levels in 51-100 score below 50, bottoming
+at **L54=36**. So a player meets an 87 at level 13 and a 36 at level 54.
+
+The escalation half taken alone does ramp correctly (50.9 → 53.0 → 58.4 → 68.1 → 78.2 once the zeros are
+discounted). The inversion comes from the **acquisition half**: practice runs are stratified within *each
+rule's own* difficulty range, and that range is global-position-blind. `AllowedForPairs` spans 57..87 and
+`ForbiddenForPair` 56..87, so those rules' practice levels *cannot* be easy — their easiest available board is
+already harder than most of the escalation block's floor.
+
+**And that is a pool-depth problem, not just a scheduler one.** With only 6 `ForbiddenForPair` boards and a
+`BlockedOnly`-heavy pool, stratification had nothing easy to choose from. A 900-board pool would give each rule
+a real difficulty range to stratify across. This is the same family as §6.39's consolidation-above-escalation
+bug and §6.36's middle dip, both of which were fixed for other packs — it is unfixed for runs-vs-escalation.
+
+**Status: the pack is correct and shippable on every correctness axis, and should NOT ship on the ordering
+axis without a decision.** Three options: (1) raise `advancedMaxAttempts` to ~2,000,000 and rebuild (~8-9h) for
+a real 900 pool; (2) make run stratification aware of global position so a hard rule's practice lands later;
+(3) accept and reorder post-hoc, which breaks the rule-acquisition pedagogy the first half exists to deliver.
 
 ### Open questions, current
 

@@ -2764,8 +2764,13 @@ namespace FreeFlow.GamePlay
         /// about a ninth on wall-clock rather than the two thirds 0.6 added. Raised from 0.6 once
         /// the machine had been observed through a 23-hour run at that setting. Lower it again for
         /// anything that will run unattended overnight.
+        ///
+        /// Now 1f -- throttling off by explicit request, for an attended run on a machine
+        /// whose thermals are being watched. Tick() early-outs at duty >= 1f, so this
+        /// disables the mechanism outright rather than sleeping zero. Restore 0.9f for
+        /// unattended runs.
         /// </summary>
-        private const float GenerationDutyCycle = 0.9f;
+        private const float GenerationDutyCycle = 1f;
 
         /// <summary>
         /// Holds a target duty cycle by sleeping in proportion to work actually done, rather than
