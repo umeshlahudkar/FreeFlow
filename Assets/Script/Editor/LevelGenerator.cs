@@ -3861,9 +3861,19 @@ namespace FreeFlow.GamePlay
             int generated = 0, duplicates = 0, unsound = 0, notUnique = 0, decorative = 0;
             int shortlistTarget = count * shortlistPerLevel;
 
+            // Raised from Classic's 200,000 (BuildSizePack, untouched) specifically for Advanced:
+            // measured yield at cellsPerColour=7 is ~0.167% (5 kept / 3000 attempts, GAME_EXPANSION_PLAN
+            // §6.44), so reaching poolTarget=900 needs on the order of 540,000 attempts -- the old cap
+            // would have stopped the gather at ~330 survivors, well short of the 900 the scheduling
+            // logic (warm-up/per-rule practice/consolidation/escalation) is actually designed around.
+            // Comfortably above the estimated need since that estimate is a small, noisy sample; the
+            // loop still stops as soon as poolTarget is reached, so a generous cap costs nothing when
+            // the run converges faster than expected.
+            const int advancedMaxAttempts = 1000000;
+
             try
             {
-                for (int attempt = 0; attempt < 200000 && survivors.Count < poolTarget; attempt++)
+                for (int attempt = 0; attempt < advancedMaxAttempts && survivors.Count < poolTarget; attempt++)
                 {
                     throttle.Tick();
 

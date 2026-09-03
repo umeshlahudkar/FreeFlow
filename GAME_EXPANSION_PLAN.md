@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **Work in progress, interrupted mid-task: read [§6.44](#644-advanced-7x7-why-the-wired-call-fails-the-fix-and-where-this-stands--read-this-first-if-picking-up-the-7x7-pack) before touching Advanced 7x7.** The generator had a real bug (now fixed, 227/227 tests pass) and a good `cellsPerColour` has been measured (7, not the originally-wired 10) — but the actual 100-level pack has **not been generated yet**. §6.44 has the exact next command to run and why.
+> **Work in progress, interrupted mid-task: read [§6.44](#644-advanced-7x7-why-the-wired-call-fails-the-fix-and-where-this-stands--read-this-first-if-picking-up-the-7x7-pack) before touching Advanced 7x7.** The generator had a real bug (now fixed, 227/227 tests pass, committed as `0b36ad6`) and a good `cellsPerColour` has been measured (7, not the originally-wired 10). **One more change sits uncommitted on top of that** — the gather loop's attempt cap raised for Advanced only — made on the machine this session ran on, but **not yet test-verified or committed**; run the test suite first, on whichever machine picks this up. The actual 100-level pack has **not been generated yet** either way. §6.44's last two subsections have the exact next commands and why.
 
 ## Progress Log
 
@@ -1834,8 +1834,23 @@ unity run . --editor-version 6000.3.8f1 --format json -- \
 ```
 `unity run`'s own stdout is mostly noise; the actual `Debug.Log`/`Debug.LogError` output — including a probe's final summary line — lands in whatever `-logFile` was given, not in the CLI's own JSON envelope. Grep that log file for the method's own log output. **Do not run `unity run`/`unity test` at the same time the Editor GUI has this project open** — same project-lock conflict as two GUI instances; check `tasklist` for `Unity.exe` and `Temp/UnityLockfile` first if unsure.
 
+#### A second correction: the ≈3.3h estimate assumed reaching 900, but the gather loop caps at 200,000 attempts regardless
+
+Missed on the first pass, then found by actually working through the arithmetic rather than trusting the extrapolation: `BuildAdvancedPack`'s gather loop is `for (attempt < 200000 && survivors.Count < poolTarget; ...)` — TWO stop conditions, whichever comes first. At `cellsPerColour=7`'s measured yield (5 kept / 3,000 attempts, ≈0.167%), reaching `poolTarget=900` needs on the order of **540,000 attempts** — past the old 200,000 cap. So the real run would have stopped at the ATTEMPT cap, not the pool target, landing around **~330 survivors**, not 900.
+
+330 still clears the hard failure line (`survivors.Count < count`, i.e. < 100) comfortably, so the run would have *succeeded* — just against a much shallower pool than the scheduling logic (warm-up / three-per-rule practice / interleaved consolidation / escalation) is actually designed around, likely thinning out the rarer mechanics (`AllowedForPairs` measured ~12x rarer than `Checkpoint` in past runs) and leaning harder on the "top up with whatever's easiest" fallback.
+
+**Since correctness matters more than time here, the cap itself is now raised — for Advanced only, Classic's `BuildSizePack` is untouched at its original 200,000.** `BuildAdvancedPack` now uses a separate `advancedMaxAttempts = 1,000,000` (comfortably above the ~540,000 estimated need, since that estimate is itself a small, noisy sample — the loop still stops as soon as `poolTarget` is reached, so a generous cap costs nothing when the run converges sooner). This restores the ≈3.3h estimate as the real one: time to reach the full, intended 900-board pool, not a truncated one.
+
+**This specific edit has NOT been test-verified in this session** — the session ended (by user request, continuing on another machine) before `unity test` could confirm it compiles and the 227 tests still pass. It is a small, mechanical change (one `for`-loop bound, Classic's copy of the same loop untouched) and low-risk by inspection, but **run the test suite before trusting or building on it**:
+```bash
+unity test . --mode EditMode --editor-version 6000.3.8f1 --output <path>.xml --format json
+```
+**Not yet committed, for the same reason** — do not push this to `origin` until that test run is green. Everything from §6.44's earlier work (the `shortPathProtectionFloor` fix, `ProbeColourRatioSweep`, `BuildAdvancedPack7x7`'s `cellsPerColour=7`) IS already committed and pushed (`0b36ad6`); only the attempt-cap raise is still local/uncommitted on top of that.
+
 #### The exact next action
 
+0. **First**: run the test suite (see command just above) to verify the uncommitted `advancedMaxAttempts` change compiles and 227/227 still pass. If green, commit and push it before anything else — the real build below should run against committed code, not a local-only edit.
 1. Run the real pack build: `FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)` (the menu item is already updated to `BuildAdvancedPack(7, 100, 10, 900, 7)` — `cellsPerColour=7`, everything else unchanged from the original wired call). Expect on the order of **3-4 hours**, possibly more (small-sample estimate, see above) — the user has explicitly said timing is not a constraint, correctness is what matters, so let it run to completion rather than capping it.
 2. This can run headless via the CLI exactly as above, with a longer `--timeout` (5400s was enough for the 3,000-attempt sweeps; the real run needs its own budget — 6+ hours, so pass e.g. `--timeout 43200` or omit `--timeout` and just wait).
 3. Verify the output the same way every prior pack was verified (§0's runbook): load each `Level_N.asset`, confirm `ValidateSolvability` reports a unique solution, confirm every mechanic instance is load-bearing (`RequiredMechanicValidator`), confirm no path ≤ 2 cells and no blocked cell on the outer ring. Do NOT trust the generation log alone.
