@@ -3167,8 +3167,18 @@ namespace FreeFlow.GamePlay
             }
             rules.Sort((a, b) => MedianOf(scored, a).CompareTo(MedianOf(scored, b)));
 
-            int warmUp = Mathf.Min(count / 25 + 2, CountOf(scored, "BlockedOnly"));
-            int firstHalf = count / 2;
+            // Structural levels are INSERTED after the ranked blocks are built, so those
+            // blocks have to leave room for them. Sizing against `count` overfills `ordered`
+            // by exactly structural.Count, and the write loop at the end takes only the
+            // first `count` -- silently dropping that many from the TAIL. That was invisible
+            // while the tail was arbitrary. Once the ramp actually ascends the tail IS the
+            // hardest levels: the first cleanly-ramped 6x6 rebuild selected escalation across
+            // 52..84 and shipped nothing above 70, having lost its top 8 without a word.
+            int structuralCount = structural != null ? structural.Count : 0;
+            int ranked = Mathf.Max(1, count - structuralCount);
+
+            int warmUp = Mathf.Min(ranked / 25 + 2, CountOf(scored, "BlockedOnly"));
+            int firstHalf = ranked / 2;
 
             // Runs shrink rather than overflow when the pack is too short to hold three levels of
             // every rule, but never below one: a rule the player never meets at all is worse than a
@@ -3183,7 +3193,7 @@ namespace FreeFlow.GamePlay
 
             int teachBlock = rules.Count * practicePerRule;
             int consolidation = Mathf.Max(0, firstHalf - warmUp - teachBlock);
-            int escalation = count - firstHalf;
+            int escalation = ranked - firstHalf;
 
             HashSet<LevelData> used = new HashSet<LevelData>();
             List<Entry> ordered = new List<Entry>();
@@ -3203,7 +3213,7 @@ namespace FreeFlow.GamePlay
 
             // --- warm-up ------------------------------------------------------------------
             List<Entry> blocked = Where(scored, "BlockedOnly", 0, 9, used);
-            foreach (Entry e in PickAlongRamp(blocked, warmUp, ordered.Count, count,
+            foreach (Entry e in PickAlongRamp(blocked, warmUp, ordered.Count, ranked,
                                               envelope, used))
             {
                 ordered.Add(e); used.Add(e.Data);
@@ -3219,7 +3229,7 @@ namespace FreeFlow.GamePlay
                 // needs a single cell of the rule, which is the clearest form it takes.
                 List<Entry> practice = Where(scored, rule, 1, 2, used);
                 List<Entry> chosen = PickAlongRamp(practice,
-                    Mathf.Min(practicePerRule, practice.Count), ordered.Count, count,
+                    Mathf.Min(practicePerRule, practice.Count), ordered.Count, ranked,
                     envelope, used);
                 foreach (Entry e in chosen) { ordered.Add(e); used.Add(e.Data); }
 
@@ -3237,7 +3247,7 @@ namespace FreeFlow.GamePlay
             // kept: the zigzag is only harmful because the range was wide, and drawing
             // against the pack ramp narrows it to what these positions should hold.
             List<Entry> consolidated = Interleave(PickAlongRamp(gentle,
-                Mathf.Min(consolidation, gentle.Count), ordered.Count, count, envelope, used));
+                Mathf.Min(consolidation, gentle.Count), ordered.Count, ranked, envelope, used));
             foreach (Entry e in consolidated) { ordered.Add(e); used.Add(e.Data); }
             plan.Append("  consolidation: x").Append(consolidated.Count)
                 .Append(Range(consolidated)).AppendLine();
@@ -3245,18 +3255,18 @@ namespace FreeFlow.GamePlay
             // --- escalation: deficit 2-3, so boards need several cells of their rule -------
             List<Entry> hard = WhereAnyRule(scored, 2, 3, used);
             List<Entry> escalated = Interleave(PickAlongRamp(hard,
-                Mathf.Min(escalation, hard.Count), ordered.Count, count, envelope, used));
+                Mathf.Min(escalation, hard.Count), ordered.Count, ranked, envelope, used));
             foreach (Entry e in escalated) { ordered.Add(e); used.Add(e.Data); }
             plan.Append("  escalation: x").Append(escalated.Count)
                 .Append(Range(escalated)).AppendLine();
 
             // Any shortfall is topped up from whatever is left, easiest first, so the pack is
             // always the requested length even when one bucket ran thin.
-            if (ordered.Count < count)
+            if (ordered.Count < ranked)
             {
                 List<Entry> spare = WhereAnyRule(scored, 0, 9, used);
                 spare.Sort((x, y) => x.Score.CompareTo(y.Score));
-                for (int i = 0; i < spare.Count && ordered.Count < count; i++)
+                for (int i = 0; i < spare.Count && ordered.Count < ranked; i++)
                 {
                     ordered.Add(spare[i]);
                     used.Add(spare[i].Data);
@@ -3264,10 +3274,10 @@ namespace FreeFlow.GamePlay
                 plan.Append("  topped up to ").Append(ordered.Count).AppendLine();
             }
 
-            if (ordered.Count < count)
+            if (ordered.Count < ranked)
             {
                 Debug.LogError("Pack " + label + ": schedule filled only " + ordered.Count
-                    + " of " + count + " slots.\n" + gatherReport + "\n" + plan);
+                    + " of " + ranked + " ranked slots.\n" + gatherReport + "\n" + plan);
                 return;
             }
 
