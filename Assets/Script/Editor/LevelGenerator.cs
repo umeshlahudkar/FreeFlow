@@ -1377,6 +1377,24 @@ namespace FreeFlow.GamePlay
             return 8000000;
         }
 
+        /// <summary>
+        /// Ceiling on how many cells of a rule the deficit-climb may place, for a board of this
+        /// side length. A ceiling only ever PERMITS: the climb stops the moment the board is
+        /// unique (see MechanicRecipe.Instances), so raising it can never make a level carry more
+        /// of a rule than it needed. What it prevents is the silent discard of a board that
+        /// legitimately needed one more cell -- a failure that reads as "this size will not
+        /// generate" rather than "the ceiling was too low" (GAME_EXPANSION_PLAN §6.40).
+        ///
+        /// 6 was hard-coded for every size. It stays exactly 6 at 7x7 and below, where it was
+        /// never observed to bind -- the shipped 7x7 pack topped out at five cells (Arrowx5,
+        /// OneWayx5) -- so 6x6 and 7x7 generation is bit-for-bit unchanged. 8x8 carries 31% more
+        /// cells than 7x7, which puts a board needing seven well inside the plausible range.
+        /// </summary>
+        private static int InstanceCeilingFor(int gridSize)
+        {
+            return gridSize >= 8 ? 8 : 6;
+        }
+
         private static float BandPenalty(float score, float min, float max)
         {
             if (score < min) { return min - score; }
@@ -3157,9 +3175,25 @@ namespace FreeFlow.GamePlay
             List<Entry> ordered = new List<Entry>();
             StringBuilder plan = new StringBuilder();
 
+            // The pack's own difficulty envelope: every well-formed board's score, ascending.
+            // Blocks pick against THIS rather than against their own candidate pool's internal
+            // range. That distinction is the whole fix: Stratify spreads from the easiest to the
+            // hardest board IN THE LIST IT IS GIVEN, so a per-rule run whose easiest board is
+            // already hard (AllowedForPairs measured 57..87 at 7x7) planted that rule's HARDEST
+            // board in the first quarter of the pack -- above the escalation block's own floor,
+            // and above the finale. Measured on the shipped 7x7 pack: L13, L22 and L25 all scored
+            // 87 against L100's 83, with L54 at 36 (GAME_EXPANSION_PLAN §6.44b).
+            List<float> envelope = new List<float>(scored.Count);
+            for (int i = 0; i < scored.Count; i++) { envelope.Add(scored[i].Score); }
+            envelope.Sort();
+
             // --- warm-up ------------------------------------------------------------------
             List<Entry> blocked = Where(scored, "BlockedOnly", 0, 9, used);
-            foreach (Entry e in Stratify(blocked, warmUp)) { ordered.Add(e); used.Add(e.Data); }
+            foreach (Entry e in PickAlongRamp(blocked, warmUp, ordered.Count, count,
+                                              envelope, used))
+            {
+                ordered.Add(e); used.Add(e.Data);
+            }
             plan.Append("  warm-up: Blocked x").Append(warmUp).AppendLine();
 
             // --- one short run per rule ---------------------------------------------------
@@ -3170,7 +3204,9 @@ namespace FreeFlow.GamePlay
                 // Deficit 1-2 keeps the introduction gentle: at one colour down a board usually
                 // needs a single cell of the rule, which is the clearest form it takes.
                 List<Entry> practice = Where(scored, rule, 1, 2, used);
-                List<Entry> chosen = Stratify(practice, Mathf.Min(practicePerRule, practice.Count));
+                List<Entry> chosen = PickAlongRamp(practice,
+                    Mathf.Min(practicePerRule, practice.Count), ordered.Count, count,
+                    envelope, used);
                 foreach (Entry e in chosen) { ordered.Add(e); used.Add(e.Data); }
 
                 plan.Append("  run ").Append(r + 1).Append(": ").Append(rule)
@@ -3346,6 +3382,65 @@ namespace FreeFlow.GamePlay
                 pool.RemoveAt(pick);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Pick <paramref name="count"/> boards from <paramref name="candidates"/> that sit where
+        /// the PACK's ramp wants them, given the positions they will occupy.
+        ///
+        /// The difference from Stratify is the frame of reference, and it is the whole point.
+        /// Stratify spreads evenly between the easiest and hardest entry in the list it is handed,
+        /// which is right for a block drawn from every rule at once and wrong for one rule's
+        /// practice run: it guarantees the run's last level is that rule's hardest board, wherever
+        /// in the pack the run happens to sit. This asks instead what score the pack wants at
+        /// position N and takes the nearest available board to it, so a rule with no easy material
+        /// contributes its easiest rather than reaching for its hardest.
+        ///
+        /// Stratify is deliberately left in place for consolidation and escalation, which draw
+        /// from every rule at once and whose measured ramps were already correct.
+        /// </summary>
+        private static List<Entry> PickAlongRamp(List<Entry> candidates, int count,
+            int startPosition, int packLength, List<float> envelope, HashSet<LevelData> used)
+        {
+            List<Entry> picked = new List<Entry>();
+            if (count <= 0 || candidates == null || candidates.Count == 0) { return picked; }
+
+            HashSet<LevelData> taken = new HashSet<LevelData>();
+            for (int k = 0; k < count; k++)
+            {
+                float target = RampTargetAt(startPosition + k, packLength, envelope);
+
+                Entry best = null;
+                float bestGap = float.MaxValue;
+                for (int j = 0; j < candidates.Count; j++)
+                {
+                    Entry c = candidates[j];
+                    if (taken.Contains(c.Data) || used.Contains(c.Data)) { continue; }
+
+                    float gap = Mathf.Abs(c.Score - target);
+                    if (gap < bestGap) { bestGap = gap; best = c; }
+                }
+
+                if (best == null) { break; }     // this rule ran out of unused material
+                taken.Add(best.Data);
+                picked.Add(best);
+            }
+            return picked;
+        }
+
+        /// <summary>
+        /// The score the pack's ramp wants at <paramref name="position"/>, read off the envelope of
+        /// every well-formed board's score. Position is clamped, so a block that overruns the
+        /// nominal pack length asks for the hardest end rather than walking off the array.
+        /// </summary>
+        private static float RampTargetAt(int position, int packLength, List<float> envelope)
+        {
+            if (envelope == null || envelope.Count == 0) { return 0f; }
+            if (packLength <= 1) { return envelope[envelope.Count - 1]; }
+
+            float f = Mathf.Clamp01(position / (float)(packLength - 1));
+            int idx = Mathf.Clamp(Mathf.RoundToInt(f * (envelope.Count - 1)), 0, envelope.Count - 1);
+            return envelope[idx];
         }
 
         private static List<Entry> Stratify(List<Entry> entries, int count)
@@ -3811,12 +3906,12 @@ namespace FreeFlow.GamePlay
                     // of 100 shipped levels carried both, though half the recipes asked for it.
                     // Weighting the attempts is the cheapest correction -- the pool cap still stops
                     // any one recipe running away with the pack.
-                    MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, 6);
+                    MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, InstanceCeilingFor(size));
                     withHoles.ColourDeficit = d;
                     recipeList.Add(withHoles);
                     recipeList.Add(withHoles);
 
-                    MechanicRecipe bare = new MechanicRecipe(rules[i], 0, 6);
+                    MechanicRecipe bare = new MechanicRecipe(rules[i], 0, InstanceCeilingFor(size));
                     bare.ColourDeficit = d;
                     recipeList.Add(bare);
                 }
@@ -3866,15 +3961,21 @@ namespace FreeFlow.GamePlay
             int generated = 0, duplicates = 0, unsound = 0, notUnique = 0, decorative = 0;
             int shortlistTarget = count * shortlistPerLevel;
 
-            // Raised from Classic's 200,000 (BuildSizePack, untouched) specifically for Advanced:
-            // measured yield at cellsPerColour=7 is ~0.167% (5 kept / 3000 attempts, GAME_EXPANSION_PLAN
-            // §6.44), so reaching poolTarget=900 needs on the order of 540,000 attempts -- the old cap
-            // would have stopped the gather at ~330 survivors, well short of the 900 the scheduling
-            // logic (warm-up/per-rule practice/consolidation/escalation) is actually designed around.
-            // Comfortably above the estimated need since that estimate is a small, noisy sample; the
-            // loop still stops as soon as poolTarget is reached, so a generous cap costs nothing when
-            // the run converges faster than expected.
-            const int advancedMaxAttempts = 1000000;
+            // Raised from Classic's 200,000 (BuildSizePack, untouched) specifically for Advanced.
+            // The figure is now MEASURED end to end rather than extrapolated from a probe: the
+            // 1,000,000-cap run (GAME_EXPANSION_PLAN §6.44b) returned 463 survivors, i.e. ~0.046%
+            // per attempt -- 3.6x below the 0.167% the colour-ratio sweep predicted off 5 kept
+            // boards. At that real rate poolTarget=900 needs ~1,940,000 attempts, so 2,000,000
+            // would carry essentially no margin, and the marginal rate only worsens as the pool
+            // fills and canonical dedup begins rejecting (that run reported 0 duplicates at 463 --
+            // dedup had not started to bite yet).
+            //
+            // 3,000,000 is deliberate headroom, not a target. The loop stops the moment poolTarget
+            // is reached, so the cap only sets the WORST case: ~4.1h per million attempts as
+            // measured, hence ~12h if the pool never fills. Correctness over time is the standing
+            // instruction here (§6.44 step 1), and a cap that halts the gather short of the pool
+            // the scheduling logic is designed around is the exact failure this already hit once.
+            const int advancedMaxAttempts = 3000000;
 
             try
             {
@@ -4767,12 +4868,12 @@ namespace FreeFlow.GamePlay
                 {
                     for (int i = 0; i < rules.Length; i++)
                     {
-                        MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, 6);
+                        MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, InstanceCeilingFor(size));
                         withHoles.ColourDeficit = d;
                         recipeList.Add(withHoles);
                         recipeList.Add(withHoles);
 
-                        MechanicRecipe bare = new MechanicRecipe(rules[i], 0, 6);
+                        MechanicRecipe bare = new MechanicRecipe(rules[i], 0, InstanceCeilingFor(size));
                         bare.ColourDeficit = d;
                         recipeList.Add(bare);
                     }
@@ -4906,6 +5007,24 @@ namespace FreeFlow.GamePlay
         public static void ProbeColourRatioSweep7x7()
         {
             ProbeColourRatioSweep(7, new[] { 6, 7, 8, 9, 10, 12 }, 3000);
+        }
+
+        /// <summary>
+        /// The 8x8 sibling. Deliberately the same six ratios as 7x7 so the two tables are directly
+        /// comparable; at 64 cells that spans 5.3 to 10.7 colours, which brackets both reference
+        /// points worth hitting -- Classic's own 8x8 pack (~8.7 colours, 7.4 cells each) and Flow
+        /// Free's 8x8 (9 colours, mean path 7.1).
+        ///
+        /// MEASURE before wiring a build. §6.38 and §6.44 each record a pack configured by
+        /// extrapolating a colour ratio from a different board size, and both were wrong; §6.44's
+        /// took 6.75 hours to discover, and the sweep that replaced it found the best ratio was
+        /// not the guessed one. This probe is bounded and cancellable, and logs its partial table
+        /// on cancel, so a slow run still yields the comparison.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE 8x8 colour ratio sweep")]
+        public static void ProbeColourRatioSweep8x8()
+        {
+            ProbeColourRatioSweep(8, new[] { 6, 7, 8, 9, 10, 12 }, 3000);
         }
 
         /// <summary>

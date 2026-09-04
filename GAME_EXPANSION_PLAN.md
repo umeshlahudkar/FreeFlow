@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **Advanced 7x7 is BUILT and committed (`4a698f8`), and held on one open decision: read [§6.44b](#644b-the-7x7-pack-is-built-and-verified-correctness-clean-difficulty-ordering-is-not) before touching it.** The generator's length-equalising bug is fixed (`0b36ad6`), and the Advanced-only attempt-cap raise (`1084f27`) is now **test-verified — 227/227 pass**. The 100-level pack is generated and clean on every correctness axis: 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, 579/579 pairs reconstructing a hint route, mean path 8.26. **What is NOT settled is difficulty ordering**: the three hardest levels are L13/L22/L25 at score 87, above L100's 83, and the gather returned 463 boards against a 900 pool target. §6.44b has the numbers and the three options; §6.44a has the MCP-machine traps worth reading before rebuilding.
+> **The difficulty-ordering fix is IN and proven — read [§6.44c](#644c-the-ordering-fix-the-6x6-rebuild-that-proves-it-and-8x8s-negative-result) before rebuilding any Advanced pack.** `PickAlongRamp` replaced `Stratify` for the acquisition half, and the 6x6 rebuild is the proof: **0 levels in L1-50 now outrank L100**, where the shipped pack had L26=82 against L100=72. That rebuilt 6x6 pack is verified clean by the new `PackVerifier` — 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, 384/384 hint routes. **Advanced 7x7 (`4a698f8`) still carries the OLD ordering** (its three hardest are L13/L22/L25 at 87, above L100's 83), so it wants a rebuild with the fix. **Advanced 8x8 is measured and currently NOT viable**: 3 kept boards from 18,000 attempts, and `advancedMaxAttempts` is sized for 7x7 — 3M attempts at 8x8 is roughly 140 hours. Two known gaps remain: escalation's internal ordering, and `MinPathCells` never being applied to structural boards.
 
 ## Progress Log
 
@@ -2076,6 +2076,153 @@ bug and §6.36's middle dip, both of which were fixed for other packs — it is 
 axis without a decision.** Three options: (1) raise `advancedMaxAttempts` to ~2,000,000 and rebuild (~8-9h) for
 a real 900 pool; (2) make run stratification aware of global position so a hard rule's practice lands later;
 (3) accept and reorder post-hoc, which breaks the rule-acquisition pedagogy the first half exists to deliver.
+
+#### 6.44c The ordering fix, the 6x6 rebuild that proves it, and 8x8's negative result
+
+##### The fix: `PickAlongRamp`, and why the frame of reference was the bug
+
+`Stratify` spreads its picks evenly between the easiest and hardest entry **in the list it is handed**.
+That is right for consolidation and escalation, which draw from every rule at once. It is wrong for a
+per-rule practice run, because it guarantees the run's last level is *that rule's hardest board*,
+wherever in the pack the run happens to sit. `AllowedForPairs` measured 57..87 at 7x7, so its third
+practice level was an 87 at position 25.
+
+`PickAlongRamp` inverts the question: it asks what score the pack's own ramp wants at position N and
+takes the nearest unused candidate. The ramp is the `envelope` -- every well-formed board's score,
+sorted -- so it is read off the pack's real material rather than assumed. A rule with no easy boards
+now contributes its **easiest** instead of reaching for its hardest.
+
+Applied to the warm-up and the per-rule runs only. **`Stratify` is deliberately left in place for
+consolidation and escalation**, whose measured ramps were already correct (escalation ran
+50.9 -> 53.0 -> 58.4 -> 68.1 -> 78.2). Changing what was not broken would have risked the one block
+that worked.
+
+##### The 6x6 rebuild proves it, and the deeper pool fixed representation too
+
+Rebuilt in 6058.6s (1.68h). Before/after on the same size and settings, only the scheduler changed:
+
+| | old (shipped) | rebuilt |
+|---|---|---|
+| levels in L1-50 scoring above L100 | **L26=82 vs L100=72**, plus 6 spikes >70 | **0 -- none** |
+| ramp span (block means) | 46.7 -> 68.4 (22 pts) | **32.2 -> 71.6 (39 pts)** |
+| mean path | 8.87 | 9.17 |
+| levels with a path <= 2 | 1 (L78) | 2 (L56, L89) |
+
+The acquisition half is the visible proof. Run ranges collapsed from wide and high to tight and
+ascending:
+
+```
+old 7x7:  Wall(32..62) Checkpoint(43..87) Arrow(54..71) OneWay(41..73) Allowed(57..87) Forbidden x2(56..87)
+new 6x6:  OneWay(34..39) Wall(36..43) Arrow(34..41) Checkpoint(41..44) Forbidden x3(41..47) Allowed(43..49)
+```
+
+Independently, the 3,000,000 attempt cap did its job: **900 kept, the pool target actually reached**
+(7x7 stopped at 463 under the old 1,000,000 cap). Consequences visible in the schedule --
+`ForbiddenForPair` got its full x3 where 7x7 got x2, there is no `topped up to 100` line at all, and
+scoring had 900 boards to pick from rather than 463.
+
+**Verified with `PackVerifier`: 100/100 uniquely solvable, 100/100 stored answers matching the solver
+cell-for-cell, 384/384 hint routes reconstructing with full coverage, 0 blocked cells on the outer
+ring.**
+
+##### What the fix did NOT fix, and what it never touched
+
+**Escalation's internal ordering.** The four hardest levels are L54=84, L52=81, L53=80, L51=78 --
+clustered at the *start* of the escalation block, above L100=78, with L55-L66 sitting at 43-49 right
+after. That comes from `Interleave(Stratify(hard, 50))`: `Interleave` reorders for mechanic variety and
+front-loads some hard boards. The old pack had the same L52/L53/L54 cluster, so this is pre-existing
+and untouched rather than introduced. It is a narrower defect than the one fixed -- a bumpy first ten
+levels of the second half, versus the whole first quarter outranking the finale.
+
+**Short paths on structural levels.** L56 and L89 each carry a 2-cell path, and both are Shared
+Destination levels; the old pack had the same on L78. Structural boards are gathered by the older spec
+pipeline, which is gated on uniqueness and the structural gates alone and **never applies
+`MinPathCells`**. `PickAlongRamp` cannot affect them -- they sit at fixed unranked positions. Which of
+the four shared-destination boards carries a short path just varies with what the gather found (1 of 4
+before, 2 of 4 now). The fix belongs in `GatherStructuralMechanics`, and would help 7x7 and 8x8 too.
+
+##### `PackVerifier`: the project had no verification entry point at all
+
+Every prior pack was checked with hand-written throwaway code -- unrepeatable, and easy to get subtly
+wrong. The cautionary case is §6.44b's own first census, which reported 18 shared-destination levels
+when the true count was 4, because `secondPairId` is dual-purpose (a second dot identity, but also a
+permission target for `ForbiddenForPair`/`AllowedForPairs`; `Block.SecondIdNamesAPair` disambiguates).
+
+`Assets/Script/Editor/PackVerifier.cs` now does it properly, reading the WRITTEN assets rather than
+trusting the generation log (§0's rule). Menu: `FreeFlow/Level Generator/VERIFY/Advanced 6x6 pack` and
+`.../Advanced 7x7 pack`; headless via
+`-executeMethod FreeFlow.GamePlay.PackVerifier.VerifyAdvanced6x6`. 22 seconds for 100 levels. It checks
+uniqueness (`SolutionsFound == 1` AND `SearchExhausted`, so uniqueness is *proven*, not merely
+unrefuted), that the stored answer equals that solution cell-for-cell, that every pair reconstructs a
+hint route covering every answer cell, plus outer-ring blocked cells and minimum path length.
+
+##### `InstanceCeilingFor`: the ceiling is now size-aware
+
+`Instances` was hard-coded at 6 on every recipe. It is a CEILING, not a target -- the climb stops the
+moment the board is unique -- so raising it only ever permits; what it prevents is silently discarding
+a board that legitimately needed one more cell. `InstanceCeilingFor(size)` returns **6 at 7x7 and
+below** (unchanged: the shipped 7x7 pack topped out at five cells, so it never bound) and **8 at 8x8
+and above**. 6x6 and 7x7 generation is bit-for-bit unchanged.
+
+##### Advanced 8x8: measured, and currently not viable
+
+Sweep at 3000 attempts per ratio, same six ratios as 7x7 for comparability (menu:
+`FreeFlow/Level Generator/Advanced/PROBE 8x8 colour ratio sweep`). Ran with the raised instance ceiling
+already in effect, which did **not** rescue it:
+
+| cellsPerColour | colours | meanPath | generated | unsound | decorative | kept | ms/kept |
+|---|---|---|---|---|---|---|---|
+| 6 | 10.7 | **5.4** | 29 | 13 (short=12) | 15 | 1 | 42,750 |
+| 7 | 9.1 | -- | 27 | 5 | 22 | **0** | n/a |
+| 8 | 8.0 | -- | 24 | 5 | 19 | **0** | n/a |
+| 9 | 7.1 | -- | 15 | 2 | 13 | **0** | n/a |
+| 10 | 6.4 | **9.5** | 13 | 2 | 9 | 2 | 252,687 |
+| 12 | 5.3 | -- | 12 | 1 | 11 | **0** | n/a |
+
+**Three kept boards from 18,000 attempts**; the same budget at 7x7 produced 16. Four of six ratios
+yielded nothing. The two that yield are the two you cannot use: `cellsPerColour=6` is affordable but
+meanPath 5.4 sits on the "did not even feel challenged" line (§6.35), and `cellsPerColour=10` has a
+genuinely good meanPath 9.5 but costs 252,687 ms/kept.
+
+**Per-attempt yield at 8x8 is fine -- better than 7x7 (0.067% vs 0.046%). The cost is that each attempt
+is 11x more expensive** (0.168 s vs 0.0149 s), because `decorative` runs 79-92% at 8x8 against 70.6% at
+7x7: a bigger board has more alternative routes, so a handful of mechanic cells pins it far less often.
+This also means **`advancedMaxAttempts = 3,000,000` is sized for 7x7 and is wrong for 8x8** -- 3M
+attempts there is roughly 140 hours. It needs the same size-aware treatment `InstanceCeilingFor` got,
+before any 8x8 build.
+
+At the measured rate a 900 pool is ~63h and a 463 pool (7x7 parity) ~32h, both off n=2. A second probe
+would be waste: `ProbeColourRatioSweep` discards its boards while a build keeps them, and with the
+ratio already forced there is nothing left to compare. **The real lever is the necessity test** --
+since `decorative` is 80-90% of the loss, the "at least K of M" rule in the Levels 51-200 notes is
+worth more to 8x8 than any colour ratio, and would speed up 7x7 rebuilds too.
+
+##### Running Unity headless from Windows: two traps that cost a false green
+
+1. **`&` (the PowerShell call operator) silently fails to launch it.** It returned in 0s with no log
+   written and `$LASTEXITCODE` unset. `Start-Process -PassThru` plus `Wait-Process` works. Use that.
+2. **A zero exit code from `Unity.exe` means nothing.** The launcher relaunches and detaches, so it
+   returns 0 regardless -- including when it died instantly on a project lock held by an open GUI. One
+   run here reported exit 0 having written a 1,246-byte log that stopped at the argument echo, with no
+   tests run at all. **The only trustworthy signal is the results XML existing and its `passed=`
+   count.** Check `Get-CimInstance Win32_Process -Filter "Name='Unity.exe'"` for `-useHub -hubIPC` if
+   unsure whether a running Unity is yours or the Hub's.
+
+##### Mechanic census: one rule per level, always 2+ cells of it
+
+Confirmed on both the shipped and rebuilt 6x6 packs, read straight from the asset YAML: **84 levels
+carry exactly one rule, 16 carry none, none carry two or more.** Every rule level carries at least two
+cells of its rule (`MinInstances = 2` for every non-Normal type -- "one cell of anything reads as a
+quirk of that particular board rather than a rule the player is being taught"): AllowedForPairs x2/x3,
+Arrow x2/x3, Checkpoint x2/x3, OneWay x2/x3, ForbiddenForPair x2, Wall x3/x4, Bridge x2,
+SharedDestination x2, plus 3 blocked cells on each of 26 levels.
+
+**The build log's recipe names invite a misreading worth fixing.** `AllowedForPairs2x3` means *the
+two-colour form of AllowedForPairs, on 3 cells* -- the `2` is part of the rule's name
+(`MechanicRecipe.TwoColour` sets `Name = type + "2"`), not a mechanic count. 14 levels use that form.
+Two-mechanic boards exist only inside `ProbeTwoMechanicYield()`; nothing in `BuildAdvancedPack` can
+produce one. Renaming to something like `AllowedForPairs(2col)x3` would stop the log implying
+otherwise.
 
 ### Open questions, current
 
