@@ -3014,7 +3014,12 @@ namespace FreeFlow.GamePlay
             for (int k = 0; k < kinds.Length && !cancelled; k++)
             {
                 int made = 0;
-                for (int attempt = 0; attempt < 400 && made < wanted && !cancelled; attempt++)
+                // 1200 rather than the original 400: the MinPathCells gate below rejects
+                // boards that previously passed, and these levels sit at FIXED positions
+                // in the schedule, so coming up short leaves visible holes rather than
+                // merely thinning a pool. Structural boards are cheap -- most attempts
+                // fail fast on the spec before any solve happens.
+                for (int attempt = 0; attempt < 1200 && made < wanted && !cancelled; attempt++)
                 {
                     throttle.Tick();
 
@@ -3039,7 +3044,16 @@ namespace FreeFlow.GamePlay
                     // hundred, and invisible until the stored solution was verified against the
                     // solver. Filled here from the solve we just proved unique.
                     LevelData withSolution = built.Data;
-                    if (!FillStoredSolution(ref withSolution)) { continue; }
+                    if (!FillStoredSolution(ref withSolution, out int shortestPath)) { continue; }
+
+                    // SpecForStructural asks for MinPathCells and does not get it -- the same gap
+                    // the uniqueness check above exists to close, and for the same reason: asking
+                    // is not getting. Measured on two shipped packs, both times on Shared
+                    // Destination levels, where a pair's dot sits next to the shared cell: the
+                    // 6x6 rebuild put a 2-cell path on L56 and L89, the pack before it on L78.
+                    // A 2-cell link is two adjacent dots and one drag -- nothing to work out, and
+                    // exactly what §6.35 identified as the reason the early packs felt unchallenging.
+                    if (shortestPath < StructuralGates.MinPathCells) { continue; }
 
                     found.Add((withSolution, kinds[k].Name));
                     made++;
@@ -3215,14 +3229,23 @@ namespace FreeFlow.GamePlay
 
             // --- consolidation: every rule, interleaved, still gentle ----------------------
             List<Entry> gentle = WhereAnyRule(scored, 1, 2, used);
-            List<Entry> consolidated = Interleave(Stratify(gentle, Mathf.Min(consolidation, gentle.Count)));
+            // PickAlongRamp here too, for the reason measured on the first rebuild: Stratify
+            // spread this block across 27..84 while it occupies positions 25-54, so it ended
+            // at 84 immediately before escalation restarted at 43. Interleave then made it
+            // visible as a zigzag -- it takes the easiest remaining board whose rule differs,
+            // and when cheap and expensive rules alternate so do the scores. Interleave is
+            // kept: the zigzag is only harmful because the range was wide, and drawing
+            // against the pack ramp narrows it to what these positions should hold.
+            List<Entry> consolidated = Interleave(PickAlongRamp(gentle,
+                Mathf.Min(consolidation, gentle.Count), ordered.Count, count, envelope, used));
             foreach (Entry e in consolidated) { ordered.Add(e); used.Add(e.Data); }
             plan.Append("  consolidation: x").Append(consolidated.Count)
                 .Append(Range(consolidated)).AppendLine();
 
             // --- escalation: deficit 2-3, so boards need several cells of their rule -------
             List<Entry> hard = WhereAnyRule(scored, 2, 3, used);
-            List<Entry> escalated = Interleave(Stratify(hard, Mathf.Min(escalation, hard.Count)));
+            List<Entry> escalated = Interleave(PickAlongRamp(hard,
+                Mathf.Min(escalation, hard.Count), ordered.Count, count, envelope, used));
             foreach (Entry e in escalated) { ordered.Add(e); used.Add(e.Data); }
             plan.Append("  escalation: x").Append(escalated.Count)
                 .Append(Range(escalated)).AppendLine();
@@ -3396,8 +3419,11 @@ namespace FreeFlow.GamePlay
         /// position N and takes the nearest available board to it, so a rule with no easy material
         /// contributes its easiest rather than reaching for its hardest.
         ///
-        /// Stratify is deliberately left in place for consolidation and escalation, which draw
-        /// from every rule at once and whose measured ramps were already correct.
+        /// Every block now draws against the ramp. Stratify was kept for consolidation and
+        /// escalation at first, on the strength of their block MEANS looking monotone. The
+        /// first rebuild showed that hid a 57-point zigzag: consolidation spanning 27..84
+        /// across positions 25-54, ending at 84 immediately before escalation restarted at
+        /// 43. Block means are not enough to judge a ramp -- read the per-level sequence.
         /// </summary>
         private static List<Entry> PickAlongRamp(List<Entry> candidates, int count,
             int startPosition, int packLength, List<float> envelope, HashSet<LevelData> used)
@@ -3443,6 +3469,16 @@ namespace FreeFlow.GamePlay
             return envelope[idx];
         }
 
+        /// <summary>
+        /// Spread <paramref name="count"/> picks evenly between the easiest and hardest entry
+        /// in <paramref name="entries"/> -- by that list's OWN range.
+        ///
+        /// NO LONGER CALLED. Every scheduling block now uses PickAlongRamp instead, because a
+        /// candidate list's own range is the wrong frame of reference when the block occupies a
+        /// known slice of the pack. Kept rather than deleted because the algorithm is still
+        /// correct whenever the candidates ARE the whole population rather than a slice of it,
+        /// and because DifficultyModelTests exercises a copy of it.
+        /// </summary>
         private static List<Entry> Stratify(List<Entry> entries, int count)
         {
             List<Entry> sorted = new List<Entry>(entries);
@@ -3536,8 +3572,10 @@ namespace FreeFlow.GamePlay
         /// cell, so a hint built on it cannot mislead, it can only under-report. Storing nothing at
         /// all was the alternative, and that leaves the hint system with no answer whatsoever.
         /// </summary>
-        private static bool FillStoredSolution(ref LevelData data)
+        private static bool FillStoredSolution(ref LevelData data, out int shortestPath)
         {
+            shortestPath = 0;
+
             Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
             try
             {
@@ -3549,14 +3587,23 @@ namespace FreeFlow.GamePlay
                 }
 
                 int[,] map = new int[rows, cols];
+                int shortest = int.MaxValue;
                 for (int i = 0; i < solved.Solutions.Count; i++)
                 {
                     List<(int Row, int Col)> cells = solved.Solutions[i].Cells;
+
+                    // Reported from the SOLVER's paths, never from the column written below: at a
+                    // bridge or a shared destination that column records only one of the two
+                    // colours covering the cell, so counting it would under-report the other
+                    // pair's length and reject boards that are actually fine.
+                    if (cells.Count < shortest) { shortest = cells.Count; }
+
                     for (int j = 0; j < cells.Count; j++)
                     {
                         map[cells[j].Row, cells[j].Col] = solved.Solutions[i].PairId;
                     }
                 }
+                shortestPath = shortest == int.MaxValue ? 0 : shortest;
 
                 for (int r = 0; r < rows; r++)
                 {
