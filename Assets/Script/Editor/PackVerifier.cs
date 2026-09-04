@@ -34,6 +34,7 @@ namespace FreeFlow.GamePlay
             int pairsAll = 0, pairsRouted = 0;
             int ringBad = 0, shortBad = 0, noStored = 0;
             int globalMinPath = int.MaxValue;
+            int columnMinPath = int.MaxValue;
             long pathSum = 0;
             int pathPairs = 0;
 
@@ -89,19 +90,16 @@ namespace FreeFlow.GamePlay
                 }
                 else
                 {
+                    // Informational only. This column reads ONE cell short for a pair that shares a
+                    // bridge or destination cell with another, because it stores a single colour per
+                    // cell -- so it is not a valid basis for a minimum-path check. Path length is
+                    // measured from the solver's paths below instead.
                     int levelMin = int.MaxValue;
                     foreach (KeyValuePair<int, int> kv in cellsPerPair)
                     {
                         if (kv.Value < levelMin) { levelMin = kv.Value; }
-                        pathSum += kv.Value;
-                        pathPairs++;
                     }
-                    if (levelMin <= 2)
-                    {
-                        shortBad++;
-                        fails.Append("L").Append(i).Append(":path").Append(levelMin).Append(' ');
-                    }
-                    if (levelMin < globalMinPath) { globalMinPath = levelMin; }
+                    if (levelMin < columnMinPath) { columnMinPath = levelMin; }
                 }
 
                 // --- solver: uniqueness, and the stored answer IS that unique solution -------
@@ -127,6 +125,33 @@ namespace FreeFlow.GamePlay
                         unique++;
                         if (StoredMatchesSolver(data, res, rows, cols)) { storedMatch++; }
                         else { fails.Append("L").Append(i).Append(":storedmismatch "); }
+                    }
+
+                    // Path length comes from the SOLVER's paths, which is the only honest source.
+                    // An earlier version of this method counted solutionPairId instead and reported
+                    // 2-cell paths on L56 and L89 that do not exist: both are Shared Destination
+                    // levels, and the pair that does not own the shared cell reads one short there.
+                    // The generator's own gate uses this same solver-derived number, so measuring
+                    // the column here made the verifier disagree with a fix that was working.
+                    if (res.Solutions != null)
+                    {
+                        int solverMin = int.MaxValue;
+                        for (int s = 0; s < res.Solutions.Count; s++)
+                        {
+                            int len = res.Solutions[s].Cells.Count;
+                            if (len < solverMin) { solverMin = len; }
+                            pathSum += len;
+                            pathPairs++;
+                        }
+                        if (solverMin != int.MaxValue)
+                        {
+                            if (solverMin <= 2)
+                            {
+                                shortBad++;
+                                fails.Append("L").Append(i).Append(":path").Append(solverMin).Append(' ');
+                            }
+                            if (solverMin < globalMinPath) { globalMinPath = solverMin; }
+                        }
                     }
 
                     // --- hint: every pair reconstructs, and the routes cover every answer cell
@@ -196,8 +221,11 @@ namespace FreeFlow.GamePlay
             sb.Append("  missing stored answer   : ").Append(noStored).AppendLine();
             sb.Append("  blocked on outer ring   : ").Append(ringBad).AppendLine();
             sb.Append("  levels with path <= 2   : ").Append(shortBad)
-              .Append("   (global min ")
+              .Append("   (solver min ")
               .Append(globalMinPath == int.MaxValue ? 0 : globalMinPath).Append(')').AppendLine();
+            sb.Append("  stored-column min path  : ")
+              .Append(columnMinPath == int.MaxValue ? 0 : columnMinPath)
+              .Append("   (reads one short at bridge/shared cells, by design)").AppendLine();
             sb.Append("  mean path               : ")
               .Append(pathPairs > 0 ? ((float)pathSum / pathPairs).ToString("F2") : "n/a")
               .Append(" over ").Append(pathPairs).Append(" pairs").AppendLine();
