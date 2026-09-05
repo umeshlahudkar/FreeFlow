@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **The difficulty-ordering fix is IN and proven — read [§6.44c](#644c-the-ordering-fix-the-6x6-rebuild-that-proves-it-and-8x8s-negative-result) before rebuilding any Advanced pack.** `PickAlongRamp` replaced `Stratify` for the acquisition half, and the 6x6 rebuild is the proof: **0 levels in L1-50 now outrank L100**, where the shipped pack had L26=82 against L100=72. That rebuilt 6x6 pack is verified clean by the new `PackVerifier` — 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, 384/384 hint routes. **Advanced 7x7 (`4a698f8`) still carries the OLD ordering** (its three hardest are L13/L22/L25 at 87, above L100's 83), so it wants a rebuild with the fix. **Advanced 8x8 is measured and currently NOT viable**: 3 kept boards from 18,000 attempts, and `advancedMaxAttempts` is sized for 7x7 — 3M attempts at 8x8 is roughly 140 hours. Two known gaps remain: escalation's internal ordering, and `MinPathCells` never being applied to structural boards.
+> **Advanced 6x6 and 7x7 are both rebuilt and verified CLEAN — read [§6.44d](#644d-both-advanced-packs-rebuilt-verified-clean-and-two-more-bugs-each-fix-exposed) first; it supersedes §6.44c wherever they disagree.** Both ramps are now monotonic across all ten blocks (6x6 33.4→73.3, 7x7 32.2→82.2), nothing in L1-50 outranks L100, and `PackVerifier` confirms 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, every pair reconstructing a hint route, and no path under 3 cells. Getting there fixed three bugs each of which was invisible until the previous one cleared — most seriously, **every Advanced pack ever built had silently dropped its 8 hardest levels** to a schedule-sizing overflow. **Advanced 8x8 remains NOT viable** (3 kept boards from 18,000 attempts) and is blocked on the necessity test, not on tuning. Two things stay open: 7x7's ForbiddenForPair run lands at 56..68 where the ramp wants 40, because that rule has no easier board to offer; and **neither pack has been played** — every real difficulty finding in this project came from play, never from a generator metric.
 
 ## Progress Log
 
@@ -2127,6 +2127,10 @@ ring.**
 
 ##### What the fix did NOT fix, and what it never touched
 
+**SUPERSEDED by §6.44d -- this diagnosis was wrong.** Escalation was ascending correctly; the
+defect was CONSOLIDATION, spanning 27..84 across positions 25-54. It was missed here by reading
+block means, which averaged a 57-point zigzag away. The original text follows.
+
 **Escalation's internal ordering.** The four hardest levels are L54=84, L52=81, L53=80, L51=78 --
 clustered at the *start* of the escalation block, above L100=78, with L55-L66 sitting at 43-49 right
 after. That comes from `Interleave(Stratify(hard, 50))`: `Interleave` reorders for mechanic variety and
@@ -2223,6 +2227,129 @@ two-colour form of AllowedForPairs, on 3 cells* -- the `2` is part of the rule's
 Two-mechanic boards exist only inside `ProbeTwoMechanicYield()`; nothing in `BuildAdvancedPack` can
 produce one. Renaming to something like `AllowedForPairs(2col)x3` would stop the log implying
 otherwise.
+
+#### 6.44d Both Advanced packs rebuilt, verified CLEAN, and two more bugs each fix exposed
+
+**Status: Advanced 6x6 and 7x7 are both rebuilt, both verified clean, both committed.** This section
+supersedes §6.44c wherever they disagree; §6.44c described the first rebuild, and two of its
+conclusions turned out to be wrong.
+
+##### The final numbers
+
+| | 6x6 | 7x7 |
+|---|---|---|
+| build time | 6192.3s (1.7h) | 43,414.5s (12.1h) |
+| kept / well-formed | 900 / 494 | 888 / 613 |
+| ramp, by block of ten | 33.4 36.8 40.8 41.9 43.6 48.5 51.9 55.4 59.4 **73.3** | 32.2 39.8 44.2 45.5 49.3 54.3 58.7 63.4 69.8 **82.2** |
+| hardest level | L97 = 84 | **L100 = 93** |
+| levels in L1-50 above L100 | **0** | **0** |
+| uniquely solvable | 100/100 | 100/100 |
+| stored answer == solver | 100/100 | 100/100 |
+| hint routes complete | 100/100 (389 pairs) | 100/100 (594 pairs) |
+| paths under 3 cells | 0 | 0 |
+| mean path | 9.06 | 8.07 |
+
+Both ramps are **monotonic across all ten blocks**, which neither pack had ever managed. For contrast,
+the packs these replace: 6x6 ran 46.7 52.0 44.7 41.1 56.3 52.9 47.2 50.9 54.6 68.4, and 7x7 put its
+three hardest levels (L13, L22, L25, all 87) above L100's 83 with L54 down at 36.
+
+7x7's 12.1 hours is worth recording against the estimate: **8h was predicted and 12.1h was measured.**
+The estimate assumed yield stays flat at the 0.046%/attempt the first 463 boards cost. It does not --
+every new board is canonically compared against more predecessors, so the marginal rate falls as the
+pool fills. §6.44b already noted this and the estimate still did not price it in. 7x7 stopped on the
+3,000,000 attempt cap at 888 boards rather than reaching the 900 target, so 888 is the practical
+ceiling at that size for now.
+
+##### Bug: every Advanced pack ever built silently dropped its 8 hardest levels
+
+Found only because the ramp got fixed first -- it was invisible while the tail was arbitrary.
+
+The ranked blocks were sized to sum to `count`: warm-up 6 + teachBlock 18 + consolidation 26 +
+escalation 50 = 100. Structural levels are then **inserted**, making `ordered` 108 long, and the write
+loop takes only the first `count`. Eight levels were dropped from the TAIL, on every pack, without a
+word in the log.
+
+Harmless while the tail held whatever the zigzag happened to leave there. Once the ramp ascends the
+tail IS the hardest levels: the first cleanly-ramped 6x6 rebuild selected escalation across 52..84 and
+shipped nothing above 70.
+
+Ranked blocks are now sized against `count - structural.Count`. The top-up and short-schedule error
+compare against `ranked` too, or the top-up refills the space reserved for structural. `spacing` and
+the write loop keep `count`, being final positions. `PickAlongRamp` also takes `ranked` as pack length,
+since passing `count` made its last pick ask for the 92nd percentile of the envelope instead of the top.
+
+##### Correction: consolidation was the ordering defect, not escalation
+
+§6.44c named escalation's internal ordering as the remaining problem, reasoning from block means. That
+was wrong. Reading the per-level sequence off the first rebuild:
+
+```
+L27..L54:   27 48 29 52 32 55 34 57 36 59 39 61 41 64 43 66 45 ... 84     <- consolidation, zigzag
+L55..L100:  43 45 44 45 46 49 47 50 48 51 ... 70 71 71 75 71 78           <- escalation, clean
+```
+
+Escalation was ascending correctly the whole time. **Consolidation** was two ascending strands woven
+together, spanning 27..84 across positions 25-54 and ending at 84 immediately before escalation
+restarted at 43. `Interleave` makes it visible -- it takes the easiest remaining board whose rule
+differs from the last placed, so when cheap and expensive rules alternate so do the scores -- but the
+cause is the 57-point range `Stratify` handed it.
+
+All four blocks now draw against the pack ramp. `Interleave` is kept: the zigzag only hurts because the
+range was wide, and consolidation now spans 42..52 across the positions it occupies.
+
+**The general lesson, and it cost a wrong diagnosis: block means are not enough to judge a ramp.
+Averaging erased a 57-point zigzag entirely. Read the per-level sequence.**
+
+`Stratify` now has no callers. Kept rather than deleted -- the algorithm is still correct when the
+candidates ARE the whole population rather than a slice of it, and `DifficultyModelTests` exercises a
+copy of it -- but marked NO LONGER CALLED so it is not mistaken for live code.
+
+##### Bug: the verifier disagreed with a fix that was working
+
+`PackVerifier` reported 2-cell paths on L56 and L89 after the `MinPathCells` gate went in, which reads
+as the new gate having failed. It had not: the solver minimum is exactly 3, the floor the gate enforces.
+
+The verifier counted cells per pair out of `solutionPairId`. That column stores one colour per cell, so
+a pair sharing a bridge or destination cell with another reads exactly **one cell short** there -- which
+is why only Shared Destination levels were flagged. The generator gates on the solver's paths; the
+verifier measured the column; the two quantities are not the same.
+
+**When a verifier and the code under test measure different quantities, a correct fix looks broken.**
+`PackVerifier` now takes path length and mean path from the solver's paths, and still reports the
+column-derived minimum separately, labelled as reading one short by design.
+
+##### `MinPathCells` on structural boards, and what it did not solve
+
+`SpecForStructural` always asked for `MinPathCells` and never got it -- the same gap the uniqueness
+check in `GatherStructuralMechanics` exists to close, and the existing comment there already names the
+pattern: *asking is not the same as getting*. The gather now rejects anything under
+`StructuralGates.MinPathCells`, measured from the solver. The structural attempt budget went 400 ->
+1200, because these levels sit at fixed schedule positions and coming up short leaves visible holes
+rather than merely thinning a pool. Both packs now report solver minimum exactly 3.
+
+##### What is still open on the packs
+
+**7x7's ForbiddenForPair run lands too hard.** `run 5` puts it at L19=56, L20=58, L21=68 where the ramp
+wants roughly 40, dropping back to L22=46. `PickAlongRamp` takes the nearest available board to the
+target and **cannot invent one that does not exist**: ForbiddenForPair is the rarest and hardest rule at
+7x7 -- about 21 boards in an 888 pool -- and its easiest deficit-1-2 board scores 56. No reordering of
+the six runs fixes this; the rule is harder than any early position wants. Three options, none free:
+let a rule with no easy material take its run later in the pack (trades against teaching every rule in
+the first half); narrow its practice draw to deficit 1 only so it can find easier boards; or accept a
+three-level bump in a pack that ends at 93. Minor local spikes at L84=87 and L86=89 sit below L100 and
+are not inversions.
+
+**Neither pack has been played.** Every difficulty finding in this project came from play, not from a
+generator metric, and §6.35's own example has a 5x5 scoring 20.9 playing harder than a 6x6 scoring 43.4.
+The ramps are now correct by the model; whether they are correct by feel is unmeasured.
+
+##### Sequencing, for the next time a run this long is on the table
+
+Three of the four defects were only visible once the previous one was cleared, so 6x6 was rebuilt three
+times where one would have done. The block-sizing truncation genuinely could not be seen behind the
+zigzag. What WOULD have helped: fixing every known code defect before starting any long run, and
+validating on the cheap pack first. 6x6 at 1.7h found all three bugs that 7x7 would have hit at 12.1h
+each.
 
 ### Open questions, current
 
