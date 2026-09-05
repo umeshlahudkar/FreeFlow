@@ -1,0 +1,4 @@
+# Machine-local interpreter/scan-root pointers and query cache — not portable across machines
+.graphify_python
+.graphify_root
+cache/
