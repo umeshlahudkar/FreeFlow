@@ -22,6 +22,9 @@ public class SavingSystem : Singleton<SavingSystem>
             data.audioData.musicVolume = 0.5f;
             data.audioData.soundVolume = 0.5f;
 
+            data.vibrationEnabled = true;
+            data.showHintButton = true;
+
             Save(data);
         }
     }
@@ -74,7 +77,7 @@ public struct SaveData
     // same pattern GAME_EXPANSION_PLAN §4.4 established for LevelData), so schemaVersion 0->1
     // is a no-op migration. The seam exists so the NEXT structural change has a real place to
     // convert old data instead of inventing versioning under pressure. See SaveData.Migrate.
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 3;
     public int schemaVersion;
 
     /// <summary>Brings a save from whatever <see cref="schemaVersion"/> it was written at up to
@@ -85,6 +88,29 @@ public struct SaveData
         // 0 -> 1: added schemaVersion itself, per-mechanic skill tracking, and per-level hint
         // counts. All three are additive fields JsonUtility already defaulted to null/0/false on
         // load, so there is nothing to transform -- only the version number itself needs setting.
+
+        // 1 -> 2: added vibrationEnabled and showHintButton (Settings screen toggles). Both new
+        // bools would otherwise read false via JsonUtility's default, silently opting a returning
+        // player OUT of settings a brand-new player starts WITH ON (see SavingSystem.Awake) --
+        // set them explicitly here so an old save gets the same defaults a new one would.
+        if (data.schemaVersion < 2)
+        {
+            data.vibrationEnabled = true;
+            data.showHintButton = true;
+        }
+
+        // 2 -> 3: added bestDailyChallengeStreak (Daily Challenge screen's "BEST STREAK" card). A
+        // bare new int field would read 0 via JsonUtility's default even for a save whose CURRENT
+        // streak is already higher than that -- showing "best: 0" next to "current: 6" would look
+        // broken rather than merely un-tracked, so backfill it from whatever streak already exists.
+        if (data.schemaVersion < 3)
+        {
+            if (data.dailyChallengeStreak > data.bestDailyChallengeStreak)
+            {
+                data.bestDailyChallengeStreak = data.dailyChallengeStreak;
+            }
+        }
+
         data.schemaVersion = CurrentSchemaVersion;
     }
 
@@ -163,6 +189,7 @@ public struct SaveData
     public int dailyChallengeLastCompletedDay;
     public int dailyChallengeStreak;
     public int dailyChallengesCompletedTotal;
+    public int bestDailyChallengeStreak;
 
     /// <summary>Adopts <paramref name="candidateSalt"/> as this save's permanent per-install salt
     /// if none is set yet, otherwise does nothing -- the salt is assigned once, ever, not
@@ -186,9 +213,21 @@ public struct SaveData
         dailyChallengeStreak = (dailyChallengeLastCompletedDay == dayIndex - 1) ? dailyChallengeStreak + 1 : 1;
         dailyChallengeLastCompletedDay = dayIndex;
         dailyChallengesCompletedTotal++;
+        if (dailyChallengeStreak > bestDailyChallengeStreak) { bestDailyChallengeStreak = dailyChallengeStreak; }
     }
 
     public AudioData audioData;
+
+    // -- settings screen preferences ---------------------------------------------------------
+    //
+    // Persisted the same way audioData is (through SavingSystem, not PlayerPrefs) so every
+    // player preference lives in one file. vibrationEnabled has no consumer yet -- no haptic
+    // trigger exists anywhere in the codebase -- so this only stores the preference for future
+    // use. showHintButton is read by UIController to decide whether the gameplay hint button is
+    // shown at all, independent of GamePlayController.HintAvailable (which decides whether it is
+    // interactable once shown).
+    public bool vibrationEnabled;
+    public bool showHintButton;
 
     /// <summary>Highest level finished in <paramref name="mode"/>.</summary>
     public int CompletedLevelFor(FreeFlow.Enums.GameMode mode)
@@ -312,6 +351,25 @@ public struct SaveData
         if (key == LegacyClassicKey || key == LegacyAdvancedKey) { return; }
         int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
         packProgress[index].hints = value;
+    }
+
+    /// <summary>Fewest moves each level has ever been solved in. 0 (JsonUtility's own default,
+    /// same as an old save that predates this field) means no record yet -- the Level Complete
+    /// screen's "OLD BEST" card treats that as "no prior record" rather than a real 0-move solve.
+    /// Same legacy-campaign exclusion as <see cref="HintsForKey"/>, for the same reason.</summary>
+    public int[] BestMovesForKey(string key)
+    {
+        if (key == LegacyClassicKey || key == LegacyAdvancedKey) { return null; }
+
+        int found = FindPack(key);
+        return found < 0 ? null : packProgress[found].bestMoves;
+    }
+
+    public void SetBestMovesForKey(string key, int[] value)
+    {
+        if (key == LegacyClassicKey || key == LegacyAdvancedKey) { return; }
+        int index = PackIndex(key);      // must resolve BEFORE indexing -- see below
+        packProgress[index].bestMoves = value;
     }
 
     // ---- per-mechanic skill --------------------------------------------------------------
@@ -441,6 +499,7 @@ public struct PackProgress
     public int[] attempts;
     public float[] seconds;
     public int[] hints;             // how many times the hint button was used, per level
+    public int[] bestMoves;         // fewest moves this level has ever been solved in; 0 = no record yet
 }
 
 /// <summary>One mechanic's lifetime attempts/completions, pooled across every pack and mode it

@@ -14,24 +14,30 @@ namespace FreeFlow.UI
     public class UIController : Singleton<UIController>
     {
         [Header("Menu Screen")]
-        [SerializeField] private LevelScreenController levelScreenController;
+        [SerializeField] private LevelsScreenController levelScreenController;
+        [SerializeField] private PackSelectScreenController packSelectScreenController;
         [SerializeField] private GameObject mainMenuScreen;
         [SerializeField] private BoardGenerator boardGenerator;
+        [SerializeField] private DailyChallengeScreenController dailyChallengeScreenController;
 
         [Header("Game over Screen")]
         [SerializeField] private GameObject gameOverScreen;
         [SerializeField] private TextMeshProUGUI gameOverMsgText;
         [SerializeField] private TextMeshProUGUI gameOverLevelText;
+        [SerializeField] private LevelCompleteScreenController levelCompleteScreenController;
+        [SerializeField] private TextMeshProUGUI gameOverNextLevelSubtitleText;
 
         [Header("Gameplay")]
         [SerializeField] private TextMeshProUGUI gameplaylevelText;
+        [SerializeField] private TextMeshProUGUI gameplayModeSubtitleText;
+
+        // Filled-cells fraction ("16/36 CELLS") and percent ("44%") on the HUD progress card.
+        // gameplayMoveText no longer shows a move count -- the new HUD has no moves readout, see
+        // UpdateMovesCount -- it is repurposed to show the percent instead, so no field/reference
+        // needed to go dead.
         [SerializeField] private TextMeshProUGUI gameplayPairText;
         [SerializeField] private TextMeshProUGUI gameplayMoveText;
-
-        // Names the mechanic(s) the current level actually contains. Derived from the level
-        // data every load rather than authored per level, so it cannot drift out of step with
-        // the board -- see DescribeMechanics.
-        [SerializeField] private TextMeshProUGUI gameplayMechanicText;
+        [SerializeField] private Slider gameplaySlider;
 
         [SerializeField] private GameObject gameplayScreen;
 
@@ -108,6 +114,23 @@ namespace FreeFlow.UI
         public int[] PackSizesFor(GameMode mode)
         {
             return mode == GameMode.Advanced ? advancedPackSizes : classicPackSizes;
+        }
+
+        /// <summary>Levels in a pack of this size. Currently uniform across every size (see
+        /// packLevelCount), but exposed per-size rather than as a bare constant so a pack-select
+        /// screen never needs its own copy of that assumption.</summary>
+        public int PackLevelCountFor(int packSize)
+        {
+            return packLevelCount;
+        }
+
+        /// <summary>Same key format as <see cref="ProgressKey"/>, for any pack size/mode
+        /// combination rather than just the one currently on screen -- what a pack-select screen
+        /// needs to read every pack's progress at once. Callers must use this rather than
+        /// building the string themselves -- see SaveData's own warning about that.</summary>
+        public string KeyFor(GameMode mode, int packSize)
+        {
+            return packSize > 0 ? mode.ToString() + packSize + "x" + packSize : mode.ToString();
         }
 
         public int TotalLevelCount
@@ -256,14 +279,23 @@ namespace FreeFlow.UI
 
                 boardGenerator.GenerateBoard(currentLevelData);
 
-                gameplaylevelText.text = "Level : " + levelNumber;
-                UpdateMechanicLabel(currentLevelData);
+                gameplaylevelText.text = "LEVEL " + levelNumber;
+                if (gameplayModeSubtitleText != null)
+                {
+                    gameplayModeSubtitleText.text = currentPackSize > 0
+                        ? CurrentMode.ToString().ToUpperInvariant() + " " + currentPackSize + " × " + currentPackSize
+                        : CurrentMode.ToString().ToUpperInvariant();
+                }
                 UpdateFilledCells();
                 UpdateMovesCount(0);
 
                 // After GenerateBoard, which is what hands the level's answer over.
                 if (hintButton != null)
                 {
+                    // Show/hide is the player's own Settings-screen preference; interactable is
+                    // still purely GamePlayController.HintAvailable so a shown-but-unusable button
+                    // still refuses a level with no stored answer.
+                    hintButton.gameObject.SetActive(SavingSystem.Instance.Load().showHintButton);
                     hintButton.interactable = GamePlayController.Instance.HintAvailable;
                 }
             }
@@ -327,43 +359,6 @@ namespace FreeFlow.UI
             isDailyChallenge = true; // after LoadLevel, which resets this at its own top
         }
 
-        private void UpdateMechanicLabel(LevelData data)
-        {
-            if (gameplayMechanicText == null) { return; }
-            gameplayMechanicText.text = "Mechanic : " + DescribeMechanics(data);
-        }
-
-        /// <summary>
-        /// Names the mechanics present in <paramref name="data"/>, read straight off
-        /// <see cref="LevelMechanics.Identify"/> -- the same detection the per-mechanic skill
-        /// tracker uses (see <c>GamePlayController.SetSolution</c>), so the HUD label can never
-        /// disagree with what stats are actually being recorded for this board. Levels with no
-        /// mechanic read "Basic", and a board carrying more than one lists them all.
-        /// </summary>
-        private static string DescribeMechanics(LevelData data)
-        {
-            MechanicFlags flags = LevelMechanics.Identify(data);
-
-            string description = string.Empty;
-            AppendMechanic(ref description, (flags & MechanicFlags.Blocked) != 0, "Blocked cell");
-            AppendMechanic(ref description, (flags & MechanicFlags.Wall) != 0, "Wall");
-            AppendMechanic(ref description, (flags & MechanicFlags.OneWay) != 0, "One-way");
-            AppendMechanic(ref description, (flags & MechanicFlags.Arrow) != 0, "Arrow");
-            AppendMechanic(ref description, (flags & MechanicFlags.Forbidden) != 0, "Forbidden cell");
-            AppendMechanic(ref description, (flags & MechanicFlags.Permitted) != 0, "Permitted colours");
-            AppendMechanic(ref description, (flags & MechanicFlags.Bridge) != 0, "Bridge");
-            AppendMechanic(ref description, (flags & MechanicFlags.SharedDestination) != 0, "Shared destination");
-            AppendMechanic(ref description, (flags & MechanicFlags.Checkpoint) != 0, "Checkpoint");
-
-            return description.Length > 0 ? description : "Basic";
-        }
-
-        private static void AppendMechanic(ref string description, bool present, string name)
-        {
-            if (!present) { return; }
-            description = description.Length > 0 ? description + " + " + name : name;
-        }
-
         /// <summary>
         /// Gets called when next level button click from the lwvwl win screen,
         /// Handles the next level loading
@@ -376,8 +371,9 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Gets called when Play button click from main menu,
-        /// activates level screen
+        /// Gets called when Play button click from main menu -- opens the pack-select screen
+        /// (which size within the current mode) rather than jumping straight to a level grid;
+        /// picking a pack is PackSelectScreenController.OnPackSelected's job.
         /// </summary>
         public void OnPlayButtonClick()
         {
@@ -385,22 +381,132 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 mainMenuScreen.SetActive(false);
-                //levelScreenController.LoadLevelScreen(levelDataSO.levels.Length);
-
-                levelScreenController.gameObject.Activate();
+                packSelectScreenController.gameObject.Activate();
             }
         }
 
+        /// <summary>Each Menu-screen mode card (CLASSIC/ADVANCED) has its own PLAY button now
+        /// instead of a shared button + mode tabs -- these set the mode the tapped card belongs
+        /// to before opening pack-select, same as OnPlayButtonClick otherwise.</summary>
+        public void OnPlayClassicButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                SetMode(GameMode.Classic);
+                mainMenuScreen.SetActive(false);
+                packSelectScreenController.gameObject.Activate();
+            }
+        }
+
+        public void OnPlayAdvancedButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                SetMode(GameMode.Advanced);
+                mainMenuScreen.SetActive(false);
+                packSelectScreenController.gameObject.Activate();
+            }
+        }
+
+        public void OnPackSelectScreenBackButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                packSelectScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+            }
+        }
+
+        /// <summary>Called by a PackCard when it is tapped. Switches to that pack and hands off
+        /// to the level grid screen.
+        ///
+        /// Deliberately has NO CanInput() gate of its own (unlike most On*Click methods here) --
+        /// its only caller, PackCard.OnCardClick, already gates on CanInput() before calling this,
+        /// the same division LevelButton.OnButtonClick/UIController.LoadLevel already uses. A
+        /// second gate here would consume CanInput()'s own one-shot debounce a second time in the
+        /// same call stack (CanInput() disables input for the next 0.25s as a side effect of
+        /// returning true), so this method would ALWAYS silently no-op -- CanInput() was already
+        /// spent by OnCardClick's own check by the time this runs. That exact bug shipped here
+        /// until 2026-09-06: tapping any pack card appeared to do nothing.</summary>
+        public void OnPackSelected(int packSize)
+        {
+            SetPack(packSize);
+            packSelectScreenController.gameObject.SetActive(false);
+            levelScreenController.gameObject.Activate();
+        }
+
         /// <summary>Gets called when the Daily Challenge button is clicked from the main menu --
-        /// jumps straight to gameplay, skipping the pack grid entirely, since there is exactly
-        /// one level to play today. See LoadDailyChallenge.</summary>
+        /// opens the Daily Challenge hub (streak, this week, today's pick) rather than jumping
+        /// straight into gameplay. Actually loading today's level is
+        /// OnDailyChallengeHubPlayButtonClick's job; see LoadDailyChallenge.</summary>
         public void OnDailyChallengeButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
+                mainMenuScreen.SetActive(false);
+                if (dailyChallengeScreenController != null) { dailyChallengeScreenController.Refresh(); }
+                dailyChallengeScreenController.gameObject.Activate();
+            }
+        }
+
+        public void OnDailyChallengeHubBackButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                dailyChallengeScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+            }
+        }
+
+        /// <summary>Actually commits today's pick and jumps into gameplay -- LoadLevel (called via
+        /// LoadDailyChallenge) already deactivates mainMenuScreen/levelScreenController/gameOverScreen
+        /// itself, but has no idea the hub screen exists, so it is deactivated here first.</summary>
+        public void OnDailyChallengeHubPlayButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                dailyChallengeScreenController.gameObject.SetActive(false);
                 LoadDailyChallenge();
             }
+        }
+
+        /// <summary>Today's daily-challenge pick, WITHOUT persisting anything -- lets the hub
+        /// screen preview mode/size/level before the player taps Play. Mirrors LoadDailyChallenge's
+        /// own cache-or-select branch exactly, but never writes SaveData (no playerSalt assignment,
+        /// no cache write); LoadDailyChallenge remains the only place that actually commits a pick.
+        /// </summary>
+        public DailyChallengeSelector.Pick PeekTodayDailyChallenge()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+
+            if (data.dailyChallengeCachedDay == today)
+            {
+                return new DailyChallengeSelector.Pick
+                {
+                    mode = data.dailyChallengeMode,
+                    packSize = data.dailyChallengePackSize,
+                    levelNumber = data.dailyChallengeLevel,
+                };
+            }
+
+            // playerSalt may still be 0 (unassigned) here -- fine for a preview, since it only
+            // changes WHICH level within the skill band gets picked; LoadDailyChallenge assigns
+            // the real salt before this same Select() call actually commits one.
+            return DailyChallengeSelector.Select(today, GameMode.Classic, PackSizesFor(GameMode.Classic),
+                packLevelCount, data.OverallSkillRating(), data.playerSalt);
+        }
+
+        /// <summary>Whether today's daily challenge has already been completed.</summary>
+        public bool IsTodayDailyChallengeSolved()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            return data.dailyChallengeLastCompletedDay == today;
         }
 
         public void OnLevelScreenBackButtonClick()
@@ -408,7 +514,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                levelScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                levelScreenController.gameObject.Deactivate(0.25f, () => packSelectScreenController.gameObject.Activate());
             }
         }
 
@@ -476,24 +582,52 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Activates level complete screen,
-        /// Updates move count on level screen
+        /// Activates the level complete screen and hands the attempt's real stats (moves, hints,
+        /// time, and the pack-progress before/after this completion -- all read from
+        /// GamePlayController, none fabricated) to <see cref="levelCompleteScreenController"/> for
+        /// the stat cards / progress bar / star rating / streak banner.
         ///
         /// Called AFTER GamePlayController.SaveLevelData (see CheckForLevelComplete) specifically
-        /// so that on a daily-challenge completion, the streak line below reads the count
+        /// so that on a daily-challenge completion, the streak read below reflects the count
         /// SaveLevelData just persisted rather than the value from before this completion.
         /// </summary>
-        /// <param name="movesCount"></param>
-        public void ActivateLevelCompleteScreen(int movesCount)
+        /// <param name="movesCount">Moves made this attempt.</param>
+        /// <param name="hintsUsedThisAttempt">Hints used since this attempt began (a diff against
+        /// the lifetime hint total -- see GamePlayController.hintsAtAttemptStart).</param>
+        /// <param name="oldBestMoves">Fewest moves this level was EVER solved in, before this
+        /// completion (0 = no record yet). See PackProgress.bestMoves.</param>
+        /// <param name="oldCompletedLevel">CompletedLevelForKey for this pack BEFORE this
+        /// completion, so the progress bar can show where the player was, not just where they are.</param>
+        public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, int oldBestMoves, int oldCompletedLevel)
         {
             gameOverScreen.SetActive(true);
-            gameOverMsgText.text = "Congrats!, You Completed the level in " + movesCount + " moves.";
-            gameOverLevelText.text = "Level " + currentLevel;
+            gameOverLevelText.text = "LEVEL COMPLETE";
+            gameOverMsgText.text = CurrentMode.ToString().ToUpperInvariant()
+                + (currentPackSize > 0 ? " " + currentPackSize + "×" + currentPackSize : "")
+                + "  ·  LEVEL " + currentLevel
+                + "  ·  SOLVED IN " + movesCount + " MOVES";
 
+            int dailyStreak = 0;
             if (isDailyChallenge)
             {
                 SaveData data = SavingSystem.Instance.Load();
-                gameOverMsgText.text += "\nDaily Challenge complete! " + data.dailyChallengeStreak + "-day streak.";
+                dailyStreak = data.dailyChallengeStreak;
+            }
+
+            if (levelCompleteScreenController != null)
+            {
+                int newCompletedLevel = Mathf.Max(oldCompletedLevel, currentLevel);
+                levelCompleteScreenController.Refresh(movesCount, hintsUsedThisAttempt, oldBestMoves,
+                    oldCompletedLevel, newCompletedLevel, TotalLevelCount, isDailyChallenge, dailyStreak);
+            }
+
+            if (gameOverNextLevelSubtitleText != null)
+            {
+                // Same wrap-to-1 rule LoadNextLevel itself uses, so the label never promises a
+                // level number the NEXT LEVEL button won't actually load.
+                int nextLevel = currentLevel < TotalLevelCount ? currentLevel + 1 : 1;
+                gameOverNextLevelSubtitleText.text = "LEVEL " + nextLevel
+                    + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
             }
 
             gameOverScreen.Activate();
@@ -583,29 +717,65 @@ namespace FreeFlow.UI
             GamePlayController controller = GamePlayController.Instance;
             if (controller == null) { return; }
 
-            string label = "Cells : " + controller.FilledCellCount + "/" + controller.UsableCellCount;
+            int filled = controller.FilledCellCount;
+            int usable = controller.UsableCellCount;
 
-            // Checkpoints get their own count because they are the one rule the board does not
-            // show as satisfied on its own: a filled cell looks identical whether the colour
-            // crossing it is the one the checkpoint named or not. Hidden entirely on levels
-            // without the mechanic rather than shown as "0/0", which would read as a goal the
-            // player has failed to start.
-            int checkpoints = controller.CheckpointCellCount;
-            if (checkpoints > 0)
+            if (gameplayPairText != null) { gameplayPairText.text = filled + "/" + usable + " CELLS"; }
+            if (gameplayMoveText != null)
             {
-                label += "   Checkpoints : " + controller.SatisfiedCheckpointCount + "/" + checkpoints;
+                int percent = usable > 0 ? Mathf.RoundToInt(100f * filled / usable) : 0;
+                gameplayMoveText.text = percent + "%";
             }
-
-            gameplayPairText.text = label;
+            if (gameplaySlider != null)
+            {
+                gameplaySlider.value = usable > 0 ? (float)filled / usable : 0f;
+            }
         }
 
         /// <summary>
-        /// Update and shows the completed moves count, basically on game screen
+        /// The new HUD has no moves readout (see gameplayMoveText, repurposed for the cells
+        /// percent) -- kept as a no-op rather than removed so GamePlayController's per-move call
+        /// site needs no change if a moves display ever comes back.
         /// </summary>
-        /// <param name="moves">Number of moves</param>
         public void UpdateMovesCount(int moves)
         {
-            gameplayMoveText.text = "Moves : " + moves;
+        }
+
+        public void OnGameplayHomeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                GamePlayController.Instance.ResetGameplay();
+                boardGenerator.ResetBoard();
+                gameOverScreen.SetActive(false);
+                gameplayScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+            }
+        }
+
+        /// <summary>Steps to the previous/next level without leaving gameplay. Next respects the
+        /// same unlock frontier as the level grid -- it cannot jump past a level the player has
+        /// not reached yet, same as a locked LevelButton refusing a tap.</summary>
+        public void OnGameplayPrevLevelClick()
+        {
+            if (InputManager.Instance.CanInput() && currentLevel > 1)
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                LoadLevel(currentLevel - 1);
+            }
+        }
+
+        public void OnGameplayNextLevelClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                int unlockedUpTo = SavingSystem.Instance.Load().CompletedLevelForKey(ProgressKey) + 1;
+                if (currentLevel < TotalLevelCount && currentLevel < unlockedUpTo)
+                {
+                    AudioManager.Instance.PlayButtonClickSound();
+                    LoadLevel(currentLevel + 1);
+                }
+            }
         }
     }
 }

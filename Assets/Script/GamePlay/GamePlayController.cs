@@ -93,6 +93,20 @@ namespace FreeFlow.GamePlay
         /// <summary>Unscaled time the current attempt began; see <see cref="BeginAttempt"/>.</summary>
         private float attemptStartTime;
 
+        /// <summary>Lifetime hint count for this level when the current attempt began. There is no
+        /// separate "hints this attempt" counter in the save file -- <see cref="RecordHintUsed"/>
+        /// only ever writes the lifetime total -- so <see cref="SaveLevelData"/> diffs against this
+        /// snapshot instead of persisting a second counter that would need its own migration.</summary>
+        private int hintsAtAttemptStart;
+
+        // The three numbers ActivateLevelCompleteScreen needs beyond moves (already a field) --
+        // set by SaveLevelData, read immediately after by CheckForLevelComplete. Fields rather than
+        // a return value/tuple only because SaveLevelData already has other callers-shaped duties
+        // (mechanic/daily-challenge bookkeeping) that would make a return value's meaning ambiguous.
+        private int lastCompletionHintsUsed;
+        private int lastCompletionOldBestMoves;
+        private int lastCompletionOldCompletedLevel;
+
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
         // preview, and the block it's drawn on. The block has to be tracked too: the preview
         // lives on whichever cell was last when it was drawn, and a committed step moves
@@ -566,7 +580,8 @@ namespace FreeFlow.GamePlay
                 // own doc comment); reading it the other way round would show last completion's
                 // count instead of this one's.
                 SaveLevelData();
-                UIController.Instance.ActivateLevelCompleteScreen(moves);
+                UIController.Instance.ActivateLevelCompleteScreen(
+                    moves, lastCompletionHintsUsed, lastCompletionOldBestMoves, lastCompletionOldCompletedLevel);
             }
             else
             {
@@ -784,6 +799,9 @@ namespace FreeFlow.GamePlay
             attempts[currentLevel - 1]++;
             data.SetAttemptsForKey(key, attempts);
 
+            int[] hintsSoFar = EnsureLength(data.HintsForKey(key), totalLevelCount);
+            hintsAtAttemptStart = hintsSoFar[currentLevel - 1];
+
             SavingSystem.Instance.Save(data);
         }
 
@@ -821,10 +839,25 @@ namespace FreeFlow.GamePlay
             packSeconds[currentLevel - 1] = Time.unscaledTime - attemptStartTime;
             data.SetSecondsForKey(key, packSeconds);
 
+            lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
             if (currentLevel > data.CompletedLevelForKey(key))
             {
                 data.SetCompletedLevelForKey(key, currentLevel);
             }
+
+            int[] hintsNow = EnsureLength(data.HintsForKey(key), totalLevelCount);
+            lastCompletionHintsUsed = Mathf.Max(0, hintsNow[currentLevel - 1] - hintsAtAttemptStart);
+
+            // "OLD BEST" on the Level Complete screen: the record BEFORE this completion, so an
+            // improvement is visible instead of the card just silently updating to this attempt's
+            // own move count. 0 means no record yet (see PackProgress.bestMoves).
+            int[] bestMoves = EnsureLength(data.BestMovesForKey(key), totalLevelCount);
+            lastCompletionOldBestMoves = bestMoves[currentLevel - 1];
+            if (bestMoves[currentLevel - 1] == 0 || moves < bestMoves[currentLevel - 1])
+            {
+                bestMoves[currentLevel - 1] = moves;
+            }
+            data.SetBestMovesForKey(key, bestMoves);
 
             // Same mechanic set RecordMechanicAttempts credited when this attempt began --
             // currentMechanics is only ever set by SetSolution, once per attempt, so it still
