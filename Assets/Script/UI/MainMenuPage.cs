@@ -12,7 +12,7 @@ namespace FreeFlow.UI
     /// updated reference shows two independent, always-visible mode cards instead, each with its
     /// own PLAY button (see UIController.OnPlayClassicButtonClick/OnPlayAdvancedButtonClick).
     /// </summary>
-    public class MenuScreenController : MonoBehaviour
+    public class MainMenuPage : Page
     {
         [Header("Header")]
         [SerializeField] private TextMeshProUGUI levelChipText;

@@ -16,7 +16,7 @@ namespace FreeFlow.UI
     /// in this codebase. Rather than invent one, this screen shows a single TODAY card for the
     /// real pick. See freeflow_newui_redesign memory for the full reasoning.
     /// </summary>
-    public class DailyChallengeScreenController : MonoBehaviour
+    public class DailyChallengePage : Page
     {
         [Header("Header")]
         [SerializeField] private TextMeshProUGUI dateText;
@@ -48,6 +48,14 @@ namespace FreeFlow.UI
 
         private float chainTrackWidth = -1f;
         private float countdownTimer;
+
+        // Parity with its sibling pages (MainMenuPage/PackSelectPage/LevelsPage all refresh
+        // themselves on enable) -- previously UIController called Refresh() by hand right before
+        // activating this screen, which this now makes unnecessary.
+        private void OnEnable()
+        {
+            Refresh();
+        }
 
         public void Refresh()
         {

@@ -14,17 +14,13 @@ namespace FreeFlow.UI
     public class UIController : Singleton<UIController>
     {
         [Header("Menu Screen")]
-        [SerializeField] private LevelsScreenController levelScreenController;
-        [SerializeField] private PackSelectScreenController packSelectScreenController;
-        [SerializeField] private GameObject mainMenuScreen;
+        [SerializeField] private LevelsPage levelScreenController;
         [SerializeField] private BoardGenerator boardGenerator;
-        [SerializeField] private DailyChallengeScreenController dailyChallengeScreenController;
 
         [Header("Game over Screen")]
-        [SerializeField] private GameObject gameOverScreen;
         [SerializeField] private TextMeshProUGUI gameOverMsgText;
         [SerializeField] private TextMeshProUGUI gameOverLevelText;
-        [SerializeField] private LevelCompleteScreenController levelCompleteScreenController;
+        [SerializeField] private LevelCompleteView levelCompleteScreenController;
         [SerializeField] private TextMeshProUGUI gameOverNextLevelSubtitleText;
 
         [Header("Gameplay")]
@@ -38,8 +34,6 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI gameplayPairText;
         [SerializeField] private TextMeshProUGUI gameplayMoveText;
         [SerializeField] private Slider gameplaySlider;
-
-        [SerializeField] private GameObject gameplayScreen;
 
         // Turned off on any level with no stored answer (nothing shipped today lacks one, but the
         // column has always been optional -- see LevelData.solutionPairId). Left visible but not
@@ -73,12 +67,6 @@ namespace FreeFlow.UI
         // mode is fixed at Classic in code and the Advanced packs cannot be reached at all, which
         // reads in play as "the mechanics are missing" when they are simply in the other folder.
         [SerializeField] private GameMode startingMode = GameMode.Classic;
-
-        [Header("Pause screen")]
-        [SerializeField] GameObject pauseScreen;
-
-        [Header("Setting screen")]
-        [SerializeField] GameObject settingScreen;
 
         private LevelData currentLevelData;
         private SingleLevelDataSO currentLevelDataAsset;
@@ -270,12 +258,8 @@ namespace FreeFlow.UI
 
                 currentLevelData = currentLevelDataAsset.levelData;
 
-                levelScreenController.gameObject.SetActive(false);
-                gameplayScreen.SetActive(false);
-                mainMenuScreen.SetActive(false);
-
-                gameOverScreen.SetActive(false);
-                gameplayScreen.SetActive(true);
+                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+                PageManager.Instance.OpenPage(PageType.Gameplay);
 
                 boardGenerator.GenerateBoard(currentLevelData);
 
@@ -380,8 +364,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                mainMenuScreen.SetActive(false);
-                packSelectScreenController.gameObject.Activate();
+                PageManager.Instance.OpenPage(PageType.PackSelect);
             }
         }
 
@@ -394,8 +377,7 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 SetMode(GameMode.Classic);
-                mainMenuScreen.SetActive(false);
-                packSelectScreenController.gameObject.Activate();
+                PageManager.Instance.OpenPage(PageType.PackSelect);
             }
         }
 
@@ -405,8 +387,7 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 SetMode(GameMode.Advanced);
-                mainMenuScreen.SetActive(false);
-                packSelectScreenController.gameObject.Activate();
+                PageManager.Instance.OpenPage(PageType.PackSelect);
             }
         }
 
@@ -415,7 +396,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                packSelectScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                PageManager.Instance.ClosePage();
             }
         }
 
@@ -433,8 +414,7 @@ namespace FreeFlow.UI
         public void OnPackSelected(int packSize)
         {
             SetPack(packSize);
-            packSelectScreenController.gameObject.SetActive(false);
-            levelScreenController.gameObject.Activate();
+            PageManager.Instance.OpenPage(PageType.Levels);
         }
 
         /// <summary>Gets called when the Daily Challenge button is clicked from the main menu --
@@ -446,9 +426,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                mainMenuScreen.SetActive(false);
-                if (dailyChallengeScreenController != null) { dailyChallengeScreenController.Refresh(); }
-                dailyChallengeScreenController.gameObject.Activate();
+                PageManager.Instance.OpenPage(PageType.DailyChallenge);
             }
         }
 
@@ -457,19 +435,20 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                dailyChallengeScreenController.gameObject.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                PageManager.Instance.ClosePage();
             }
         }
 
         /// <summary>Actually commits today's pick and jumps into gameplay -- LoadLevel (called via
-        /// LoadDailyChallenge) already deactivates mainMenuScreen/levelScreenController/gameOverScreen
-        /// itself, but has no idea the hub screen exists, so it is deactivated here first.</summary>
+        /// LoadDailyChallenge) opens the Gameplay page itself via PageManager, which closes
+        /// whatever page was current (this hub) as part of that same call.</summary>
         public void OnDailyChallengeHubPlayButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                dailyChallengeScreenController.gameObject.SetActive(false);
+                // LoadDailyChallenge -> LoadLevel opens Gameplay, which closes whatever page is
+                // current (this hub) on its own -- no separate close needed here.
                 LoadDailyChallenge();
             }
         }
@@ -514,7 +493,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                levelScreenController.gameObject.Deactivate(0.25f, () => packSelectScreenController.gameObject.Activate());
+                PageManager.Instance.ClosePage();
             }
         }
 
@@ -524,7 +503,7 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.GameState = Enums.GameState.Paused;
-                pauseScreen.Activate();
+                PageManager.Instance.OpenAsOverlay(PageType.Pause);
             }
         }
 
@@ -533,7 +512,8 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                pauseScreen.Deactivate(0.25f, () => GamePlayController.Instance.GameState = Enums.GameState.Playing);
+                PageManager.Instance.CloseOverlay(PageType.Pause);
+                GamePlayController.Instance.GameState = Enums.GameState.Playing;
             }
         }
 
@@ -545,11 +525,9 @@ namespace FreeFlow.UI
                 bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
-                pauseScreen.Deactivate(0.25f, () =>
-                {
-                    LoadLevel(currentLevel);
-                    if (wasDailyChallenge) { isDailyChallenge = true; }
-                });
+                PageManager.Instance.CloseOverlay(PageType.Pause);
+                LoadLevel(currentLevel);
+                if (wasDailyChallenge) { isDailyChallenge = true; }
             }
         }
 
@@ -561,10 +539,9 @@ namespace FreeFlow.UI
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.SetActive(false);
-                gameplayScreen.SetActive(false);
-
-                pauseScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                PageManager.Instance.CloseOverlay(PageType.Pause);
+                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+                PageManager.Instance.OpenPage(PageType.MainMenu);
             }
         }
 
@@ -600,7 +577,6 @@ namespace FreeFlow.UI
         /// completion, so the progress bar can show where the player was, not just where they are.</param>
         public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, float secondsTaken, int oldCompletedLevel)
         {
-            gameOverScreen.SetActive(true);
             gameOverLevelText.text = "LEVEL COMPLETE";
             gameOverMsgText.text = CurrentMode.ToString().ToUpperInvariant()
                 + (currentPackSize > 0 ? " " + currentPackSize + "×" + currentPackSize : "")
@@ -630,7 +606,7 @@ namespace FreeFlow.UI
                     + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
             }
 
-            gameOverScreen.Activate();
+            PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
         }
 
         public void OnGameOverScreenRetryButtonClick()
@@ -642,11 +618,9 @@ namespace FreeFlow.UI
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.Deactivate(0.25f, () =>
-                {
-                    LoadLevel(currentLevel);
-                    if (wasDailyChallenge) { isDailyChallenge = true; }
-                });
+                // LoadLevel closes the LevelComplete overlay itself before opening Gameplay.
+                LoadLevel(currentLevel);
+                if (wasDailyChallenge) { isDailyChallenge = true; }
             }
         }
 
@@ -658,10 +632,8 @@ namespace FreeFlow.UI
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                pauseScreen.SetActive(false);
-                gameplayScreen.SetActive(false);
-
-                gameOverScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+                PageManager.Instance.OpenPage(PageType.MainMenu);
             }
         }
 
@@ -673,7 +645,8 @@ namespace FreeFlow.UI
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
 
-                gameOverScreen.Deactivate(0.25f, ()=>LoadNextLevel());
+                // LoadNextLevel -> LoadLevel closes the LevelComplete overlay itself.
+                LoadNextLevel();
             }
         }
 
@@ -699,7 +672,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                settingScreen.Activate();
+                PageManager.Instance.OpenAsOverlay(PageType.Setting);
             }
         }
 
@@ -748,8 +721,8 @@ namespace FreeFlow.UI
                 AudioManager.Instance.PlayButtonClickSound();
                 GamePlayController.Instance.ResetGameplay();
                 boardGenerator.ResetBoard();
-                gameOverScreen.SetActive(false);
-                gameplayScreen.Deactivate(0.25f, () => mainMenuScreen.SetActive(true));
+                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+                PageManager.Instance.OpenPage(PageType.MainMenu);
             }
         }
 

@@ -21,7 +21,7 @@ namespace FreeFlow.UI
     /// once. Worst case is therefore fixed at 2 stage containers and 2 pages worth of LevelButtons
     /// (60), regardless of how many pages a pack has.
     /// </summary>
-    public class LevelsScreenController : MonoBehaviour
+    public class LevelsPage : Page
     {
         [SerializeField] private LevelButton levelButtonPrefab;
         [SerializeField] private GameObject levelStagePrefab;

@@ -12,7 +12,7 @@ namespace FreeFlow.UI
     /// a separate, unrelated concept and is untouched). (The "all packs" footer summary this
     /// screen used to have was removed -- no longer part of the design.)
     /// </summary>
-    public class PackSelectScreenController : MonoBehaviour
+    public class PackSelectPage : Page
     {
         [SerializeField] private PackCard packCardPrefab;
         [SerializeField] private Transform packCardParent;

@@ -1,8 +1,11 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using FreeFlow.Enums;
 
-public class SettingScreen : MonoBehaviour
+namespace FreeFlow.UI
+{
+public class SettingPage : Page
 {
     [Header("Music")]
     [SerializeField] private Slider musicVolumeSlider;
@@ -141,6 +144,7 @@ public class SettingScreen : MonoBehaviour
     public void OnCloseButtonClick()
     {
         AudioManager.Instance.PlayButtonClickSound();
-        gameObject.Deactivate();
+        PageManager.Instance.CloseOverlay(PageType.Setting);
     }
+}
 }

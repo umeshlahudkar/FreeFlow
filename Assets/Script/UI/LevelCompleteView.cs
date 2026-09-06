@@ -10,7 +10,10 @@ namespace FreeFlow.UI
     /// navigation directly (the same split as PackSelectScreenController/LevelsScreenController) --
     /// this controller only renders the numbers UIController.ActivateLevelCompleteScreen hands it.
     /// </summary>
-    public class LevelCompleteScreenController : MonoBehaviour
+    /// <summary>Renders the level-complete stat cards, progress bar, star rating and streak
+    /// banner -- purely a content view, not itself a page. The container this sits under
+    /// (GameOverScreen/LevelCompletePage) is what PageManager actually opens/closes.</summary>
+    public class LevelCompleteView : MonoBehaviour
     {
         [Header("Stat cards")]
         [SerializeField] private TextMeshProUGUI movesStatText;

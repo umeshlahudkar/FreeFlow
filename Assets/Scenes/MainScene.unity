@@ -3533,11 +3533,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   levelScreenController: {fileID: 1352806171}
-  packSelectScreenController: {fileID: 1414201966}
-  mainMenuScreen: {fileID: 562033758}
   boardGenerator: {fileID: 119048342}
-  dailyChallengeScreenController: {fileID: 1137756924}
-  gameOverScreen: {fileID: 846102687}
   gameOverMsgText: {fileID: 453546292}
   gameOverLevelText: {fileID: 1347308843}
   levelCompleteScreenController: {fileID: 653578072}
@@ -3547,7 +3543,6 @@ MonoBehaviour:
   gameplayPairText: {fileID: 859829429}
   gameplayMoveText: {fileID: 1078077088}
   gameplaySlider: {fileID: 571894349}
-  gameplayScreen: {fileID: 1279531204}
   hintButton: {fileID: 1969944645}
   classicLevelCount: 100
   advancedLevelCount: 45
@@ -3556,8 +3551,6 @@ MonoBehaviour:
   packLevelCount: 100
   currentPackSize: 6
   startingMode: 1
-  pauseScreen: {fileID: 686318759}
-  settingScreen: {fileID: 1269529197}
 --- !u!1 &268270488
 GameObject:
   m_ObjectHideFlags: 0
@@ -7900,7 +7893,7 @@ GameObject:
   - component: {fileID: 562033759}
   - component: {fileID: 562033764}
   m_Layer: 5
-  m_Name: MenuScreen
+  m_Name: MainMenuPage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -7940,6 +7933,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5357c79edaa733e43a8a0dd3f6c507c8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.MenuScreenController
+  pageType: 0
   levelChipText: {fileID: 1986240518}
   classicProgressText: {fileID: 1267524987}
   advancedProgressText: {fileID: 1310190054}
@@ -8077,6 +8071,60 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 564510805}
   m_CullTransparentMesh: 1
+--- !u!1 &565717279
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 565717280}
+  - component: {fileID: 565717281}
+  m_Layer: 0
+  m_Name: PageManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &565717280
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 565717279}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1664669209}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &565717281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 565717279}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efe88ae231cf19649b3f13e1351e4e12, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.PageManager
+  pages:
+  - {fileID: 562033764}
+  - {fileID: 1414201966}
+  - {fileID: 1352806171}
+  - {fileID: 1137756924}
+  - {fileID: 1279531209}
+  - {fileID: 686318763}
+  - {fileID: 846102691}
+  - {fileID: 1269529201}
+  startingPage: 0
 --- !u!1 &571894347
 GameObject:
   m_ObjectHideFlags: 0
@@ -9686,8 +9734,9 @@ GameObject:
   - component: {fileID: 686318760}
   - component: {fileID: 686318762}
   - component: {fileID: 686318761}
+  - component: {fileID: 686318763}
   m_Layer: 5
-  m_Name: PauseScreen
+  m_Name: PausePage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -9752,6 +9801,19 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 686318759}
   m_CullTransparentMesh: 1
+--- !u!114 &686318763
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 686318759}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8b1bd23719e3f9a4596df3468139f1d2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.PausePage
+  pageType: 5
 --- !u!1 &700500010
 GameObject:
   m_ObjectHideFlags: 0
@@ -9810,7 +9872,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 0, g: 0.052253887, b: 0.509434, a: 1}
   m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -11251,8 +11313,9 @@ GameObject:
   - component: {fileID: 846102688}
   - component: {fileID: 846102690}
   - component: {fileID: 846102689}
+  - component: {fileID: 846102691}
   m_Layer: 5
-  m_Name: GameOverScreen
+  m_Name: LevelCompletePage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -11316,6 +11379,19 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 846102687}
   m_CullTransparentMesh: 1
+--- !u!114 &846102691
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 846102687}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e723b29ab893b54fa4aa87e4ee3084c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.LevelCompletePage
+  pageType: 7
 --- !u!1 &859829427
 GameObject:
   m_ObjectHideFlags: 0
@@ -15655,7 +15731,7 @@ GameObject:
   - component: {fileID: 1137756922}
   - component: {fileID: 1137756924}
   m_Layer: 0
-  m_Name: DailyChallengeScreen
+  m_Name: DailyChallengePage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -15739,6 +15815,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a71daefdfb0547498171e724215d278, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.DailyChallengeScreenController
+  pageType: 3
   dateText: {fileID: 209142444}
   currentStreakText: {fileID: 672640667}
   bestStreakText: {fileID: 1015594452}
@@ -17719,7 +17796,7 @@ GameObject:
   - component: {fileID: 1269529199}
   - component: {fileID: 1269529201}
   m_Layer: 5
-  m_Name: SettingScreen
+  m_Name: SettingPage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -17796,6 +17873,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e398e6098b0f42e478cc3fcd7c87ced0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  pageType: 6
   musicVolumeSlider: {fileID: 1199483547}
   musicVolumeLabel: {fileID: 1081906210}
   soundVolumeSlider: {fileID: 273343616}
@@ -18077,8 +18155,9 @@ GameObject:
   - component: {fileID: 1279531207}
   - component: {fileID: 1279531206}
   - component: {fileID: 1279531208}
+  - component: {fileID: 1279531209}
   m_Layer: 5
-  m_Name: GameplayScreen
+  m_Name: GameplayPage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -18172,6 +18251,19 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &1279531209
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1279531204}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0338369dc067289439073067951112d2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.GameplayPage
+  pageType: 4
 --- !u!1 &1290373875
 GameObject:
   m_ObjectHideFlags: 0
@@ -19864,7 +19956,7 @@ GameObject:
   - component: {fileID: 1352806167}
   - component: {fileID: 1352806171}
   m_Layer: 5
-  m_Name: LevelScreen
+  m_Name: LevelsPage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -19903,6 +19995,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 80bd5636be5b60242ab79edafe904a61, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  pageType: 2
   levelButtonPrefab: {fileID: 1053313372}
   levelStagePrefab: {fileID: 1160613482}
   headerTitleText: {fileID: 1842151493}
@@ -21169,7 +21262,7 @@ GameObject:
   - component: {fileID: 1414201963}
   - component: {fileID: 1414201966}
   m_Layer: 5
-  m_Name: PackSelectScreen
+  m_Name: PackSelectPage
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -21209,6 +21302,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 46393716e70c8644296fee65161c8cca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.PackSelectScreenController
+  pageType: 1
   packCardPrefab: {fileID: 1318140361}
   packCardParent: {fileID: 1834592381}
   headerTitleText: {fileID: 2111348219}
@@ -23359,6 +23453,7 @@ Transform:
   - {fileID: 705184520}
   - {fileID: 1515560583}
   - {fileID: 433533021}
+  - {fileID: 565717280}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1674217964
