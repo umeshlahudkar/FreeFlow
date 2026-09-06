@@ -14,13 +14,11 @@ namespace FreeFlow.UI
     {
         [Header("Stat cards")]
         [SerializeField] private TextMeshProUGUI movesStatText;
-        [SerializeField] private TextMeshProUGUI oldBestStatText;
+        [SerializeField] private TextMeshProUGUI timeStatText;
         [SerializeField] private TextMeshProUGUI hintsStatText;
 
         [Header("Pack progress")]
-        [SerializeField] private RectTransform progressOldFillRect;
-        [SerializeField] private RectTransform progressNewFillRect;
-        [SerializeField] private RectTransform progressKnobRect;
+        [SerializeField] private Slider progressSlider;
         [SerializeField] private TextMeshProUGUI progressLabelText;
 
         // No underlying scoring system exists (no per-level "best" or points anywhere in
@@ -36,15 +34,11 @@ namespace FreeFlow.UI
         [SerializeField] private GameObject streakBanner;
         [SerializeField] private TextMeshProUGUI streakText;
 
-        private float progressTrackWidth = -1f;
-
-        public void Refresh(int movesCount, int hintsThisAttempt, int oldBestMoves,
+        public void Refresh(int movesCount, int hintsThisAttempt, float secondsTaken,
             int oldCompletedLevel, int newCompletedLevel, int totalLevelCount, bool isDailyChallenge, int dailyStreak)
         {
             if (movesStatText != null) { movesStatText.text = movesCount.ToString(); }
-            // 0 means no record predates this completion (see PackProgress.bestMoves) -- shown as
-            // "--" rather than a misleading "0 moves".
-            if (oldBestStatText != null) { oldBestStatText.text = oldBestMoves > 0 ? oldBestMoves.ToString() : "--"; }
+            if (timeStatText != null) { timeStatText.text = FormatTime(secondsTaken); }
             if (hintsStatText != null) { hintsStatText.text = hintsThisAttempt.ToString(); }
 
             SetStars(hintsThisAttempt);
@@ -79,35 +73,21 @@ namespace FreeFlow.UI
                 progressLabelText.text = oldCompleted + "/" + total + "  →  " + newCompleted + "/" + total;
             }
 
-            // Cached lazily from the fill's own parent -- same pattern UIController.SetGameplayFillWidth
-            // uses for the HUD cells bar -- so this doesn't need a separately-serialized track width.
-            if (progressTrackWidth < 0f && progressNewFillRect != null && progressNewFillRect.parent is RectTransform parent)
+            if (progressSlider != null)
             {
-                progressTrackWidth = parent.rect.width;
+                progressSlider.value = total > 0 ? (float)newCompleted / total : 0f;
             }
-            if (progressTrackWidth <= 0f) { return; }
+        }
 
-            float oldFraction = total > 0 ? (float)oldCompleted / total : 0f;
-            float newFraction = total > 0 ? (float)newCompleted / total : 0f;
-
-            if (progressOldFillRect != null)
-            {
-                Vector2 size = progressOldFillRect.sizeDelta;
-                size.x = progressTrackWidth * oldFraction;
-                progressOldFillRect.sizeDelta = size;
-            }
-            if (progressNewFillRect != null)
-            {
-                Vector2 size = progressNewFillRect.sizeDelta;
-                size.x = progressTrackWidth * newFraction;
-                progressNewFillRect.sizeDelta = size;
-            }
-            if (progressKnobRect != null)
-            {
-                Vector2 pos = progressKnobRect.anchoredPosition;
-                pos.x = progressTrackWidth * newFraction;
-                progressKnobRect.anchoredPosition = pos;
-            }
+        /// <summary>"1:24" for anything a minute or over, "42s" under a minute -- matches how
+        /// short a level attempt actually runs, so the common case doesn't carry a redundant
+        /// "0:" prefix.</summary>
+        private static string FormatTime(float seconds)
+        {
+            int totalSeconds = Mathf.Max(0, Mathf.RoundToInt(seconds));
+            int minutes = totalSeconds / 60;
+            int remainder = totalSeconds % 60;
+            return minutes > 0 ? minutes + ":" + remainder.ToString("00") : remainder + "s";
         }
     }
 }

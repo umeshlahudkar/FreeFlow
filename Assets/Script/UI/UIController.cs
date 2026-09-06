@@ -594,11 +594,11 @@ namespace FreeFlow.UI
         /// <param name="movesCount">Moves made this attempt.</param>
         /// <param name="hintsUsedThisAttempt">Hints used since this attempt began (a diff against
         /// the lifetime hint total -- see GamePlayController.hintsAtAttemptStart).</param>
-        /// <param name="oldBestMoves">Fewest moves this level was EVER solved in, before this
-        /// completion (0 = no record yet). See PackProgress.bestMoves.</param>
+        /// <param name="secondsTaken">Wall-clock time this attempt took to solve the level (see
+        /// GamePlayController.lastCompletionSeconds).</param>
         /// <param name="oldCompletedLevel">CompletedLevelForKey for this pack BEFORE this
         /// completion, so the progress bar can show where the player was, not just where they are.</param>
-        public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, int oldBestMoves, int oldCompletedLevel)
+        public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, float secondsTaken, int oldCompletedLevel)
         {
             gameOverScreen.SetActive(true);
             gameOverLevelText.text = "LEVEL COMPLETE";
@@ -617,7 +617,7 @@ namespace FreeFlow.UI
             if (levelCompleteScreenController != null)
             {
                 int newCompletedLevel = Mathf.Max(oldCompletedLevel, currentLevel);
-                levelCompleteScreenController.Refresh(movesCount, hintsUsedThisAttempt, oldBestMoves,
+                levelCompleteScreenController.Refresh(movesCount, hintsUsedThisAttempt, secondsTaken,
                     oldCompletedLevel, newCompletedLevel, TotalLevelCount, isDailyChallenge, dailyStreak);
             }
 

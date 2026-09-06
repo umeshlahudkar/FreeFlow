@@ -99,12 +99,12 @@ namespace FreeFlow.GamePlay
         /// snapshot instead of persisting a second counter that would need its own migration.</summary>
         private int hintsAtAttemptStart;
 
-        // The three numbers ActivateLevelCompleteScreen needs beyond moves (already a field) --
-        // set by SaveLevelData, read immediately after by CheckForLevelComplete. Fields rather than
-        // a return value/tuple only because SaveLevelData already has other callers-shaped duties
+        // The numbers ActivateLevelCompleteScreen needs beyond moves (already a field) -- set by
+        // SaveLevelData, read immediately after by CheckForLevelComplete. Fields rather than a
+        // return value/tuple only because SaveLevelData already has other callers-shaped duties
         // (mechanic/daily-challenge bookkeeping) that would make a return value's meaning ambiguous.
         private int lastCompletionHintsUsed;
-        private int lastCompletionOldBestMoves;
+        private float lastCompletionSeconds;
         private int lastCompletionOldCompletedLevel;
 
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
@@ -581,7 +581,7 @@ namespace FreeFlow.GamePlay
                 // count instead of this one's.
                 SaveLevelData();
                 UIController.Instance.ActivateLevelCompleteScreen(
-                    moves, lastCompletionHintsUsed, lastCompletionOldBestMoves, lastCompletionOldCompletedLevel);
+                    moves, lastCompletionHintsUsed, lastCompletionSeconds, lastCompletionOldCompletedLevel);
             }
             else
             {
@@ -836,7 +836,8 @@ namespace FreeFlow.GamePlay
             // regresses difficulty metrics against exactly this number, so it is what any future
             // fitting of DifficultyModel's weights will need.
             float[] packSeconds = EnsureLength(data.SecondsForKey(key), totalLevelCount);
-            packSeconds[currentLevel - 1] = Time.unscaledTime - attemptStartTime;
+            lastCompletionSeconds = Time.unscaledTime - attemptStartTime;
+            packSeconds[currentLevel - 1] = lastCompletionSeconds;
             data.SetSecondsForKey(key, packSeconds);
 
             lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
@@ -848,11 +849,10 @@ namespace FreeFlow.GamePlay
             int[] hintsNow = EnsureLength(data.HintsForKey(key), totalLevelCount);
             lastCompletionHintsUsed = Mathf.Max(0, hintsNow[currentLevel - 1] - hintsAtAttemptStart);
 
-            // "OLD BEST" on the Level Complete screen: the record BEFORE this completion, so an
-            // improvement is visible instead of the card just silently updating to this attempt's
-            // own move count. 0 means no record yet (see PackProgress.bestMoves).
+            // Fewest-ever-moves record for this level, kept for whenever a future screen wants it
+            // (not shown on the Level Complete screen itself, which shows time-to-complete instead --
+            // see lastCompletionSeconds). 0 means no record yet (see PackProgress.bestMoves).
             int[] bestMoves = EnsureLength(data.BestMovesForKey(key), totalLevelCount);
-            lastCompletionOldBestMoves = bestMoves[currentLevel - 1];
             if (bestMoves[currentLevel - 1] == 0 || moves < bestMoves[currentLevel - 1])
             {
                 bestMoves[currentLevel - 1] = moves;
