@@ -7,6 +7,8 @@ namespace FreeFlow.UI
 {
 public class SettingPage : Page
 {
+    [SerializeField] private TopPanel topPanel;
+
     [Header("Music")]
     [SerializeField] private Slider musicVolumeSlider;
     [SerializeField] private TextMeshProUGUI musicVolumeLabel;
@@ -41,6 +43,12 @@ public class SettingPage : Page
 
     private void OnEnable()
     {
+        // No Setting button here (already on this screen) and no Option -- Back doubles as this
+        // overlay's own close action (see OnCloseButtonClick), wired on this instance instead of
+        // the generic TopPanel.OnBackButtonClick since this is an overlay (CloseOverlay), not a
+        // stacked page (ClosePage would incorrectly pop whatever page is underneath instead).
+        if (topPanel != null) { topPanel.SetTopPanel("SETTINGS", "", showBack: true, showSetting: false, showOption: false); }
+
         musicVolumeSlider.value = AudioManager.Instance.BgVolume;
         soundVolumeSlider.value = AudioManager.Instance.SFXVolume;
         UpdateVolumeLabel(musicVolumeLabel, musicVolumeSlider.value);

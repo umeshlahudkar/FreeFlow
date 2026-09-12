@@ -3,7 +3,6 @@ using UnityEngine.UI;
 using TMPro;
 using FreeFlow.Enums;
 using FreeFlow.GamePlay;
-using FreeFlow.Input;
 using FreeFlow.Util;
 
 namespace FreeFlow.UI
@@ -18,15 +17,9 @@ namespace FreeFlow.UI
         [SerializeField] private BoardGenerator boardGenerator;
 
         [Header("Game over Screen")]
-        [SerializeField] private TextMeshProUGUI gameOverMsgText;
-        [SerializeField] private TextMeshProUGUI gameOverLevelText;
-        [SerializeField] private LevelCompleteView levelCompleteScreenController;
-        [SerializeField] private TextMeshProUGUI gameOverNextLevelSubtitleText;
+        [SerializeField] private LevelCompletePage levelCompletePage;
 
         [Header("Gameplay")]
-        [SerializeField] private TextMeshProUGUI gameplaylevelText;
-        [SerializeField] private TextMeshProUGUI gameplayModeSubtitleText;
-
         // Filled-cells fraction ("16/36 CELLS") and percent ("44%") on the HUD progress card.
         // gameplayMoveText no longer shows a move count -- the new HUD has no moves readout, see
         // UpdateMovesCount -- it is repurposed to show the percent instead, so no field/reference
@@ -263,13 +256,9 @@ namespace FreeFlow.UI
 
                 boardGenerator.GenerateBoard(currentLevelData);
 
-                gameplaylevelText.text = "LEVEL " + levelNumber;
-                if (gameplayModeSubtitleText != null)
-                {
-                    gameplayModeSubtitleText.text = currentPackSize > 0
-                        ? CurrentMode.ToString().ToUpperInvariant() + " " + currentPackSize + " × " + currentPackSize
-                        : CurrentMode.ToString().ToUpperInvariant();
-                }
+                // GameplayPage's own OnEnable refreshes its TopPanel title/subtitle -- OpenPage
+                // above already triggered it (or will, if Gameplay wasn't already the current
+                // page) -- so no header text is set directly here anymore.
                 UpdateFilledCells();
                 UpdateMovesCount(0);
 
@@ -354,105 +343,6 @@ namespace FreeFlow.UI
             LoadLevel(currentLevel);
         }
 
-        /// <summary>
-        /// Gets called when Play button click from main menu -- opens the pack-select screen
-        /// (which size within the current mode) rather than jumping straight to a level grid;
-        /// picking a pack is PackSelectScreenController.OnPackSelected's job.
-        /// </summary>
-        public void OnPlayButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.OpenPage(PageType.PackSelect);
-            }
-        }
-
-        /// <summary>Each Menu-screen mode card (CLASSIC/ADVANCED) has its own PLAY button now
-        /// instead of a shared button + mode tabs -- these set the mode the tapped card belongs
-        /// to before opening pack-select, same as OnPlayButtonClick otherwise.</summary>
-        public void OnPlayClassicButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                SetMode(GameMode.Classic);
-                PageManager.Instance.OpenPage(PageType.PackSelect);
-            }
-        }
-
-        public void OnPlayAdvancedButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                SetMode(GameMode.Advanced);
-                PageManager.Instance.OpenPage(PageType.PackSelect);
-            }
-        }
-
-        public void OnPackSelectScreenBackButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.ClosePage();
-            }
-        }
-
-        /// <summary>Called by a PackCard when it is tapped. Switches to that pack and hands off
-        /// to the level grid screen.
-        ///
-        /// Deliberately has NO CanInput() gate of its own (unlike most On*Click methods here) --
-        /// its only caller, PackCard.OnCardClick, already gates on CanInput() before calling this,
-        /// the same division LevelButton.OnButtonClick/UIController.LoadLevel already uses. A
-        /// second gate here would consume CanInput()'s own one-shot debounce a second time in the
-        /// same call stack (CanInput() disables input for the next 0.25s as a side effect of
-        /// returning true), so this method would ALWAYS silently no-op -- CanInput() was already
-        /// spent by OnCardClick's own check by the time this runs. That exact bug shipped here
-        /// until 2026-09-06: tapping any pack card appeared to do nothing.</summary>
-        public void OnPackSelected(int packSize)
-        {
-            SetPack(packSize);
-            PageManager.Instance.OpenPage(PageType.Levels);
-        }
-
-        /// <summary>Gets called when the Daily Challenge button is clicked from the main menu --
-        /// opens the Daily Challenge hub (streak, this week, today's pick) rather than jumping
-        /// straight into gameplay. Actually loading today's level is
-        /// OnDailyChallengeHubPlayButtonClick's job; see LoadDailyChallenge.</summary>
-        public void OnDailyChallengeButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.OpenPage(PageType.DailyChallenge);
-            }
-        }
-
-        public void OnDailyChallengeHubBackButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.ClosePage();
-            }
-        }
-
-        /// <summary>Actually commits today's pick and jumps into gameplay -- LoadLevel (called via
-        /// LoadDailyChallenge) opens the Gameplay page itself via PageManager, which closes
-        /// whatever page was current (this hub) as part of that same call.</summary>
-        public void OnDailyChallengeHubPlayButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                // LoadDailyChallenge -> LoadLevel opens Gameplay, which closes whatever page is
-                // current (this hub) on its own -- no separate close needed here.
-                LoadDailyChallenge();
-            }
-        }
-
         /// <summary>Today's daily-challenge pick, WITHOUT persisting anything -- lets the hub
         /// screen preview mode/size/level before the player taps Play. Mirrors LoadDailyChallenge's
         /// own cache-or-select branch exactly, but never writes SaveData (no playerSalt assignment,
@@ -488,85 +378,17 @@ namespace FreeFlow.UI
             return data.dailyChallengeLastCompletedDay == today;
         }
 
-        public void OnLevelScreenBackButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.ClosePage();
-            }
-        }
-
-        public void OnPauseButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.GameState = Enums.GameState.Paused;
-                PageManager.Instance.OpenAsOverlay(PageType.Pause);
-            }
-        }
-
-        public void OnResumeButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.CloseOverlay(PageType.Pause);
-                GamePlayController.Instance.GameState = Enums.GameState.Playing;
-            }
-        }
-
-        public void OnPauseScreenRetryButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-                PageManager.Instance.CloseOverlay(PageType.Pause);
-                LoadLevel(currentLevel);
-                if (wasDailyChallenge) { isDailyChallenge = true; }
-            }
-        }
-
-        public void OnPauseScreenHomeButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-
-                PageManager.Instance.CloseOverlay(PageType.Pause);
-                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
-                PageManager.Instance.OpenPage(PageType.MainMenu);
-            }
-        }
-
         /// <summary>
-        ///  Gets called when Quit button click from the Main menu screen,
-        ///  closes the game
-        /// </summary>
-        public void OnQuitButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                Application.Quit();
-            }
-        }
-
-        /// <summary>
-        /// Activates the level complete screen and hands the attempt's real stats (moves, hints,
-        /// time, and the pack-progress before/after this completion -- all read from
-        /// GamePlayController, none fabricated) to <see cref="levelCompleteScreenController"/> for
-        /// the stat cards / progress bar / star rating / streak banner.
+        /// Activates the level complete screen and hands it the attempt's real stats (moves,
+        /// hints, time, and the pack-progress before this completion -- all read from
+        /// GamePlayController, none fabricated). LevelCompletePage owns every field this content
+        /// needs and reads everything else (mode, pack size, current level) itself from this
+        /// controller's own public properties -- see LevelCompletePage.SetLevelCompleteData.
         ///
         /// Called AFTER GamePlayController.SaveLevelData (see CheckForLevelComplete) specifically
-        /// so that on a daily-challenge completion, the streak read below reflects the count
-        /// SaveLevelData just persisted rather than the value from before this completion.
+        /// so that on a daily-challenge completion, the streak SetLevelCompleteData reads
+        /// reflects the count SaveLevelData just persisted rather than the value from before this
+        /// completion.
         /// </summary>
         /// <param name="movesCount">Moves made this attempt.</param>
         /// <param name="hintsUsedThisAttempt">Hints used since this attempt began (a diff against
@@ -577,103 +399,59 @@ namespace FreeFlow.UI
         /// completion, so the progress bar can show where the player was, not just where they are.</param>
         public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, float secondsTaken, int oldCompletedLevel)
         {
-            gameOverLevelText.text = "LEVEL COMPLETE";
-            gameOverMsgText.text = CurrentMode.ToString().ToUpperInvariant()
-                + (currentPackSize > 0 ? " " + currentPackSize + "×" + currentPackSize : "")
-                + "  ·  LEVEL " + currentLevel
-                + "  ·  SOLVED IN " + movesCount + " MOVES";
-
-            int dailyStreak = 0;
-            if (isDailyChallenge)
+            if (levelCompletePage != null)
             {
-                SaveData data = SavingSystem.Instance.Load();
-                dailyStreak = data.dailyChallengeStreak;
+                levelCompletePage.SetLevelCompleteData(movesCount, hintsUsedThisAttempt, secondsTaken, oldCompletedLevel);
             }
-
-            if (levelCompleteScreenController != null)
-            {
-                int newCompletedLevel = Mathf.Max(oldCompletedLevel, currentLevel);
-                levelCompleteScreenController.Refresh(movesCount, hintsUsedThisAttempt, secondsTaken,
-                    oldCompletedLevel, newCompletedLevel, TotalLevelCount, isDailyChallenge, dailyStreak);
-            }
-
-            if (gameOverNextLevelSubtitleText != null)
-            {
-                // Same wrap-to-1 rule LoadNextLevel itself uses, so the label never promises a
-                // level number the NEXT LEVEL button won't actually load.
-                int nextLevel = currentLevel < TotalLevelCount ? currentLevel + 1 : 1;
-                gameOverNextLevelSubtitleText.text = "LEVEL " + nextLevel
-                    + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
-            }
-
             PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
         }
 
-        public void OnGameOverScreenRetryButtonClick()
+        /// <summary>
+        /// Resets gameplay state and reloads the level currently in progress -- what every
+        /// "Retry" button (Pause overlay, Level Complete overlay) does. Preserves the
+        /// daily-challenge flag across the reload (LoadLevel itself always clears it first) so
+        /// retrying a daily challenge still counts as one. Unconditionally closes the Pause
+        /// overlay -- safe even when it was never open (see PageManager.CloseOverlay) -- so this
+        /// one method works for both callers without either needing to know about the other's
+        /// overlay.
+        /// </summary>
+        public void RetryCurrentLevel()
         {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-
-                // LoadLevel closes the LevelComplete overlay itself before opening Gameplay.
-                LoadLevel(currentLevel);
-                if (wasDailyChallenge) { isDailyChallenge = true; }
-            }
-        }
-
-        public void OnGameOverScreenHomeButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-
-                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
-                PageManager.Instance.OpenPage(PageType.MainMenu);
-            }
-        }
-
-        public void OnGameOverScreenNextButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-
-                // LoadNextLevel -> LoadLevel closes the LevelComplete overlay itself.
-                LoadNextLevel();
-            }
+            bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
+            GamePlayController.Instance.ResetGameplay();
+            boardGenerator.ResetBoard();
+            PageManager.Instance.CloseOverlay(PageType.Pause);
+            // LoadLevel closes the LevelComplete overlay itself before opening Gameplay.
+            LoadLevel(currentLevel);
+            if (wasDailyChallenge) { isDailyChallenge = true; }
         }
 
         /// <summary>
-        /// Joins one pair along the level's own answer. One hint, one pair, no limit on how many
-        /// times it can be used -- the only cost is the move it adds, and a player who taps it for
-        /// every pair has asked to be shown the board rather than to play it.
-        ///
-        /// A hint that finds nothing to do is silent by design: the board is either already correct
-        /// or has no stored answer, and in the second case the button is not interactable anyway.
+        /// Resets gameplay state and returns to the main menu -- what every "Home" button
+        /// (Pause overlay, Level Complete overlay, in-HUD Home) does. Unconditionally closes both
+        /// overlays -- safe even when neither was open -- so this one method works from any of
+        /// those callers.
         /// </summary>
-        public void OnHintButtonClick()
+        public void GoToMainMenu()
         {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.TryApplyHint();
-            }
+            GamePlayController.Instance.ResetGameplay();
+            boardGenerator.ResetBoard();
+
+            PageManager.Instance.CloseOverlay(PageType.Pause);
+            PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+            PageManager.Instance.OpenPage(PageType.MainMenu);
         }
 
-        public void OnSeetingButtonClick()
+        /// <summary>
+        /// Resets gameplay state and advances to the next level -- what the Level Complete
+        /// overlay's "Next" button does. LoadNextLevel -> LoadLevel closes the LevelComplete
+        /// overlay itself.
+        /// </summary>
+        public void GoToNextLevel()
         {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                PageManager.Instance.OpenAsOverlay(PageType.Setting);
-            }
+            GamePlayController.Instance.ResetGameplay();
+            boardGenerator.ResetBoard();
+            LoadNextLevel();
         }
 
         /// <summary>
@@ -714,41 +492,5 @@ namespace FreeFlow.UI
         {
         }
 
-        public void OnGameplayHomeButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
-                PageManager.Instance.CloseOverlay(PageType.LevelComplete);
-                PageManager.Instance.OpenPage(PageType.MainMenu);
-            }
-        }
-
-        /// <summary>Steps to the previous/next level without leaving gameplay. Next respects the
-        /// same unlock frontier as the level grid -- it cannot jump past a level the player has
-        /// not reached yet, same as a locked LevelButton refusing a tap.</summary>
-        public void OnGameplayPrevLevelClick()
-        {
-            if (InputManager.Instance.CanInput() && currentLevel > 1)
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                LoadLevel(currentLevel - 1);
-            }
-        }
-
-        public void OnGameplayNextLevelClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                int unlockedUpTo = SavingSystem.Instance.Load().CompletedLevelForKey(ProgressKey) + 1;
-                if (currentLevel < TotalLevelCount && currentLevel < unlockedUpTo)
-                {
-                    AudioManager.Instance.PlayButtonClickSound();
-                    LoadLevel(currentLevel + 1);
-                }
-            }
-        }
     }
 }

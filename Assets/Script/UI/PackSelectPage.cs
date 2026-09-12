@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using TMPro;
 using FreeFlow.Enums;
 
 namespace FreeFlow.UI
@@ -16,10 +15,7 @@ namespace FreeFlow.UI
     {
         [SerializeField] private PackCard packCardPrefab;
         [SerializeField] private Transform packCardParent;
-
-        [Header("Header")]
-        [SerializeField] private TextMeshProUGUI headerTitleText;
-        [SerializeField] private TextMeshProUGUI headerSubtitleText;
+        [SerializeField] private TopPanel topPanel;
 
         private readonly List<PackCard> spawnedCards = new List<PackCard>();
 
@@ -60,12 +56,30 @@ namespace FreeFlow.UI
                 spawnedCards.Add(card);
             }
 
-            if (headerTitleText != null) { headerTitleText.text = mode.ToString().ToUpperInvariant(); }
-
             // Summed across every pack size in the mode, not just whichever one is currently
             // selected -- matches the Menu screen's own mode-card progress (also a sum, not a
             // single representative size), per the user's own explicit clarification there.
-            if (headerSubtitleText != null) { headerSubtitleText.text = totalCompleted + "/" + totalLevels + " COMPLETE"; }
+            if (topPanel != null)
+            {
+                topPanel.SetTopPanel(mode.ToString().ToUpperInvariant(), totalCompleted + "/" + totalLevels + " COMPLETE");
+            }
+        }
+
+        /// <summary>Called by a PackCard when it is tapped. Switches to that pack and hands off
+        /// to the level grid screen.
+        ///
+        /// Deliberately has NO CanInput() gate of its own (unlike most On*Click methods) -- its
+        /// only caller, PackCard.OnCardClick, already gates on CanInput() before calling this, the
+        /// same division LevelButton.OnButtonClick/UIController.LoadLevel already uses. A second
+        /// gate here would consume CanInput()'s own one-shot debounce a second time in the same
+        /// call stack (CanInput() disables input for the next 0.25s as a side effect of returning
+        /// true), so this method would ALWAYS silently no-op -- CanInput() was already spent by
+        /// OnCardClick's own check by the time this runs. That exact bug shipped here until
+        /// 2026-09-06: tapping any pack card appeared to do nothing.</summary>
+        public void OnPackSelected(int packSize)
+        {
+            UIController.Instance.SetPack(packSize);
+            PageManager.Instance.OpenPage(PageType.Levels);
         }
     }
 }

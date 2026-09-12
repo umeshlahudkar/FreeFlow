@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using FreeFlow.Enums;
+using FreeFlow.Input;
 
 namespace FreeFlow.UI
 {
@@ -14,6 +15,8 @@ namespace FreeFlow.UI
     /// </summary>
     public class MainMenuPage : Page
     {
+        [SerializeField] private TopPanel topPanel;
+
         [Header("Header")]
         [SerializeField] private TextMeshProUGUI levelChipText;
 
@@ -34,6 +37,11 @@ namespace FreeFlow.UI
             UIController ui = UIController.Instance;
             if (ui == null) { return; }
             SaveData data = SavingSystem.Instance.Load();
+
+            // MainMenu is the root page (nothing to go back to) and already has its own
+            // branding (GameNameLabel/Wordmark) plus the level chip below -- only the Setting
+            // button is needed here, no title/subtitle/Back/Option.
+            if (topPanel != null) { topPanel.SetTopPanel("", "", showBack: false, showSetting: true, showOption: false); }
 
             if (levelChipText != null)
             {
@@ -70,6 +78,49 @@ namespace FreeFlow.UI
         private static string DefaultKey(UIController ui, GameMode mode)
         {
             return ui.KeyFor(mode, ui.PackSizesFor(mode)[0]);
+        }
+
+        /// <summary>Each mode card (CLASSIC/ADVANCED) has its own PLAY button -- these set the
+        /// mode the tapped card belongs to before opening pack-select.</summary>
+        public void OnPlayClassicButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                UIController.Instance.SetMode(GameMode.Classic);
+                PageManager.Instance.OpenPage(PageType.PackSelect);
+            }
+        }
+
+        public void OnPlayAdvancedButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                UIController.Instance.SetMode(GameMode.Advanced);
+                PageManager.Instance.OpenPage(PageType.PackSelect);
+            }
+        }
+
+        /// <summary>Opens the Daily Challenge hub (streak, this week, today's pick) rather than
+        /// jumping straight into gameplay -- actually loading today's level is
+        /// DailyChallengePage.OnPlayButtonClick's job.</summary>
+        public void OnDailyChallengeButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                PageManager.Instance.OpenPage(PageType.DailyChallenge);
+            }
+        }
+
+        public void OnQuitButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                Application.Quit();
+            }
         }
     }
 }

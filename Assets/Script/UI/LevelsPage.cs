@@ -25,10 +25,7 @@ namespace FreeFlow.UI
     {
         [SerializeField] private LevelButton levelButtonPrefab;
         [SerializeField] private GameObject levelStagePrefab;
-
-        [Header("Header")]
-        [SerializeField] private TextMeshProUGUI headerTitleText;
-        [SerializeField] private TextMeshProUGUI headerSubtitleText;
+        [SerializeField] private TopPanel topPanel;
 
         [Header("Stage Tabs")]
         [SerializeField] private Button[] stageTabButtons;
@@ -70,9 +67,17 @@ namespace FreeFlow.UI
         private Vector3 endPosition;
         private Vector3 prePosition;
         private bool dragDirectionDecided;
+        private int committedDragDirection;
+        private float lastFrameVelocityX;
 
-        public float swipeThreshold = 50f;
-        public float swipeSpeed = 5f;
+        // Fraction of screen width rather than a fixed pixel count, so the same gesture feels
+        // consistent across resolutions/aspect ratios -- 0.15 means a drag past 15% of the
+        // screen's width commits the page change.
+        public float swipeThresholdFraction = 0.15f;
+
+        // A fast flick commits the page change even short of swipeThresholdFraction, same as most
+        // native pagers -- in pixels/second of pointer movement measured at release.
+        public float swipeSpeed = 1500f;
 
         private Vector3 stageScreenPosition;
 
@@ -230,15 +235,12 @@ namespace FreeFlow.UI
             int completed = data.CompletedLevelForKey(ui.ProgressKey);
             int total = ui.TotalLevelCount;
 
-            if (headerTitleText != null)
+            if (topPanel != null)
             {
-                headerTitleText.text = size > 0
+                string title = size > 0
                     ? ui.CurrentMode.ToString().ToUpperInvariant() + " " + size + "×" + size
                     : ui.CurrentMode.ToString().ToUpperInvariant();
-            }
-            if (headerSubtitleText != null)
-            {
-                headerSubtitleText.text = completed + "/" + total + " COMPLETE";
+                topPanel.SetTopPanel(title, completed + "/" + total + " COMPLETE");
             }
         }
 
@@ -246,39 +248,45 @@ namespace FreeFlow.UI
         {
             if (UnityEngine.Input.GetMouseButtonDown(0))
             {
+                // Stop any in-flight commit/cancel retire animation from a previous gesture so a
+                // quick second swipe doesn't fight leftover tweens on these transforms.
+                if (currentStageGO != null) { currentStageGO.transform.DOKill(); }
+                if (incomingStageGO != null) { incomingStageGO.transform.DOKill(); }
+
                 clickPosition = UnityEngine.Input.mousePosition;
                 prePosition = clickPosition;
+                endPosition = clickPosition;
                 dragDirectionDecided = false;
+                committedDragDirection = 0;
+                lastFrameVelocityX = 0f;
             }
             else if (UnityEngine.Input.GetMouseButton(0))
             {
                 endPosition = UnityEngine.Input.mousePosition;
                 Vector3 totalDelta = endPosition - clickPosition;
                 Vector3 frameDelta = endPosition - prePosition;
-                float dragDistance = Mathf.Abs(frameDelta.x);
+                float deltaTime = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
+                lastFrameVelocityX = frameDelta.x / deltaTime;
 
-                // Decide, once per drag, which neighbor page (if any) is being dragged toward,
-                // and lazily bring in the second stage container only now -- not before.
-                if (!dragDirectionDecided && Mathf.Abs(totalDelta.x) > 0.1f)
+                // Re-decided every frame (not just once) so reversing mid-drag swaps which
+                // neighbor page is being dragged in, instead of staying committed to whatever
+                // direction was first detected even after the finger doubles back past the start.
+                if (Mathf.Abs(totalDelta.x) > 0.1f)
                 {
-                    dragDirectionDecided = true;
-                    int direction = totalDelta.x < 0 ? 1 : -1;
-                    int candidatePage = currentstageOnScreen + direction;
-                    if (candidatePage >= 0 && candidatePage < totalPages)
+                    int desiredDirection = totalDelta.x < 0 ? 1 : -1;
+                    if (!dragDirectionDecided || desiredDirection != committedDragDirection)
                     {
-                        EnsureIncomingStageExists();
-                        PopulateStagePage(incomingStageGO, candidatePage);
-                        incomingStagePage = candidatePage;
-                        incomingStageGO.SetActive(true);
-                        incomingStageGO.transform.localPosition = new Vector3(
-                            stageScreenPosition.x + (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z);
+                        SetIncomingStageDirection(desiredDirection);
+                        committedDragDirection = desiredDirection;
+                        dragDirectionDecided = true;
                     }
                 }
 
-                if (dragDistance > 0.1f)
+                // 1:1 with the pointer now (previously halved, which made the drag visibly lag
+                // behind the finger/mouse).
+                if (Mathf.Abs(frameDelta.x) > 0.01f)
                 {
-                    int directionMultiplier = (frameDelta.x < 0) ? -1 : 1;
-                    Vector3 delta = new Vector3((dragDistance / 2) * directionMultiplier, 0, 0);
+                    Vector3 delta = new Vector3(frameDelta.x, 0, 0);
                     if (currentStageGO != null) { currentStageGO.transform.localPosition += delta; }
                     if (incomingStagePage >= 0) { incomingStageGO.transform.localPosition += delta; }
                 }
@@ -286,10 +294,17 @@ namespace FreeFlow.UI
             }
             else if (UnityEngine.Input.GetMouseButtonUp(0))
             {
-                Vector3 direction = endPosition - clickPosition;
-                float dragDistancee = direction.magnitude;
+                endPosition = UnityEngine.Input.mousePosition;
+                float dragDistanceX = Mathf.Abs(endPosition.x - clickPosition.x);
+                float distanceThreshold = Screen.width * swipeThresholdFraction;
 
-                if (dragDistancee > swipeThreshold && incomingStagePage >= 0)
+                // Commits on either a long-enough drag or a fast-enough flick that fell short of
+                // the distance threshold -- the same "distance OR velocity" rule most native
+                // pagers use, so a quick short swipe still pages instead of always snapping back.
+                bool committed = incomingStagePage >= 0
+                    && (dragDistanceX > distanceThreshold || Mathf.Abs(lastFrameVelocityX) > swipeSpeed);
+
+                if (committed)
                 {
                     CommitIncomingStage();
                 }
@@ -301,34 +316,89 @@ namespace FreeFlow.UI
             }
         }
 
-        /// <summary>The drag went far enough -- the incoming stage becomes the new current stage,
-        /// and the old current stage becomes the (now empty, hidden) slot available for the next
-        /// incoming page in either direction.</summary>
-        private void CommitIncomingStage()
+        /// <summary>Sets up (or swaps) the incoming stage for <paramref name="direction"/> (+1 =
+        /// next page, -1 = previous page). Tears down whatever incoming stage was set up for a
+        /// different direction first, so reversing mid-drag re-targets the other neighbor instead
+        /// of leaving a stale one in place.</summary>
+        private void SetIncomingStageDirection(int direction)
         {
-            ReleaseStageButtons(currentStageGO);
-            GameObject oldCurrent = currentStageGO;
-
-            currentStageGO = incomingStageGO;
-            currentstageOnScreen = incomingStagePage;
-            incomingStageGO = oldCurrent;
-            incomingStagePage = -1;
-
-            currentStageGO.transform.DOLocalMove(stageScreenPosition, 0.2f);
-            if (incomingStageGO != null) { incomingStageGO.SetActive(false); }
-        }
-
-        /// <summary>Drag released without crossing the threshold (or there was no valid neighbor
-        /// to drag toward) -- snap the current stage back to center and release whatever the
-        /// incoming stage was showing.</summary>
-        private void CancelIncomingStage()
-        {
-            if (currentStageGO != null) { currentStageGO.transform.DOLocalMove(stageScreenPosition, 0.2f); }
             if (incomingStagePage >= 0)
             {
                 ReleaseStageButtons(incomingStageGO);
-                incomingStagePage = -1;
                 incomingStageGO.SetActive(false);
+                incomingStagePage = -1;
+            }
+
+            int candidatePage = currentstageOnScreen + direction;
+            if (candidatePage < 0 || candidatePage >= totalPages) { return; }
+
+            EnsureIncomingStageExists();
+            PopulateStagePage(incomingStageGO, candidatePage);
+            incomingStagePage = candidatePage;
+            incomingStageGO.SetActive(true);
+            incomingStageGO.transform.localPosition = new Vector3(
+                stageScreenPosition.x + (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z);
+        }
+
+        /// <summary>The drag went far enough -- the incoming stage becomes the new current stage,
+        /// and the old current stage slides the rest of the way off-screen before being released
+        /// back to the pool and hidden, rather than popping away instantly (visible whenever a
+        /// drag crossed the threshold without reaching the edge of the screen).</summary>
+        private void CommitIncomingStage()
+        {
+            int direction = incomingStagePage > currentstageOnScreen ? 1 : -1;
+            GameObject retiring = currentStageGO;
+
+            currentStageGO = incomingStageGO;
+            currentstageOnScreen = incomingStagePage;
+            incomingStageGO = retiring;
+            incomingStagePage = -1;
+
+            currentStageGO.transform.DOKill();
+            currentStageGO.transform.DOLocalMove(stageScreenPosition, 0.2f);
+
+            if (retiring != null)
+            {
+                Vector3 offscreenPosition = new Vector3(
+                    stageScreenPosition.x - (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z);
+                retiring.transform.DOKill();
+                retiring.transform.DOLocalMove(offscreenPosition, 0.2f).OnComplete(() =>
+                {
+                    if (retiring == null) { return; }
+                    ReleaseStageButtons(retiring);
+                    retiring.SetActive(false);
+                });
+            }
+        }
+
+        /// <summary>Drag released without crossing the threshold (or there was no valid neighbor
+        /// to drag toward) -- the current stage slides back to center and the incoming stage
+        /// slides back to the same off-screen position it started the drag from before being
+        /// released and hidden, rather than popping away instantly -- the pop was most visible on
+        /// a short drag, where the incoming stage had only peeked a little onto screen.</summary>
+        private void CancelIncomingStage()
+        {
+            if (currentStageGO != null)
+            {
+                currentStageGO.transform.DOKill();
+                currentStageGO.transform.DOLocalMove(stageScreenPosition, 0.2f);
+            }
+
+            if (incomingStagePage >= 0)
+            {
+                int direction = incomingStagePage > currentstageOnScreen ? 1 : -1;
+                GameObject retiring = incomingStageGO;
+                incomingStagePage = -1;
+
+                Vector3 restPosition = new Vector3(
+                    stageScreenPosition.x + (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z);
+                retiring.transform.DOKill();
+                retiring.transform.DOLocalMove(restPosition, 0.2f).OnComplete(() =>
+                {
+                    if (retiring == null) { return; }
+                    ReleaseStageButtons(retiring);
+                    retiring.SetActive(false);
+                });
             }
         }
 
@@ -349,14 +419,9 @@ namespace FreeFlow.UI
                 stageScreenPosition.x + (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z);
             incomingStagePage = stageIndex;
 
-            GameObject exitingStage = currentStageGO;
+            // CommitIncomingStage itself now animates the outgoing stage off-screen and releases
+            // it once that finishes, so no separate exit tween is needed here.
             CommitIncomingStage();
-
-            if (exitingStage != null)
-            {
-                exitingStage.transform.DOLocalMove(
-                    new Vector3(stageScreenPosition.x - (Screen.width * direction), stageScreenPosition.y, stageScreenPosition.z), 0.2f);
-            }
 
             RefreshTabs();
         }

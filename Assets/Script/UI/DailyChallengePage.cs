@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using FreeFlow.GamePlay;
+using FreeFlow.Input;
 
 namespace FreeFlow.UI
 {
@@ -18,6 +19,8 @@ namespace FreeFlow.UI
     /// </summary>
     public class DailyChallengePage : Page
     {
+        [SerializeField] private TopPanel topPanel;
+
         [Header("Header")]
         [SerializeField] private TextMeshProUGUI dateText;
 
@@ -60,6 +63,9 @@ namespace FreeFlow.UI
         public void Refresh()
         {
             SaveData data = SavingSystem.Instance.Load();
+
+            // Subtitle left blank -- dateText below already shows the specific date.
+            if (topPanel != null) { topPanel.SetTopPanel("DAILY CHALLENGE", ""); }
 
             if (dateText != null)
             {
@@ -187,6 +193,27 @@ namespace FreeFlow.UI
             System.DateTime nowUtc = System.DateTime.UtcNow;
             System.TimeSpan remaining = nowUtc.Date.AddDays(1) - nowUtc;
             countdownText.text = "RESETS IN " + remaining.Hours + "H " + remaining.Minutes + "M";
+        }
+
+        public void OnBackButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                PageManager.Instance.ClosePage();
+            }
+        }
+
+        /// <summary>Commits today's pick and jumps into gameplay -- LoadLevel (called via
+        /// LoadDailyChallenge) opens the Gameplay page itself via PageManager, which closes
+        /// whatever page was current (this hub) as part of that same call.</summary>
+        public void OnPlayButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                UIController.Instance.LoadDailyChallenge();
+            }
         }
     }
 }

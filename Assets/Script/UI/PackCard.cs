@@ -80,7 +80,7 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                UIController.Instance.OnPackSelected(packSize);
+                GetComponentInParent<PackSelectPage>(true).OnPackSelected(packSize);
             }
         }
     }
