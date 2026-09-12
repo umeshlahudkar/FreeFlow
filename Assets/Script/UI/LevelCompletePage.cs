@@ -72,7 +72,7 @@ namespace FreeFlow.UI
 
             SetStars(hintsUsedThisAttempt);
             int newCompletedLevel = Mathf.Max(oldCompletedLevel, ui.CurrentLevel);
-            SetProgressBar(oldCompletedLevel, newCompletedLevel, ui.TotalLevelCount);
+            SetProgressBar(newCompletedLevel, ui.TotalLevelCount);
 
             if (streakBanner != null)
             {
@@ -106,11 +106,11 @@ namespace FreeFlow.UI
             }
         }
 
-        private void SetProgressBar(int oldCompleted, int newCompleted, int total)
+        private void SetProgressBar(int newCompleted, int total)
         {
             if (progressLabelText != null)
             {
-                progressLabelText.text = oldCompleted + "/" + total + "  →  " + newCompleted + "/" + total;
+                progressLabelText.text = newCompleted + "/" + total;
             }
 
             if (progressSlider != null)

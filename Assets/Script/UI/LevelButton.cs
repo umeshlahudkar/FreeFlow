@@ -38,7 +38,24 @@ namespace FreeFlow.UI
 
         private int levelNumber;
 
+        // Lets a caller (e.g. DailyChallengePage, reusing this same prefab for today's pick)
+        // substitute what a tap does -- set once, right after Instantiate. Deliberately NOT a
+        // second CanInput()/PlayButtonClickSound() gate of its own: OnButtonClick below already
+        // gates once before invoking this, and a second gate in the override action would consume
+        // CanInput()'s one-shot debounce a second time in the same call stack, always silently
+        // no-op-ing (see PackSelectPage.OnPackSelected's own doc comment for the same bug shipped
+        // here once already).
+        private System.Action onClickOverride;
+
         public RectTransform ThisTransform { get { return thisTransform; } }
+
+        /// <summary>Substitutes what OnButtonClick does after its own CanInput gate passes,
+        /// instead of the default UIController.LoadLevel(levelNumber) call. The action itself must
+        /// NOT re-check CanInput() -- see the field's own doc comment.</summary>
+        public void SetClickOverride(System.Action action)
+        {
+            onClickOverride = action;
+        }
 
         /// <summary>
         /// Sets the details for the level button: its number and its unlocked/current/done state.
@@ -73,7 +90,8 @@ namespace FreeFlow.UI
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
-                UIController.Instance.LoadLevel(levelNumber);
+                if (onClickOverride != null) { onClickOverride(); }
+                else { UIController.Instance.LoadLevel(levelNumber); }
             }
         }
     }

@@ -27,7 +27,12 @@ namespace FreeFlow.UI
             bool showBack = true, bool showSetting = true, bool showOption = false)
         {
             if (titleText != null) { titleText.text = title; }
-            if (subtitleText != null) { subtitleText.text = subtitle; }
+            if (subtitleText != null)
+            {
+                bool hasSubtitle = !string.IsNullOrEmpty(subtitle);
+                subtitleText.gameObject.SetActive(hasSubtitle);
+                if (hasSubtitle) { subtitleText.text = subtitle; }
+            }
             if (backButton != null) { backButton.SetActive(showBack); }
             if (settingButton != null) { settingButton.SetActive(showSetting); }
             if (optionButton != null) { optionButton.SetActive(showOption); }

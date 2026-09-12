@@ -14,15 +14,14 @@ namespace FreeFlow.UI
     /// The reference art's "TODAY" section shows 5 level buttons of increasing board size, as if
     /// several daily levels existed per day -- but DailyChallengeSelector picks exactly ONE level
     /// per calendar day (see its own doc comment) and no such multi-level system exists anywhere
-    /// in this codebase. Rather than invent one, this screen shows a single TODAY card for the
-    /// real pick. See freeflow_newui_redesign memory for the full reasoning.
+    /// in this codebase. Rather than invent one, this screen instantiates a single LevelButton
+    /// (the same prefab/visual states LevelsPage uses -- Locked never applies here, only Current/
+    /// Done) for today's real pick, into <see cref="levelsParent"/>. See freeflow_newui_redesign
+    /// memory for the full reasoning.
     /// </summary>
     public class DailyChallengePage : Page
     {
         [SerializeField] private TopPanel topPanel;
-
-        [Header("Header")]
-        [SerializeField] private TextMeshProUGUI dateText;
 
         [Header("Streak cards")]
         [SerializeField] private TextMeshProUGUI currentStreakText;
@@ -35,21 +34,17 @@ namespace FreeFlow.UI
         [SerializeField] private Sprite daySolvedSprite;
         [SerializeField] private Sprite dayTodaySprite;
         [SerializeField] private Sprite dayFutureSprite;
-        [SerializeField] private RectTransform chainFillRect;
+        [SerializeField] private Slider chainSlider;
 
-        [Header("Today card")]
-        [SerializeField] private TextMeshProUGUI todayStatusText;
-        [SerializeField] private TextMeshProUGUI todayLevelNumberText;
-        [SerializeField] private TextMeshProUGUI todaySizeText;
-        [SerializeField] private GameObject todayCheckmark;
-        [SerializeField] private Image todayCardImage;
-        [SerializeField] private Sprite todayCardDoneSprite;
-        [SerializeField] private Sprite todayCardCurrentSprite;
+        [Header("Today")]
+        [SerializeField] private TextMeshProUGUI todayTallyText;
+        [SerializeField] private LevelButton levelButtonPrefab;
+        [SerializeField] private Transform levelsParent;
+        private LevelButton todayLevelButton;
 
         [Header("Countdown")]
         [SerializeField] private TextMeshProUGUI countdownText;
 
-        private float chainTrackWidth = -1f;
         private float countdownTimer;
 
         // Parity with its sibling pages (MainMenuPage/PackSelectPage/LevelsPage all refresh
@@ -64,21 +59,19 @@ namespace FreeFlow.UI
         {
             SaveData data = SavingSystem.Instance.Load();
 
-            // Subtitle left blank -- dateText below already shows the specific date.
-            if (topPanel != null) { topPanel.SetTopPanel("DAILY CHALLENGE", ""); }
-
-            if (dateText != null)
+            if (topPanel != null)
             {
-                dateText.text = System.DateTime.Now
+                string date = System.DateTime.Now
                     .ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture)
                     .ToUpperInvariant();
+                topPanel.SetTopPanel("DAILY CHALLENGE", date);
             }
 
             if (currentStreakText != null) { currentStreakText.text = data.dailyChallengeStreak.ToString(); }
             if (bestStreakText != null) { bestStreakText.text = data.bestDailyChallengeStreak.ToString(); }
 
             RefreshWeekChain(data);
-            RefreshTodayCard();
+            RefreshTodayLevelButton();
             countdownTimer = 0f;
             RefreshCountdown();
         }
@@ -111,7 +104,7 @@ namespace FreeFlow.UI
             int runStart = hasStreak ? data.dailyChallengeLastCompletedDay - data.dailyChallengeStreak + 1 : int.MaxValue;
             int runEnd = data.dailyChallengeLastCompletedDay;
 
-            int solvedExcludingToday = 0;
+            int solvedCount = 0;
             for (int i = 0; i < 7; i++)
             {
                 System.DateTime day = monday.AddDays(i);
@@ -122,23 +115,14 @@ namespace FreeFlow.UI
                     dayNumbers[i].text = day.Day.ToString();
                 }
 
-                Sprite sprite;
-                if (dayIndex == todayIndex)
-                {
-                    // Today always reads as "today", even if already solved -- there is no
-                    // solved+today sprite variant, and the reference itself draws today as a ring
-                    // even on a day where the streak already includes it.
-                    sprite = dayTodaySprite;
-                }
-                else if (hasStreak && dayIndex >= runStart && dayIndex <= runEnd)
-                {
-                    sprite = daySolvedSprite;
-                    if (dayIndex < todayIndex) { solvedExcludingToday++; }
-                }
-                else
-                {
-                    sprite = dayFutureSprite;
-                }
+                bool solved = hasStreak && dayIndex >= runStart && dayIndex <= runEnd;
+                if (solved) { solvedCount++; }
+
+                // Today shows the same solved fill as any other completed day once its own
+                // challenge is done; otherwise the plain "today" ring.
+                Sprite sprite = dayIndex == todayIndex ? (solved ? daySolvedSprite : dayTodaySprite)
+                    : solved ? daySolvedSprite
+                    : dayFutureSprite;
 
                 if (dayCircles != null && i < dayCircles.Length && dayCircles[i] != null)
                 {
@@ -146,45 +130,47 @@ namespace FreeFlow.UI
                 }
             }
 
-            if (weekTallyText != null) { weekTallyText.text = solvedExcludingToday + " / 7 solved"; }
+            if (weekTallyText != null) { weekTallyText.text = solvedCount + " / 7 solved"; }
 
-            if (chainFillRect != null)
+            if (chainSlider != null)
             {
-                if (chainTrackWidth < 0f && chainFillRect.parent is RectTransform parent)
-                {
-                    chainTrackWidth = parent.rect.width;
-                }
-                if (chainTrackWidth > 0f)
-                {
-                    // "Filled to today's circle centre" per the pack's own README -- a pacing
-                    // indicator for where in the week today sits, independent of solve state.
-                    float fraction = (todayDow + 0.5f) / 7f;
-                    Vector2 size = chainFillRect.sizeDelta;
-                    size.x = chainTrackWidth * fraction;
-                    chainFillRect.sizeDelta = size;
-                }
+                // "Filled to today's circle centre" per the pack's own README -- a pacing
+                // indicator for where in the week today sits, independent of solve state.
+                chainSlider.value = (todayDow + 0.5f) / 7f;
             }
         }
 
-        private void RefreshTodayCard()
+        /// <summary>Instantiates (once) or refreshes the single LevelButton representing today's
+        /// pick, reusing the exact same prefab/visual states (locked/current/done sprites, check
+        /// icon) LevelsPage uses -- Locked never actually applies here, since a daily challenge is
+        /// always playable; only Current (not yet solved) or Done (already solved) show.</summary>
+        private void RefreshTodayLevelButton()
         {
             UIController ui = UIController.Instance;
-            if (ui == null) { return; }
+            if (ui == null || levelButtonPrefab == null || levelsParent == null) { return; }
 
             DailyChallengeSelector.Pick pick = ui.PeekTodayDailyChallenge();
             bool solved = ui.IsTodayDailyChallengeSolved();
 
-            if (todayLevelNumberText != null) { todayLevelNumberText.text = "LEVEL " + pick.levelNumber; }
-            if (todaySizeText != null) { todaySizeText.text = pick.packSize + "×" + pick.packSize; }
-            if (todayStatusText != null)
+            if (todayTallyText != null) { todayTallyText.text = (solved ? 1 : 0) + " / 1 solved"; }
+
+            if (todayLevelButton == null)
             {
-                todayStatusText.text = solved ? "TODAY  ·  SOLVED" : "TODAY  ·  NOT YET SOLVED";
+                todayLevelButton = Instantiate(levelButtonPrefab, levelsParent);
+                todayLevelButton.gameObject.SetActive(true);
+                todayLevelButton.ThisTransform.localPosition = Vector3.zero;
+                todayLevelButton.ThisTransform.sizeDelta = new Vector2(120f, 120f);
+
+                // LevelButton.OnButtonClick's default action always calls UIController.LoadLevel
+                // directly, which knows nothing about daily challenges (it would skip crediting
+                // the streak) -- override it to call LoadDailyChallenge instead. No CanInput gate
+                // here: OnButtonClick's own gate already covers this call (see the override
+                // field's own doc comment on LevelButton for why a second gate would always
+                // silently no-op).
+                todayLevelButton.SetClickOverride(UIController.Instance.LoadDailyChallenge);
             }
-            if (todayCheckmark != null) { todayCheckmark.SetActive(solved); }
-            if (todayCardImage != null)
-            {
-                todayCardImage.sprite = solved ? todayCardDoneSprite : todayCardCurrentSprite;
-            }
+
+            todayLevelButton.SetDetails(pick.levelNumber, solved ? LevelTileState.Done : LevelTileState.Current);
         }
 
         private void RefreshCountdown()

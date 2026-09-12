@@ -68,7 +68,7 @@ public class SettingPage : Page
 
         if (versionText != null)
         {
-            versionText.text = "PATHZA " + Application.version + " · OFFLINE";
+            versionText.text = "PATHZA " + Application.version;
         }
         ResetConfirmState();
     }
