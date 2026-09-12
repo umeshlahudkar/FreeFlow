@@ -19,6 +19,12 @@ namespace FreeFlow.UI
         [Header("Game over Screen")]
         [SerializeField] private LevelCompletePage levelCompletePage;
 
+        [Header("Gameplay Screen")]
+        // Needed so dismissing the level-complete overlay can refresh the HUD underneath it --
+        // see DismissLevelCompleteOverlay. The page is not re-enabled on dismiss (the overlay was
+        // never on the back-stack), so its own OnEnable would not fire.
+        [SerializeField] private GameplayPage gameplayPage;
+
         [Header("Gameplay")]
         // Filled-cells fraction ("16/36 CELLS") and percent ("44%") on the HUD progress card.
         // gameplayMoveText no longer shows a move count -- the new HUD has no moves readout, see
@@ -61,25 +67,52 @@ namespace FreeFlow.UI
         // reads in play as "the mechanics are missing" when they are simply in the other folder.
         [SerializeField] private GameMode startingMode = GameMode.Classic;
 
+        [Header("Daily Challenge")]
+        // How many levels one calendar day of daily challenges holds. Serialised rather than a
+        // constant so the day's length is a design dial, not a code change -- the hub's reference
+        // art shows five, which is the default here.
+        //
+        // Changing this DOES re-pick the current day (see EnsureTodayDailyPicks): the cache exists
+        // so the boards cannot move under a player mid-session, not so a deliberate config change
+        // is ignored until tomorrow.
+        [SerializeField, Range(1, 7)] private int dailyChallengeCount = 5;
+
         private LevelData currentLevelData;
         private SingleLevelDataSO currentLevelDataAsset;
         private int currentLevel;
 
-        // Whether the level currently loaded is today's daily challenge rather than an ordinary
-        // pack level, even though it is the SAME LevelData asset either way -- see LoadDailyChallenge.
-        // Reset to false at the top of every LoadLevel call, then set true again immediately after
-        // by LoadDailyChallenge, so a plain LoadLevel (picking a level from the pack grid) can never
-        // leave a stale daily-challenge flag set. Retry deliberately re-arms it (see
-        // OnGameOverScreenRetryButtonClick/OnPauseScreenRetryButtonClick) since a retry is a
-        // continuation of the same attempt, not a return to normal browsing.
-        private bool isDailyChallenge;
+        // Which route the level in play was opened by, and therefore what prev/next step through
+        // and what the header says -- see LevelSource. Set by the two public entry points
+        // (LoadLevel for a pack level, LoadDailyChallenge for a daily one) and by nothing else, so
+        // a reload that is neither -- Retry -- simply leaves it alone and cannot demote a daily
+        // challenge to a pack level the way the bool this replaced once did.
+        private LevelSource currentSource = LevelSource.Pack;
+
+        // Today's daily challenges and which of them is in play, mirrored from SaveData whenever
+        // EnsureTodayDailyPicks runs. Cached here only so the pages can ask for the day's shape
+        // (how many, which one, what the next one is) without each doing its own file read; the
+        // SOLVED flags in it go stale the moment one is completed, so anything that needs those
+        // re-reads SaveData -- see IsTodayDailyChallengeSolved.
+        private DailyPick[] dailyPicks = new DailyPick[0];
+        private int dailyIndex;
 
         public int CurrentLevel { get { return currentLevel; } }
 
-        /// <summary>Whether the level in play is today's daily challenge. Read by
-        /// GamePlayController.SaveLevelData to credit a completion to the streak, and by
-        /// ActivateLevelCompleteScreen to show it.</summary>
-        public bool IsDailyChallenge { get { return isDailyChallenge; } }
+        /// <summary>Which route the level in play was opened by. Drives the header text and what
+        /// prev/next walk through, on both the gameplay screen and the level-complete overlay.</summary>
+        public LevelSource CurrentSource { get { return currentSource; } }
+
+        /// <summary>Whether the level in play is one of today's daily challenges. Read by
+        /// GamePlayController.SaveLevelData to credit the day, and by LevelCompletePage to show
+        /// the streak banner.</summary>
+        public bool IsDailyChallenge { get { return currentSource == LevelSource.Daily; } }
+
+        /// <summary>Which of today's daily challenges is in play (0-based). Meaningless unless
+        /// <see cref="IsDailyChallenge"/>.</summary>
+        public int DailyIndex { get { return dailyIndex; } }
+
+        /// <summary>How many daily challenges today holds, as last read from the save.</summary>
+        public int DailyCount { get { return dailyPicks.Length; } }
 
         /// <summary>Which campaign is being played. Classic is the default and the front door;
         /// see <see cref="GameMode"/> for why the two are separate level sets rather than a
@@ -128,6 +161,9 @@ namespace FreeFlow.UI
         /// 5x5 level 20 must not mark 7x7 level 20 complete; the legacy campaigns keep the bare mode
         /// name and, through <see cref="SaveData"/>, their original fields -- so a returning player
         /// mid-way through the old run keeps their place.
+        ///
+        /// A daily challenge keys to the pack it was drawn FROM, not to a daily-only bucket: it is
+        /// that pack's level, and finishing it really does finish that pack level.
         /// </summary>
         public string ProgressKey
         {
@@ -209,19 +245,243 @@ namespace FreeFlow.UI
             levelScreenController.SpawnLevelButtons(TotalLevelCount);
         }
 
+        // ---- header text -------------------------------------------------------------------
+        //
+        // Owned here rather than by each screen so the gameplay header and the level-complete
+        // overlay can never disagree about what the player is playing -- they were separately
+        // composed strings before, and only the gameplay one knew the daily challenge existed.
+
+        /// <summary>The big line of the header: which level, or that this is the daily
+        /// challenge -- a daily challenge is a whole different run, not "level 37 of a pack",
+        /// even though it is drawn from one.</summary>
+        public string LevelHeaderTitle
+        {
+            get
+            {
+                return currentSource == LevelSource.Daily ? "DAILY CHALLENGE" : "LEVEL " + currentLevel;
+            }
+        }
+
+        /// <summary>The small line under it: for a pack level the campaign and board size
+        /// ("CLASSIC 6 x 6"), for a daily challenge where in the day it sits ("2 OF 5 - 6 x 6").
+        /// A day holding exactly one challenge drops the position, which would only ever read
+        /// "1 OF 1".</summary>
+        public string LevelHeaderSubtitle
+        {
+            get
+            {
+                string size = currentPackSize > 0 ? currentPackSize + " × " + currentPackSize : "";
+
+                if (currentSource == LevelSource.Daily)
+                {
+                    if (DailyCount <= 1) { return size; }
+                    string position = (dailyIndex + 1) + " OF " + DailyCount;
+                    return size.Length == 0 ? position : position + "  ·  " + size;
+                }
+
+                string mode = CurrentMode.ToString().ToUpperInvariant();
+                return size.Length == 0 ? mode : mode + " " + size;
+            }
+        }
+
+        /// <summary>What the level-complete overlay's NEXT button is offering, or an empty string
+        /// when there is nothing after this one. Built here so that label can never promise a
+        /// level <see cref="GoToNextLevel"/> would not actually load.</summary>
+        /// <summary>The heading on the level-complete overlay's Prev button -- the mirror of
+        /// <see cref="NextActionTitle"/>. Prev never leaves the run (there is no "before" to exit
+        /// to), so unlike Next it stays a plain step-back and simply disables at the start.</summary>
+        public string PrevActionTitle
+        {
+            get { return currentSource == LevelSource.Daily ? "PREV CHALLENGE" : "PREV LEVEL"; }
+        }
+
+        /// <summary>What stepping back would open, or an empty string at the start of a run.</summary>
+        public string PrevActionSubtitle
+        {
+            get
+            {
+                if (!HasPrevLevel) { return ""; }
+
+                if (currentSource == LevelSource.Daily)
+                {
+                    DailyPick prev = dailyPicks[dailyIndex - 1];
+                    return "DAILY " + dailyIndex + " OF " + DailyCount
+                         + "  ·  " + prev.packSize + "×" + prev.packSize;
+                }
+
+                return "LEVEL " + (currentLevel - 1)
+                     + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
+            }
+        }
+
+        // ---- gameplay HUD arrow captions ----------------------------------------------------
+        //
+        // The short form, for the 88px arrows flanking the HUD card -- there is no room beside
+        // them for the board size the level-complete overlay's buttons carry, and the header
+        // directly above already states it.
+        //
+        // These name the level that EXISTS either side of this one, whether or not it can be
+        // opened yet: a next level the player has not unlocked still says which level it is, and
+        // the arrow is faded and inert instead (see HasNextLevel, and GameplayPage.Refresh). Only
+        // a genuine end of the run -- the first/last level of a pack, the first/last challenge of
+        // a day -- gives an empty caption, because then there is no such level to name.
+
+        public string PrevLevelCaption
+        {
+            get
+            {
+                if (currentSource == LevelSource.Daily)
+                {
+                    return dailyIndex > 0 ? "DAILY " + dailyIndex : "";
+                }
+                return currentLevel > 1 ? "LEVEL " + (currentLevel - 1) : "";
+            }
+        }
+
+        public string NextLevelCaption
+        {
+            get
+            {
+                if (currentSource == LevelSource.Daily)
+                {
+                    return dailyIndex < DailyCount - 1 ? "DAILY " + (dailyIndex + 2) : "";
+                }
+                return currentLevel < TotalLevelCount ? "LEVEL " + (currentLevel + 1) : "";
+            }
+        }
+
+        /// <summary>The heading on the level-complete overlay's primary button. It is the same
+        /// button throughout: while the run has something after this level it advances, and at the
+        /// end of a run it becomes the way out to wherever that run was chosen from -- a finished
+        /// run should hand the player somewhere to go, not a greyed-out button.</summary>
+        public string NextActionTitle
+        {
+            get
+            {
+                if (HasNextLevel)
+                {
+                    return currentSource == LevelSource.Daily ? "NEXT CHALLENGE" : "NEXT LEVEL";
+                }
+
+                return currentSource == LevelSource.Daily ? "BACK TO DAILY" : "CHOOSE A PACK";
+            }
+        }
+
+        /// <summary>The line under <see cref="NextActionTitle"/>: what is being offered next, or
+        /// why there is nothing after this one. Only claims a run is finished when it actually is
+        /// -- the end of a run is normally the last level, but a locked next level would reach
+        /// here too and must not be reported as a completed pack.</summary>
+        public string NextActionSubtitle
+        {
+            get
+            {
+                if (HasNextLevel)
+                {
+                    if (currentSource == LevelSource.Daily)
+                    {
+                        DailyPick next = dailyPicks[dailyIndex + 1];
+                        return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount
+                             + "  ·  " + next.packSize + "×" + next.packSize;
+                    }
+
+                    return "LEVEL " + (currentLevel + 1)
+                         + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
+                }
+
+                if (currentSource == LevelSource.Daily)
+                {
+                    return dailyIndex >= DailyCount - 1 ? "DAY COMPLETE" : "";
+                }
+
+                return currentLevel >= TotalLevelCount ? "PACK COMPLETE" : "";
+            }
+        }
+
+        // ---- navigation --------------------------------------------------------------------
+        //
+        // One definition of "is there a level before/after this one", used by the gameplay HUD's
+        // arrows AND the level-complete overlay's, so a button can never be tappable on one screen
+        // and refuse on the other. What "before/after" MEANS depends on how the level was opened:
+        // within a pack it is the level numbering, within a daily challenge it is today's own list
+        // (whose entries sit in different packs and board sizes).
+
+        public bool HasPrevLevel
+        {
+            get
+            {
+                if (currentSource == LevelSource.Daily) { return dailyIndex > 0; }
+                return currentLevel > 1;
+            }
+        }
+
+        public bool HasNextLevel
+        {
+            get
+            {
+                // A day is played in order, same as a pack: the next challenge opens only once
+                // this one is solved. Read from the save rather than the cached dailyPicks --
+                // those solved flags are stale the moment a level is completed, which is exactly
+                // when this is asked (the level-complete overlay).
+                if (currentSource == LevelSource.Daily)
+                {
+                    if (dailyIndex >= DailyCount - 1) { return false; }
+                    return dailyIndex + 1 <= SavingSystem.Instance.Load().UnlockedDailyChallengeThrough();
+                }
+
+                if (currentLevel >= TotalLevelCount) { return false; }
+
+                // Same unlock frontier the level grid enforces: Next cannot jump past a level the
+                // player has not reached, exactly as a locked LevelButton refuses a tap.
+                int unlockedUpTo = SavingSystem.Instance.Load().CompletedLevelForKey(ProgressKey) + 1;
+                return currentLevel < unlockedUpTo;
+            }
+        }
+
+        public void GoToPrevLevel()
+        {
+            if (!HasPrevLevel) { return; }
+
+            if (currentSource == LevelSource.Daily) { LoadDailyChallenge(dailyIndex - 1); }
+            else { LoadLevel(currentLevel - 1); }
+        }
+
+        /// <summary>Advances to whatever comes after the level in play -- what the gameplay HUD's
+        /// Next arrow and the level-complete overlay's NEXT button both do. No-ops when there is
+        /// nothing after it (the pack's last level, or the day's last challenge); both callers
+        /// also disable their button in that state, so this is the backstop rather than the
+        /// gate.</summary>
+        public void GoToNextLevel()
+        {
+            if (!HasNextLevel) { return; }
+
+            if (currentSource == LevelSource.Daily) { LoadDailyChallenge(dailyIndex + 1); }
+            else { LoadLevel(currentLevel + 1); }
+        }
+
         /// <summary>
-        /// Loads the specified game level and initializes relevant UI elements.
+        /// Loads a level from the pack currently on screen -- what a LevelButton tap does. Opening
+        /// a level this way means the player is browsing a pack, so prev/next walk the pack from
+        /// here on and the header shows the level number, even if a daily challenge was in play a
+        /// moment ago.
         /// </summary>
         /// <param name="levelNumber">The number of the level to load.</param>
         public void LoadLevel(int levelNumber)
         {
+            currentSource = LevelSource.Pack;
+            LoadCurrentModeLevel(levelNumber);
+        }
+
+        /// <summary>
+        /// Loads a level of the mode/pack already selected, WITHOUT deciding what kind of run this
+        /// is -- that is <see cref="currentSource"/>'s owner's job (LoadLevel and
+        /// LoadDailyChallenge each set it before calling here). Retry deliberately calls this
+        /// rather than LoadLevel: reloading the same board is a continuation of the same attempt,
+        /// so it must not change which run the player is in.
+        /// </summary>
+        private void LoadCurrentModeLevel(int levelNumber)
+        {
             if (levelNumber <= TotalLevelCount)
             {
-                // Any DIRECT call defaults to "not the daily challenge" -- LoadDailyChallenge
-                // re-arms this immediately after calling here, once the level it picked has
-                // actually loaded. See the field's own doc comment for why retry has to restore it.
-                isDailyChallenge = false;
-
                 // Set BEFORE ResetGameplay -- it calls BeginAttempt, which records the new
                 // attempt against UIController.Instance.CurrentLevel. Reading it after ResetGameplay
                 // used to record every level-select jump (as opposed to a retry or "next", which
@@ -256,9 +516,10 @@ namespace FreeFlow.UI
 
                 boardGenerator.GenerateBoard(currentLevelData);
 
-                // GameplayPage's own OnEnable refreshes its TopPanel title/subtitle -- OpenPage
-                // above already triggered it (or will, if Gameplay wasn't already the current
-                // page) -- so no header text is set directly here anymore.
+                // GameplayPage's own OnEnable refreshes its TopPanel title/subtitle and the state
+                // of its prev/next arrows -- OpenPage above already triggered it (it cycles the
+                // page even when Gameplay was already current, see PageManager.OpenPage) -- so no
+                // header text or button state is set directly here.
                 UpdateFilledCells();
                 UpdateMovesCount(0);
 
@@ -274,19 +535,25 @@ namespace FreeFlow.UI
             }
         }
 
+        // ---- daily challenge ---------------------------------------------------------------
+
         /// <summary>
-        /// Loads today's daily challenge -- a real level from an existing pack, picked once per
-        /// calendar day and cached so it does not change under the player mid-session (see
-        /// DailyChallengeSelector). Classic only for now: it is the default mode and the one whose
-        /// packs vary by board size, which is what DailyChallengeSelector rotates through day to
-        /// day; Advanced ships one pack size so far, which would make "rotate through pack sizes"
-        /// a no-op for it.
+        /// Today's daily challenges, selecting and caching them if that has not happened yet, and
+        /// mirroring the result into <see cref="dailyPicks"/>. Every caller goes through here
+        /// rather than reading SaveData directly, so the hub can never show a day the gameplay
+        /// screen would then load something different for.
         ///
-        /// Deliberately reuses the pack's own LevelData rather than a separate daily-only asset --
-        /// completing it also completes that pack level, which is correct (it IS that level), and
-        /// avoids a second content pipeline for one level a day.
+        /// The picks are real levels from existing packs, picked once per calendar day and cached
+        /// so they do not change under the player mid-session (see DailyChallengeSelector).
+        /// Classic only for now: it is the default mode and the one whose packs vary by board
+        /// size, which is what the selector rotates through slot to slot; Advanced ships one pack
+        /// size so far, which would make that rotation a no-op for it.
+        ///
+        /// Deliberately reuses each pack's own LevelData rather than daily-only assets --
+        /// completing one also completes that pack level, which is correct (it IS that level), and
+        /// avoids a second content pipeline for a handful of levels a day.
         /// </summary>
-        public void LoadDailyChallenge()
+        public DailyPick[] EnsureTodayDailyPicks()
         {
             SaveData data = SavingSystem.Instance.Load();
             bool dataChanged = false;
@@ -296,94 +563,102 @@ namespace FreeFlow.UI
             // can never generate the 0 that means "unset".
             if (data.playerSalt == 0)
             {
-                data.EnsurePlayerSalt(UnityEngine.Random.Range(1, int.MaxValue));
+                data.EnsurePlayerSalt(Random.Range(1, int.MaxValue));
                 dataChanged = true;
             }
 
             int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            int wanted = Mathf.Max(1, dailyChallengeCount);
 
-            DailyChallengeSelector.Pick pick;
-            if (data.dailyChallengeCachedDay == today)
+            // A day whose streak credit has already been banked is finished, and re-picking it
+            // would leave the hub reading "0 of 5 solved" next to a week chain and streak card
+            // that already counted the day -- which reads as the streak having moved without the
+            // day being completed, the one thing the all-solved rule exists to prevent. A longer
+            // day starts tomorrow instead. This is what a save written before a day could hold
+            // several challenges hits on its first launch, and what a mid-day count change hits
+            // once the day is done.
+            bool dayAlreadyCredited = data.dailyChallengeCachedDay == today
+                && data.dailyChallengeLastCompletedDay == today;
+
+            // Re-pick on a new day, or when dailyChallengeCount has been changed since the cache
+            // was written. The second case is a deliberate config change, not drift -- see the
+            // field's own comment.
+            bool wrongLength = data.DailyChallengeCount != wanted && !dayAlreadyCredited;
+
+            if (data.dailyChallengeCachedDay != today || wrongLength)
             {
-                pick = new DailyChallengeSelector.Pick
+                DailyChallengeSelector.Pick[] picks = DailyChallengeSelector.SelectDay(
+                    today, GameMode.Classic, PackSizesFor(GameMode.Classic), packLevelCount,
+                    data.OverallSkillRating(), data.playerSalt, wanted);
+
+                DailyPick[] stored = new DailyPick[picks.Length];
+                for (int i = 0; i < picks.Length; i++)
                 {
-                    mode = data.dailyChallengeMode,
-                    packSize = data.dailyChallengePackSize,
-                    levelNumber = data.dailyChallengeLevel,
-                };
-            }
-            else
-            {
-                pick = DailyChallengeSelector.Select(today, GameMode.Classic, PackSizesFor(GameMode.Classic),
-                    packLevelCount, data.OverallSkillRating(), data.playerSalt);
+                    stored[i] = new DailyPick
+                    {
+                        mode = picks[i].mode,
+                        packSize = picks[i].packSize,
+                        levelNumber = picks[i].levelNumber,
+                        solved = false,
+                    };
+                }
 
-                data.dailyChallengeCachedDay = today;
-                data.dailyChallengeMode = pick.mode;
-                data.dailyChallengePackSize = pick.packSize;
-                data.dailyChallengeLevel = pick.levelNumber;
+                data.SetDailyChallenges(today, stored);
                 dataChanged = true;
             }
 
             if (dataChanged) { SavingSystem.Instance.Save(data); }
 
-            SetMode(pick.mode);
-            SetPack(pick.packSize);
-            LoadLevel(pick.levelNumber);
-            isDailyChallenge = true; // after LoadLevel, which resets this at its own top
+            dailyPicks = data.dailyChallengePicks ?? new DailyPick[0];
+            return dailyPicks;
         }
 
-        /// <summary>
-        /// Gets called when next level button click from the lwvwl win screen,
-        /// Handles the next level loading
-        /// </summary>
-        private void LoadNextLevel()
+        /// <summary>Opens one of today's daily challenges by its position in the day (0-based).
+        /// Switches mode/pack to wherever that level actually lives, since the day's challenges
+        /// are drawn from different packs.
+        ///
+        /// Clamped to the day's unlock frontier (see SaveData.UnlockedDailyChallengeThrough), so a
+        /// slot the player has not reached opens the frontier challenge instead of the locked one.
+        /// The hub's locked tiles and the disabled Next button already prevent asking for one --
+        /// this is the backstop that keeps the rule true regardless of the caller.</summary>
+        public void LoadDailyChallenge(int slot)
         {
-            currentLevel++;
-            if (currentLevel > TotalLevelCount) { currentLevel = 1; }
-            LoadLevel(currentLevel);
-        }
-
-        /// <summary>Today's daily-challenge pick, WITHOUT persisting anything -- lets the hub
-        /// screen preview mode/size/level before the player taps Play. Mirrors LoadDailyChallenge's
-        /// own cache-or-select branch exactly, but never writes SaveData (no playerSalt assignment,
-        /// no cache write); LoadDailyChallenge remains the only place that actually commits a pick.
-        /// </summary>
-        public DailyChallengeSelector.Pick PeekTodayDailyChallenge()
-        {
-            SaveData data = SavingSystem.Instance.Load();
-            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-
-            if (data.dailyChallengeCachedDay == today)
+            DailyPick[] picks = EnsureTodayDailyPicks();
+            if (picks.Length == 0)
             {
-                return new DailyChallengeSelector.Pick
-                {
-                    mode = data.dailyChallengeMode,
-                    packSize = data.dailyChallengePackSize,
-                    levelNumber = data.dailyChallengeLevel,
-                };
+                Debug.LogError("UIController: no daily challenge could be selected for today -- "
+                    + "check that " + GameMode.Classic + " has at least one pack size configured.");
+                return;
             }
 
-            // playerSalt may still be 0 (unassigned) here -- fine for a preview, since it only
-            // changes WHICH level within the skill band gets picked; LoadDailyChallenge assigns
-            // the real salt before this same Select() call actually commits one.
-            return DailyChallengeSelector.Select(today, GameMode.Classic, PackSizesFor(GameMode.Classic),
-                packLevelCount, data.OverallSkillRating(), data.playerSalt);
+            int unlockedThrough = SavingSystem.Instance.Load().UnlockedDailyChallengeThrough();
+            slot = Mathf.Clamp(slot, 0, Mathf.Min(picks.Length - 1, unlockedThrough));
+
+            currentSource = LevelSource.Daily;
+            dailyIndex = slot;
+
+            SetMode(picks[slot].mode);
+            SetPack(picks[slot].packSize);
+            LoadCurrentModeLevel(picks[slot].levelNumber);
         }
 
-        /// <summary>Whether today's daily challenge has already been completed.</summary>
-        public bool IsTodayDailyChallengeSolved()
+        /// <summary>Opens the first of today's daily challenges the player has not finished, or
+        /// the first one if the day is already done -- what a "Play" button with no slot of its
+        /// own should do.</summary>
+        public void LoadDailyChallenge()
         {
+            EnsureTodayDailyPicks();
             SaveData data = SavingSystem.Instance.Load();
-            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            return data.dailyChallengeLastCompletedDay == today;
+            LoadDailyChallenge(Mathf.Max(0, data.FirstUnsolvedDailyChallenge()));
         }
 
         /// <summary>
         /// Activates the level complete screen and hands it the attempt's real stats (moves,
         /// hints, time, and the pack-progress before this completion -- all read from
         /// GamePlayController, none fabricated). LevelCompletePage owns every field this content
-        /// needs and reads everything else (mode, pack size, current level) itself from this
-        /// controller's own public properties -- see LevelCompletePage.SetLevelCompleteData.
+        /// needs and reads everything else (mode, pack size, current level, which run this is)
+        /// itself from this controller's own public properties -- see
+        /// LevelCompletePage.SetLevelCompleteData.
         ///
         /// Called AFTER GamePlayController.SaveLevelData (see CheckForLevelComplete) specifically
         /// so that on a daily-challenge completion, the streak SetLevelCompleteData reads
@@ -408,22 +683,20 @@ namespace FreeFlow.UI
 
         /// <summary>
         /// Resets gameplay state and reloads the level currently in progress -- what every
-        /// "Retry" button (Pause overlay, Level Complete overlay) does. Preserves the
-        /// daily-challenge flag across the reload (LoadLevel itself always clears it first) so
-        /// retrying a daily challenge still counts as one. Unconditionally closes the Pause
-        /// overlay -- safe even when it was never open (see PageManager.CloseOverlay) -- so this
-        /// one method works for both callers without either needing to know about the other's
-        /// overlay.
+        /// "Retry" button (Pause overlay, Level Complete overlay) does. Goes through
+        /// LoadCurrentModeLevel rather than LoadLevel precisely so it does NOT touch
+        /// <see cref="currentSource"/>: retrying a daily challenge is still that daily challenge.
+        /// Unconditionally closes the Pause overlay -- safe even when it was never open (see
+        /// PageManager.CloseOverlay) -- so this one method works for both callers without either
+        /// needing to know about the other's overlay.
         /// </summary>
         public void RetryCurrentLevel()
         {
-            bool wasDailyChallenge = isDailyChallenge; // LoadLevel below resets this to false
             GamePlayController.Instance.ResetGameplay();
             boardGenerator.ResetBoard();
             PageManager.Instance.CloseOverlay(PageType.Pause);
-            // LoadLevel closes the LevelComplete overlay itself before opening Gameplay.
-            LoadLevel(currentLevel);
-            if (wasDailyChallenge) { isDailyChallenge = true; }
+            // LoadCurrentModeLevel closes the LevelComplete overlay itself before opening Gameplay.
+            LoadCurrentModeLevel(currentLevel);
         }
 
         /// <summary>
@@ -443,15 +716,51 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Resets gameplay state and advances to the next level -- what the Level Complete
-        /// overlay's "Next" button does. LoadNextLevel -> LoadLevel closes the LevelComplete
-        /// overlay itself.
+        /// Puts the level-complete overlay away and hands the finished board back, WITHOUT
+        /// leaving the level -- what tapping the backdrop behind the sheet does. The solved board
+        /// is worth looking at: players screenshot it, and some want to redraw a route on it. The
+        /// overlay covering it permanently, with no way past except forward or out, made that
+        /// impossible.
+        ///
+        /// Three things have to happen together. The overlay closes; the board goes back to
+        /// <see cref="GameState.Playing"/> so it accepts touches again (the same transition
+        /// Resume makes from the Pause overlay -- input is gated on that state, so without it the
+        /// board would only be visible, not usable); and the HUD is refreshed, because completing
+        /// the level may have just moved the unlock frontier and the gameplay Next arrow was last
+        /// set before that happened.
+        ///
+        /// Re-completing the board from here is allowed and simply reopens this overlay. It does
+        /// not record a second completion -- see GamePlayController.completionRecordedThisAttempt.
         /// </summary>
-        public void GoToNextLevel()
+        public void DismissLevelCompleteOverlay()
+        {
+            PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+            GamePlayController.Instance.GameState = GameState.Playing;
+
+            if (gameplayPage != null) { gameplayPage.Refresh(); }
+        }
+
+        /// <summary>
+        /// Leaves gameplay for the screen the CURRENT RUN was chosen from -- the Daily Challenge
+        /// hub for a daily, the pack grid's own chooser for a pack level. What the level-complete
+        /// overlay's primary button does once there is nothing after this level: finishing the
+        /// last challenge of the day should offer the day, and finishing a pack should offer the
+        /// other packs, rather than dropping the player on the main menu or at a dead button.
+        ///
+        /// Both destinations are already below Gameplay on the back-stack in the normal flow, so
+        /// PageManager.OpenPage pops back to them rather than stacking a second copy -- which also
+        /// means a later Back behaves as if the player had simply walked out of the run.
+        /// </summary>
+        public void ExitToRunHome()
         {
             GamePlayController.Instance.ResetGameplay();
             boardGenerator.ResetBoard();
-            LoadNextLevel();
+
+            PageManager.Instance.CloseOverlay(PageType.Pause);
+            PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+            PageManager.Instance.OpenPage(currentSource == LevelSource.Daily
+                ? PageType.DailyChallenge
+                : PageType.PackSelect);
         }
 
         /// <summary>

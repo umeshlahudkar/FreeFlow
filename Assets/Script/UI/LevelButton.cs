@@ -64,8 +64,23 @@ namespace FreeFlow.UI
         /// </summary>
         public void SetDetails(int levelNumber, LevelTileState state)
         {
+            SetDetails(levelNumber, state, levelNumber);
+        }
+
+        /// <summary>
+        /// As <see cref="SetDetails(int, LevelTileState)"/>, but the tile SHOWS
+        /// <paramref name="displayNumber"/> rather than the level it loads.
+        ///
+        /// The two are the same thing everywhere except the Daily Challenge hub, where the day's
+        /// challenges are picks from all over the packs (5x5 level 65, 6x6 level 59, ...). Showing
+        /// those raw numbers reads as a jumble, and worse, as pack progress the player has not
+        /// made -- what matters there is only which of the day's five this is, so the hub passes
+        /// 1..5. Purely presentational: <paramref name="levelNumber"/> is still what a tap loads.
+        /// </summary>
+        public void SetDetails(int levelNumber, LevelTileState state, int displayNumber)
+        {
             this.levelNumber = levelNumber;
-            levelNumberText.text = levelNumber.ToString();
+            levelNumberText.text = displayNumber.ToString();
 
             Sprite sprite = state == LevelTileState.Done ? doneSprite
                 : state == LevelTileState.Current ? currentSprite

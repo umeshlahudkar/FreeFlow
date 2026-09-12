@@ -107,6 +107,23 @@ namespace FreeFlow.GamePlay
         private float lastCompletionSeconds;
         private int lastCompletionOldCompletedLevel;
 
+        // Whether this attempt has already been banked. The level-complete overlay can be
+        // dismissed by tapping the backdrop, which hands the finished board back to the player so
+        // they can screenshot it or redraw a path (see UIController.DismissLevelCompleteOverlay) --
+        // and redrawing can complete the board a second time within the SAME attempt.
+        //
+        // Without this, that second completion would re-run every write below: it would overwrite
+        // the completion time with a longer one (the clock never stopped), and -- worse -- record
+        // a second RecordMechanicCompletion for one play, inflating the skill rating that
+        // DailyChallengeSelector picks difficulty from. Reset per attempt in BeginAttempt, so a
+        // genuine retry or a new level records normally.
+        private bool completionRecordedThisAttempt;
+
+        // Whether the board was already solved last time completion was checked. Distinguishes
+        // "the player just finished the level" from "the level is finished and the player touched
+        // the board again" -- see CheckForLevelComplete, which acts only on the first.
+        private bool boardWasComplete;
+
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
         // preview, and the block it's drawn on. The block has to be tracked too: the preview
         // lives on whichever cell was last when it was drawn, and a committed step moves
@@ -569,8 +586,18 @@ namespace FreeFlow.GamePlay
             UIController.Instance.UpdateFilledCells();
 
             bool boardFull = IsBoardFullyCovered();
+            bool complete = count >= UIController.Instance.CurrentLevelGoal && boardFull;
 
-            if (count >= UIController.Instance.CurrentLevelGoal && boardFull)
+            // Only the TRANSITION into a solved board ends the level, never the mere fact of one
+            // being solved. The level-complete overlay can now be dismissed to hand the solved
+            // board back (see UIController.DismissLevelCompleteOverlay), which returns the board
+            // to Playing -- so this runs again on the very next pointer-up, finds the board still
+            // solved, and without this guard slams the overlay straight back up. To the player
+            // that reads as the dismiss simply not working.
+            //
+            // Breaking a path clears the flag, so re-joining it genuinely re-completes the level
+            // and the overlay returns, which is the point of handing the board back at all.
+            if (complete && !boardWasComplete)
             {
                 ClearUnmetCheckpointFeedback();
                 GameState = GameState.Ending;
@@ -583,10 +610,12 @@ namespace FreeFlow.GamePlay
                 UIController.Instance.ActivateLevelCompleteScreen(
                     moves, lastCompletionHintsUsed, lastCompletionSeconds, lastCompletionOldCompletedLevel);
             }
-            else
+            else if (!complete)
             {
                 RefreshUnmetCheckpointFeedback();
             }
+
+            boardWasComplete = complete;
         }
 
         /// <summary>
@@ -787,6 +816,10 @@ namespace FreeFlow.GamePlay
         {
             attemptStartTime = Time.unscaledTime;
 
+            // Cleared before the early returns below, so a new attempt can always bank a
+            // completion even on a board this method bails out of recording an attempt for.
+            completionRecordedThisAttempt = false;
+
             if (UIController.Instance == null) { return; }
             int currentLevel = UIController.Instance.CurrentLevel;
             int totalLevelCount = UIController.Instance.TotalLevelCount;
@@ -823,6 +856,12 @@ namespace FreeFlow.GamePlay
 
         private void SaveLevelData()
         {
+            // Already banked this attempt -- the player dismissed the overlay and finished the
+            // board again. Nothing more to record, and the lastCompletion* fields still hold the
+            // first completion's numbers, so the overlay reopens showing the stats that were
+            // actually earned rather than a time inflated by the time spent looking at the board.
+            if (completionRecordedThisAttempt) { return; }
+
             SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
             int totalLevelCount = UIController.Instance.TotalLevelCount;
@@ -841,7 +880,14 @@ namespace FreeFlow.GamePlay
             data.SetSecondsForKey(key, packSeconds);
 
             lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
-            if (currentLevel > data.CompletedLevelForKey(key))
+
+            // The frontier is an unlock GATE, not a tally, and a daily challenge is drawn from
+            // anywhere inside a pack -- see SaveData.PackFrontierAdvances for the full rule.
+            // Everything else this method records (seconds, hints, best moves, mechanic skill) is
+            // per-level telemetry rather than a gate, so a daily challenge writes all of it
+            // exactly as an ordinary play of that level would.
+            if (SaveData.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel,
+                    UIController.Instance.IsDailyChallenge))
             {
                 data.SetCompletedLevelForKey(key, currentLevel);
             }
@@ -871,16 +917,25 @@ namespace FreeFlow.GamePlay
                 data.RecordMechanicCompletion(mechanicKeys[i]);
             }
 
-            // Credited to the day the challenge was PICKED for (dailyChallengeCachedDay), not
-            // whatever "now" is -- a session that happens to cross midnight should still count for
-            // the day it was opened on. RecordDailyChallengeCompletion is itself idempotent per
-            // day, so retrying an already-completed daily challenge cannot inflate the streak.
+            // A day of daily challenges is credited to the day they were PICKED for
+            // (dailyChallengeCachedDay), not to whatever "now" is -- a session that happens to
+            // cross midnight should still count for the day it was opened on.
+            //
+            // The day counts only once EVERY one of its challenges is solved, so finishing one of
+            // several marks just that slot and leaves the streak alone. RecordDailyChallengeCompletion
+            // is itself idempotent per day on top of that, so replaying an already-finished day
+            // cannot inflate the streak or the lifetime count.
             if (UIController.Instance.IsDailyChallenge)
             {
-                data.RecordDailyChallengeCompletion(data.dailyChallengeCachedDay);
+                data.MarkDailyChallengeSolved(UIController.Instance.DailyIndex);
+                if (data.AllDailyChallengesSolved())
+                {
+                    data.RecordDailyChallengeCompletion(data.dailyChallengeCachedDay);
+                }
             }
 
             SavingSystem.Instance.Save(data);
+            completionRecordedThisAttempt = true;
         }
 
         /// <summary>
@@ -2235,6 +2290,9 @@ namespace FreeFlow.GamePlay
         public void ResetGameplay()
         {
             moves = 0;
+            // Before GenerateBoard runs: the incoming board has not been solved yet, whatever the
+            // outgoing one's state was.
+            boardWasComplete = false;
             BeginAttempt();
 
             gameState = GameState.Waiting;

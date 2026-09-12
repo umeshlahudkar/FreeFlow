@@ -77,7 +77,7 @@ public struct SaveData
     // same pattern GAME_EXPANSION_PLAN §4.4 established for LevelData), so schemaVersion 0->1
     // is a no-op migration. The seam exists so the NEXT structural change has a real place to
     // convert old data instead of inventing versioning under pressure. See SaveData.Migrate.
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     public int schemaVersion;
 
     /// <summary>Brings a save from whatever <see cref="schemaVersion"/> it was written at up to
@@ -108,6 +108,32 @@ public struct SaveData
             if (data.dailyChallengeStreak > data.bestDailyChallengeStreak)
             {
                 data.bestDailyChallengeStreak = data.dailyChallengeStreak;
+            }
+        }
+
+        // 3 -> 4: a day can now hold SEVERAL daily challenges (see dailyChallengePicks), where it
+        // previously held exactly one in three flat fields. Carry whatever the save had cached for
+        // its day across as a one-entry list rather than dropping it: a player who opened today's
+        // challenge under the old build and has it half-finished must not have the board swapped
+        // out from under them by the upgrade. Its solved flag is recoverable because, when a day
+        // held one challenge, "the day is complete" and "that one level is solved" were the same
+        // statement. Tomorrow's roll-over is what first produces a full-size list.
+        if (data.schemaVersion < 4)
+        {
+            bool hasCachedDay = data.dailyChallengeCachedDay != 0;
+            bool hasPicks = data.dailyChallengePicks != null && data.dailyChallengePicks.Length > 0;
+            if (hasCachedDay && !hasPicks)
+            {
+                data.dailyChallengePicks = new DailyPick[]
+                {
+                    new DailyPick
+                    {
+                        mode = data.dailyChallengeMode,
+                        packSize = data.dailyChallengePackSize,
+                        levelNumber = data.dailyChallengeLevel,
+                        solved = data.dailyChallengeLastCompletedDay == data.dailyChallengeCachedDay,
+                    }
+                };
             }
         }
 
@@ -182,6 +208,14 @@ public struct SaveData
     // silently reshuffle every future day's pick for a player who already has a rhythm going.
     public int playerSalt;
     public int dailyChallengeCachedDay;
+
+    // The cached day's challenges, in play order (ascending board size -- see
+    // DailyChallengeSelector.SelectDay), each carrying its own solved flag. This is the live
+    // record; the three flat fields below are the pre-schema-4 shape, kept ONLY so an existing
+    // save's in-progress day survives the upgrade (see Migrate) and so a downgrade to an older
+    // build still finds a level to open. They mirror slot 0 and nothing reads them otherwise.
+    public DailyPick[] dailyChallengePicks;
+
     public FreeFlow.Enums.GameMode dailyChallengeMode;
     public int dailyChallengePackSize;
     public int dailyChallengeLevel;
@@ -201,11 +235,104 @@ public struct SaveData
         if (playerSalt == 0) { playerSalt = candidateSalt; }
     }
 
-    /// <summary>Credits one daily-challenge completion for <paramref name="dayIndex"/> -- the day
-    /// the challenge was PICKED for (SaveData.dailyChallengeCachedDay at load time), not
-    /// necessarily the day it happens to be finished on if a session runs past midnight. Idempotent
-    /// for the same day, so retrying an already-completed daily challenge cannot inflate the
-    /// streak or the lifetime count.</summary>
+    /// <summary>How many daily challenges the cached day holds. 0 before any day has been
+    /// cached.</summary>
+    public int DailyChallengeCount
+    {
+        get { return dailyChallengePicks == null ? 0 : dailyChallengePicks.Length; }
+    }
+
+    /// <summary>Replaces the cached day wholesale: new day, new picks, every solved flag cleared.
+    /// The only thing allowed to write <see cref="dailyChallengeCachedDay"/>, so a half-updated
+    /// cache (new picks, stale day, or stale solved flags) cannot exist. Keeps the legacy flat
+    /// fields pointed at slot 0 -- see <see cref="dailyChallengePicks"/> for why they still
+    /// exist.</summary>
+    public void SetDailyChallenges(int dayIndex, DailyPick[] picks)
+    {
+        dailyChallengePicks = picks ?? new DailyPick[0];
+        dailyChallengeCachedDay = dayIndex;
+
+        if (dailyChallengePicks.Length > 0)
+        {
+            dailyChallengeMode = dailyChallengePicks[0].mode;
+            dailyChallengePackSize = dailyChallengePicks[0].packSize;
+            dailyChallengeLevel = dailyChallengePicks[0].levelNumber;
+        }
+    }
+
+    public bool IsDailyChallengeSolved(int slot)
+    {
+        return slot >= 0 && slot < DailyChallengeCount && dailyChallengePicks[slot].solved;
+    }
+
+    /// <summary>Marks one of the cached day's challenges finished. Out-of-range slots are ignored
+    /// rather than thrown on: the day can roll over between a level being opened and being
+    /// completed, which re-picks a list that the in-flight slot index no longer indexes into.</summary>
+    public void MarkDailyChallengeSolved(int slot)
+    {
+        if (slot < 0 || slot >= DailyChallengeCount) { return; }
+        dailyChallengePicks[slot].solved = true;
+    }
+
+    public int SolvedDailyChallengeCount()
+    {
+        int solved = 0;
+        for (int i = 0; i < DailyChallengeCount; i++)
+        {
+            if (dailyChallengePicks[i].solved) { solved++; }
+        }
+        return solved;
+    }
+
+    /// <summary>Whether EVERY one of the cached day's challenges is finished. This is the ONLY
+    /// condition under which a day may be credited to the streak (see
+    /// <see cref="RecordDailyChallengeCompletion"/>, and its one caller,
+    /// GamePlayController.SaveLevelData) -- finishing four of five moves nothing. A day with no
+    /// picks cached at all is not "all solved": there is nothing to have solved.</summary>
+    public bool AllDailyChallengesSolved()
+    {
+        if (DailyChallengeCount == 0) { return false; }
+        return SolvedDailyChallengeCount() == DailyChallengeCount;
+    }
+
+    /// <summary>The first challenge of the cached day the player has not finished, or -1 if the
+    /// day is done -- where a "Play" button with no slot of its own should drop them in.</summary>
+    public int FirstUnsolvedDailyChallenge()
+    {
+        for (int i = 0; i < DailyChallengeCount; i++)
+        {
+            if (!dailyChallengePicks[i].solved) { return i; }
+        }
+        return -1;
+    }
+
+    /// <summary>Highest slot of the cached day the player is allowed to open, or -1 when no day is
+    /// cached. A day is played in order: everything already solved, plus the one immediately after
+    /// the last solved one, and nothing beyond that. Once the whole day is done every slot stays
+    /// open, so a finished challenge can still be replayed.
+    ///
+    /// Because the day's challenges climb in board size (see DailyChallengeSelector.SelectDay),
+    /// this ordering is also a difficulty ramp -- opening the 9x9 before the 5x5 would be handing
+    /// the player the hardest board of the day first.</summary>
+    public int UnlockedDailyChallengeThrough()
+    {
+        int count = DailyChallengeCount;
+        if (count == 0) { return -1; }
+
+        int firstUnsolved = FirstUnsolvedDailyChallenge();
+        return firstUnsolved < 0 ? count - 1 : firstUnsolved;
+    }
+
+    /// <summary>Credits one daily-challenge DAY for <paramref name="dayIndex"/> -- the day the
+    /// challenges were PICKED for (SaveData.dailyChallengeCachedDay at load time), not necessarily
+    /// the day they happen to be finished on if a session runs past midnight. Idempotent for the
+    /// same day, so retrying an already-completed challenge cannot inflate the streak or the
+    /// lifetime count.
+    ///
+    /// A day is credited once, when its LAST challenge is solved -- callers gate on
+    /// <see cref="AllDailyChallengesSolved"/>. The lifetime total therefore counts days completed,
+    /// not levels played, which is what a streak is about and what it counted back when a day held
+    /// exactly one level.</summary>
     public void RecordDailyChallengeCompletion(int dayIndex)
     {
         if (dayIndex == dailyChallengeLastCompletedDay) { return; }
@@ -282,6 +409,25 @@ public struct SaveData
     // it to the field. The indexer then writes through the reference captured a moment earlier, so
     // on a save that has never held a pack that reference is null and the assignment throws.
     // Splitting the call out makes the growth happen first and the write land on the new array.
+
+    /// <summary>Whether finishing <paramref name="levelJustCompleted"/> may move a pack's unlock
+    /// frontier, which currently sits at <paramref name="completedLevel"/>.
+    ///
+    /// The frontier is a GATE, not a tally: setting it to N declares levels 1..N finished. An
+    /// ordinary play can only ever reach the next locked level, so it always may. A daily
+    /// challenge is drawn from anywhere inside a pack (see DailyChallengeSelector), so it may not
+    /// -- otherwise one daily pick at level 59 unlocks fifty-eight levels the player never saw,
+    /// and then reports that as their pack progress. The exception is a daily that happens to BE
+    /// the player's next level, where nothing is skipped.
+    ///
+    /// A pure rule with no Unity dependency so it can be tested directly; the caller
+    /// (GamePlayController.SaveLevelData) supplies <paramref name="fromDailyChallenge"/> from
+    /// UIController.IsDailyChallenge.</summary>
+    public static bool PackFrontierAdvances(int levelJustCompleted, int completedLevel, bool fromDailyChallenge)
+    {
+        if (levelJustCompleted <= completedLevel) { return false; }
+        return !fromDailyChallenge || levelJustCompleted == completedLevel + 1;
+    }
 
     public int CompletedLevelForKey(string key)
     {
@@ -487,6 +633,23 @@ public struct SaveData
         packProgress = grown;
         return packProgress.Length - 1;
     }
+}
+
+/// <summary>One of a day's daily challenges: which level DailyChallengeSelector drew for that
+/// slot, and whether it has been finished yet.
+///
+/// Pick and solved-state live in ONE entry rather than in parallel arrays so they cannot drift
+/// out of length with each other -- a solved flag that outlived the pick it belonged to would
+/// silently credit the wrong board. Mirrors DailyChallengeSelector.Pick's three fields rather
+/// than reusing that type directly, because SaveData is plain serialisable data with no
+/// dependency on the gameplay assembly's selection logic.</summary>
+[System.Serializable]
+public struct DailyPick
+{
+    public FreeFlow.Enums.GameMode mode;
+    public int packSize;
+    public int levelNumber;
+    public bool solved;
 }
 
 /// <summary>Everything remembered about one pack: how far the player got, and the telemetry
