@@ -55,6 +55,12 @@ namespace FreeFlow.UI
 
         private float countdownTimer;
 
+        // The calendar day this screen's contents were built for. Everything on it -- the picks,
+        // their solved ticks, the week chain, both tallies -- is a snapshot of one day, and the
+        // player can be sitting here when the day turns over; the countdown is literally counting
+        // down to exactly that. -1 until the first Refresh, which no real day index can be.
+        private int shownDayIndex = -1;
+
         // Parity with its sibling pages (MainMenuPage/PackSelectPage/LevelsPage all refresh
         // themselves on enable) -- previously UIController called Refresh() by hand right before
         // activating this screen, which this now makes unnecessary.
@@ -65,6 +71,7 @@ namespace FreeFlow.UI
 
         public void Refresh()
         {
+            shownDayIndex = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
             SaveData data = SavingSystem.Instance.Load();
 
             if (topPanel != null)
@@ -82,17 +89,36 @@ namespace FreeFlow.UI
             RefreshTodayLevelButtons();
             countdownTimer = 0f;
             RefreshCountdown();
+
+            // Opening this screen is what "seeing" today's challenges means -- after
+            // RefreshTodayLevelButtons, since that is what selects and persists the day, and this
+            // writes on top of it.
+            UIController.Instance.MarkDailyChallengeSeen();
         }
 
+        /// <summary>Ticks the countdown once a second, and rebuilds the whole screen when the day
+        /// it is counting down to actually arrives.
+        ///
+        /// Re-labelling the clock is not enough at roll-over: the challenges, their solved ticks
+        /// and the week chain all belong to the day that just ended, and DailyChallengeSelector
+        /// will pick a different set for the new one. Left stale, tapping a tile would open a
+        /// level that tile never showed -- LoadDailyChallenge re-selects for today on its way in.
+        ///
+        /// Deliberately not gated on countdownText: the roll-over matters whether or not this
+        /// screen happens to have a countdown label wired up.</summary>
         private void Update()
         {
-            if (countdownText == null) { return; }
             countdownTimer -= Time.unscaledDeltaTime;
-            if (countdownTimer <= 0f)
+            if (countdownTimer > 0f) { return; }
+            countdownTimer = 1f;
+
+            if (DailyChallengeSelector.DayIndex(System.DateTime.UtcNow) != shownDayIndex)
             {
-                countdownTimer = 1f;
-                RefreshCountdown();
+                Refresh();   // sets shownDayIndex and refreshes the countdown itself
+                return;
             }
+
+            RefreshCountdown();
         }
 
         // Everything here keys off UTC calendar days, same as DailyChallengeSelector/SaveData's
@@ -221,12 +247,38 @@ namespace FreeFlow.UI
             return todayLevelButtons[slot];
         }
 
+        /// <summary>Time left until the next daily reset, in units that stay meaningful as it runs
+        /// out. Hours and minutes for most of the day, but the last minute used to read
+        /// "0H 0M" for sixty seconds straight -- precisely the moment the number matters most, and
+        /// the one the player watches if they are waiting for the reset.</summary>
         private void RefreshCountdown()
         {
             if (countdownText == null) { return; }
-            System.DateTime nowUtc = System.DateTime.UtcNow;
-            System.TimeSpan remaining = nowUtc.Date.AddDays(1) - nowUtc;
-            countdownText.text = "RESETS IN " + remaining.Hours + "H " + remaining.Minutes + "M";
+
+            // Asks the selector rather than assuming "until UTC midnight", so the label still
+            // matches the reset it is counting down to when a developer compresses the day.
+            countdownText.text = "RESETS IN "
+                + FormatCountdown(DailyChallengeSelector.TimeUntilNextDay(System.DateTime.UtcNow));
+        }
+
+        /// <summary>Time left until the next daily reset, in units that stay meaningful as it runs
+        /// out: hours and minutes for most of the day, minutes and seconds in the last hour,
+        /// seconds alone in the last minute. Previously the final minute read "0H 0M" for sixty
+        /// seconds straight -- precisely when the number matters most, and the stretch a player
+        /// waiting for the reset is actually watching.
+        ///
+        /// Static and pure so the boundaries can be tested without waiting for midnight.</summary>
+        public static string FormatCountdown(System.TimeSpan remaining)
+        {
+            if (remaining < System.TimeSpan.Zero) { remaining = System.TimeSpan.Zero; }
+
+            // Days are folded into hours: the countdown never legitimately exceeds 24h, but a
+            // clock jump should read as a big number rather than silently dropping a day.
+            int hours = (int)remaining.TotalHours;
+
+            if (hours > 0) { return hours + "H " + remaining.Minutes + "M"; }
+            if (remaining.Minutes > 0) { return remaining.Minutes + "M " + remaining.Seconds + "S"; }
+            return remaining.Seconds + "S";
         }
 
         public void OnBackButtonClick()

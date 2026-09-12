@@ -96,6 +96,13 @@ namespace FreeFlow.UI
         private DailyPick[] dailyPicks = new DailyPick[0];
         private int dailyIndex;
 
+        // Which calendar day dailyPicks belongs to. A daily run belongs to a DAY, and the day can
+        // end while a level from it is still on screen -- a player who starts a challenge at
+        // 23:59 finishes it on the next day. Without this, dailyIndex is just an offset with no
+        // day attached, and once anything re-selects for the new day it silently indexes into a
+        // different day's challenges. -1 until a daily run has been opened.
+        private int dailyPicksDay = -1;
+
         public int CurrentLevel { get { return currentLevel; } }
 
         /// <summary>Which route the level in play was opened by. Drives the header text and what
@@ -113,6 +120,34 @@ namespace FreeFlow.UI
 
         /// <summary>How many daily challenges today holds, as last read from the save.</summary>
         public int DailyCount { get { return dailyPicks.Length; } }
+
+        /// <summary>The calendar day the daily challenge in play was drawn for. Compared against
+        /// SaveData.dailyChallengeCachedDay before any daily bookkeeping is written, so a level
+        /// belonging to a day that has since been replaced cannot credit the new day's slots.</summary>
+        public int DailyDayIndex { get { return dailyPicksDay; } }
+
+        /// <summary>Whether the daily run in play belongs to a day that has since ended -- true
+        /// only in the narrow window where the player was mid-challenge as the reset passed.
+        /// Today's challenges are a different set, so stepping to "the next one" is meaningless
+        /// and the player is sent to the hub to see the new day instead.</summary>
+        public bool DailyDayHasEnded
+        {
+            get
+            {
+                return currentSource == LevelSource.Daily
+                    && dailyPicksDay >= 0
+                    && dailyPicksDay != DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            }
+        }
+
+        /// <summary>How many challenges a day is configured to hold. Unlike <see cref="DailyCount"/>
+        /// this needs no day to have been selected yet, so a screen can describe today's challenges
+        /// without committing a pick just by being looked at -- what the main menu's daily card
+        /// needs before the player has ever opened the hub.</summary>
+        public int ConfiguredDailyChallengeCount
+        {
+            get { return Mathf.Max(1, dailyChallengeCount); }
+        }
 
         /// <summary>Which campaign is being played. Classic is the default and the front door;
         /// see <see cref="GameMode"/> for why the two are separate level sets rather than a
@@ -441,8 +476,14 @@ namespace FreeFlow.UI
         {
             if (!HasPrevLevel) { return; }
 
-            if (currentSource == LevelSource.Daily) { LoadDailyChallenge(dailyIndex - 1); }
-            else { LoadLevel(currentLevel - 1); }
+            if (currentSource == LevelSource.Daily)
+            {
+                if (DailyDayHasEnded) { ExitToRunHome(); return; }
+                LoadDailyChallenge(dailyIndex - 1);
+                return;
+            }
+
+            LoadLevel(currentLevel - 1);
         }
 
         /// <summary>Advances to whatever comes after the level in play -- what the gameplay HUD's
@@ -454,8 +495,19 @@ namespace FreeFlow.UI
         {
             if (!HasNextLevel) { return; }
 
-            if (currentSource == LevelSource.Daily) { LoadDailyChallenge(dailyIndex + 1); }
-            else { LoadLevel(currentLevel + 1); }
+            if (currentSource == LevelSource.Daily)
+            {
+                // The reset passed while this challenge was being played. "The next one" belongs
+                // to a day that no longer exists -- LoadDailyChallenge would re-select for today
+                // and drop the player on its FIRST challenge, while the button said something
+                // like "DAILY 4 OF 5". Show them the new day instead of quietly substituting it.
+                if (DailyDayHasEnded) { ExitToRunHome(); return; }
+
+                LoadDailyChallenge(dailyIndex + 1);
+                return;
+            }
+
+            LoadLevel(currentLevel + 1);
         }
 
         /// <summary>
@@ -610,7 +662,25 @@ namespace FreeFlow.UI
             if (dataChanged) { SavingSystem.Instance.Save(data); }
 
             dailyPicks = data.dailyChallengePicks ?? new DailyPick[0];
+            // Either branch above leaves the cache on today, so the picks now in hand are today's.
+            dailyPicksDay = today;
             return dailyPicks;
+        }
+
+        /// <summary>Records that the player has now seen today's challenges, clearing the main
+        /// menu's "NEW" badge until the next daily reset. Does its own load/save rather than
+        /// taking a SaveData: its caller (DailyChallengePage.Refresh) runs
+        /// <see cref="EnsureTodayDailyPicks"/> first, which may itself write, and saving a copy
+        /// read before that would put the day's freshly selected picks straight back.</summary>
+        public void MarkDailyChallengeSeen()
+        {
+            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+
+            SaveData data = SavingSystem.Instance.Load();
+            if (data.dailyChallengeLastSeenDay == today) { return; }
+
+            data.dailyChallengeLastSeenDay = today;
+            SavingSystem.Instance.Save(data);
         }
 
         /// <summary>Opens one of today's daily challenges by its position in the day (0-based).

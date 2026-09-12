@@ -1,3 +1,4 @@
+using System;
 using FreeFlow.Enums;
 using FreeFlow.GamePlay;
 using NUnit.Framework;
@@ -15,6 +16,28 @@ namespace FreeFlow.Tests
         private static readonly int[] ClassicPackSizes = { 5, 6, 7, 8, 9 };
         private const int TestSalt = 424242;
         private const int OtherSalt = 13;
+
+#if DEBUG
+        // DayIndex has a developer override (Settings > DEVELOPER) that compresses a "day" into a
+        // few seconds, and it persists in PlayerPrefs -- so a developer who left it on would
+        // otherwise come back to a suite failing on the two DayIndex tests below for no visible
+        // reason. Cleared for the duration of each test and put back afterwards, so running the
+        // tests neither depends on it nor quietly switches it off mid-experiment.
+        private int savedDayLengthOverride;
+
+        [SetUp]
+        public void ClearDebugDayLength()
+        {
+            savedDayLengthOverride = DailyChallengeSelector.DebugDayLengthSeconds;
+            DailyChallengeSelector.DebugDayLengthSeconds = 0;
+        }
+
+        [TearDown]
+        public void RestoreDebugDayLength()
+        {
+            DailyChallengeSelector.DebugDayLengthSeconds = savedDayLengthOverride;
+        }
+#endif
 
         [Test]
         public void SamedayAndSkillAndSalt_AlwaysPicksTheSameLevel()
@@ -150,6 +173,39 @@ namespace FreeFlow.Tests
                 Assert.LessOrEqual(pick.levelNumber, 33, "salt " + salt);
             }
         }
+
+#if DEBUG
+        [Test]
+        public void TheDebugOverride_CompressesTheDayAndTheCountdownTogether()
+        {
+            var noon = new DateTime(2026, 3, 5, 12, 0, 0, DateTimeKind.Utc);
+
+            DailyChallengeSelector.DebugDayLengthSeconds = 20;
+            int first = DailyChallengeSelector.DayIndex(noon);
+
+            // Twenty seconds later is the next "day"; nineteen is still this one.
+            Assert.AreEqual(first, DailyChallengeSelector.DayIndex(noon.AddSeconds(19)));
+            Assert.AreEqual(first + 1, DailyChallengeSelector.DayIndex(noon.AddSeconds(20)));
+
+            // The countdown must agree with the index it counts down to, or the hub would show
+            // hours while the challenges reshuffled every few seconds.
+            Assert.LessOrEqual(DailyChallengeSelector.TimeUntilNextDay(noon).TotalSeconds, 20.0);
+
+            DailyChallengeSelector.DebugDayLengthSeconds = 0;
+            Assert.AreEqual(DailyChallengeSelector.DayIndex(noon),
+                DailyChallengeSelector.DayIndex(noon.AddSeconds(20)),
+                "with the override off, twenty seconds must not change the day");
+        }
+
+        [Test]
+        public void WithTheOverrideOff_TheCountdownRunsToUtcMidnight()
+        {
+            DailyChallengeSelector.DebugDayLengthSeconds = 0;
+            var t = new DateTime(2026, 3, 5, 23, 0, 0, DateTimeKind.Utc);
+
+            Assert.AreEqual(TimeSpan.FromHours(1), DailyChallengeSelector.TimeUntilNextDay(t));
+        }
+#endif
 
         [Test]
         public void DayIndex_IsStableForTheSameCalendarDay_RegardlessOfTimeOfDay()

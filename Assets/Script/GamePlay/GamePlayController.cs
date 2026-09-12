@@ -925,7 +925,17 @@ namespace FreeFlow.GamePlay
             // several marks just that slot and leaves the streak alone. RecordDailyChallengeCompletion
             // is itself idempotent per day on top of that, so replaying an already-finished day
             // cannot inflate the streak or the lifetime count.
-            if (UIController.Instance.IsDailyChallenge)
+            // Only when the day this challenge was drawn for is still the day the save holds
+            // challenges for. Finishing at 00:00:05 a challenge opened at 23:59 is fine and still
+            // credits the day it was opened on -- nothing has re-selected, so the cached day is
+            // still that day. But once something HAS re-selected for the new day (the hub was
+            // opened, or another challenge was loaded), this level belongs to a day whose
+            // challenges are gone, and DailyIndex would be an offset into a different day's list
+            // -- marking a slot the player never played.
+            bool belongsToTheCachedDay = UIController.Instance.IsDailyChallenge
+                && data.dailyChallengeCachedDay == UIController.Instance.DailyDayIndex;
+
+            if (belongsToTheCachedDay)
             {
                 data.MarkDailyChallengeSolved(UIController.Instance.DailyIndex);
                 if (data.AllDailyChallengesSolved())

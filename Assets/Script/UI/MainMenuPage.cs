@@ -24,6 +24,20 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI classicProgressText;
         [SerializeField] private TextMeshProUGUI advancedProgressText;
 
+        [Header("Daily challenge card")]
+        // Today's state in one line, plus the best streak as a tail.
+        [SerializeField] private TextMeshProUGUI dailySubtitleText;
+
+        // The streak chip on the right. Hidden outright at streak 0 rather than showing "0-DAY",
+        // which would advertise the absence of the thing it exists to celebrate.
+        [SerializeField] private GameObject streakPill;
+        [SerializeField] private TextMeshProUGUI streakPillText;
+
+        // Shown from a daily reset until the player opens the hub -- unseen content, not unplayed
+        // content, so it clears on a visit even if nothing is solved. See
+        // SaveData.dailyChallengeLastSeenDay.
+        [SerializeField] private GameObject newBadge;
+
         private void OnEnable()
         {
             Refresh();
@@ -51,6 +65,56 @@ namespace FreeFlow.UI
 
             SetProgressText(classicProgressText, data, ui, GameMode.Classic);
             SetProgressText(advancedProgressText, data, ui, GameMode.Advanced);
+            SetDailyChallengeCard(data, ui);
+        }
+
+        /// <summary>
+        /// Fills the daily-challenge card from the save: how far today has got, whether it has
+        /// been looked at yet, and the streaks.
+        ///
+        /// Deliberately does NOT call UIController.EnsureTodayDailyPicks. That would commit (and
+        /// persist) the day's picks merely because the main menu was displayed; a card is a
+        /// readout, not a decision. So when today has not been selected yet, this describes the
+        /// day from the configured length instead -- which is what the player will get -- and
+        /// leaves selecting it to the moment they actually open the hub.
+        /// </summary>
+        private void SetDailyChallengeCard(SaveData data, UIController ui)
+        {
+            int today = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            bool selectedToday = data.dailyChallengeCachedDay == today;
+
+            int total = selectedToday ? data.DailyChallengeCount : ui.ConfiguredDailyChallengeCount;
+            int solved = selectedToday ? data.SolvedDailyChallengeCount() : 0;
+
+            if (newBadge != null)
+            {
+                newBadge.SetActive(data.dailyChallengeLastSeenDay != today);
+            }
+
+            if (streakPill != null)
+            {
+                bool hasStreak = data.dailyChallengeStreak > 0;
+                streakPill.SetActive(hasStreak);
+                if (hasStreak && streakPillText != null)
+                {
+                    streakPillText.text = data.dailyChallengeStreak + "-DAY";
+                }
+            }
+
+            if (dailySubtitleText != null)
+            {
+                string progress = solved == 0 ? total + " challenges today"
+                    : solved < total ? solved + " / " + total + " solved today"
+                    : "all " + total + " done today";
+
+                // The best streak only earns its space once there is one; on a fresh save the
+                // line stays about today rather than trailing a hollow "best 0".
+                string best = data.bestDailyChallengeStreak > 0
+                    ? "  ·  best " + data.bestDailyChallengeStreak
+                    : "";
+
+                dailySubtitleText.text = progress + best;
+            }
         }
 
         /// <summary>Summed across every pack size in the mode (e.g. Classic's 5x5 + 6x6 + 7x7 +

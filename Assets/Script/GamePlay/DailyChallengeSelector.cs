@@ -47,12 +47,77 @@ namespace FreeFlow.GamePlay
         // them. It does not need to mean anything; it only needs to never change.
         private static readonly System.DateTime Epoch = new System.DateTime(2020, 1, 1, 0, 0, 0, System.DateTimeKind.Utc);
 
+#if DEBUG
+        /// <summary>
+        /// Developer-only override for how long a "day" lasts, in seconds. 0 means off -- real
+        /// calendar days. Set from the Settings screen's DEVELOPER section, which only exists in
+        /// DEBUG builds, so that waiting 24 hours is not the only way to see a daily reset.
+        ///
+        /// Kept in PlayerPrefs rather than SaveData for two reasons: a debug setting must never be
+        /// able to ride along inside a shipped save file, and wiping progress (which deletes that
+        /// file) should not silently switch the override off in the middle of a test.
+        ///
+        /// The whole daily system keys off <see cref="DayIndex"/>, so overriding it here is enough
+        /// -- selection, caching, streaks and the hub's roll-over check all follow automatically.
+        /// </summary>
+        public const string DebugDayLengthPrefKey = "debug.dailyChallenge.dayLengthSeconds";
+
+        private static int debugDayLengthSeconds = -1;   // -1 = not yet read from PlayerPrefs
+
+        public static int DebugDayLengthSeconds
+        {
+            get
+            {
+                if (debugDayLengthSeconds < 0)
+                {
+                    debugDayLengthSeconds = UnityEngine.PlayerPrefs.GetInt(DebugDayLengthPrefKey, 0);
+                }
+                return debugDayLengthSeconds;
+            }
+            set
+            {
+                debugDayLengthSeconds = System.Math.Max(0, value);
+                UnityEngine.PlayerPrefs.SetInt(DebugDayLengthPrefKey, debugDayLengthSeconds);
+                UnityEngine.PlayerPrefs.Save();
+            }
+        }
+#endif
+
         /// <summary>Whole calendar days (UTC) since <see cref="Epoch"/>. The stable identity of
         /// "today" everything else here keys off -- SaveData stores this directly rather than a
-        /// date string, so streak comparisons are integer arithmetic, not calendar-aware parsing.</summary>
+        /// date string, so streak comparisons are integer arithmetic, not calendar-aware parsing.
+        ///
+        /// In DEBUG builds a developer can compress a "day" to a handful of seconds (see
+        /// <see cref="DebugDayLengthSeconds"/>); the index then counts those periods instead. It
+        /// is still a whole number that advances by one per period, which is all any caller
+        /// assumes about it.</summary>
         public static int DayIndex(System.DateTime utcNow)
         {
+#if DEBUG
+            int compressed = DebugDayLengthSeconds;
+            if (compressed > 0)
+            {
+                return (int)((utcNow - Epoch).TotalSeconds / compressed);
+            }
+#endif
             return (int)(utcNow.Date - Epoch).TotalDays;
+        }
+
+        /// <summary>How long until the next daily reset -- until UTC midnight normally, or until
+        /// the next compressed period in a DEBUG build with the override on. Lives here rather
+        /// than on the screen that displays it so the countdown can never disagree with the
+        /// <see cref="DayIndex"/> it is counting down to.</summary>
+        public static System.TimeSpan TimeUntilNextDay(System.DateTime utcNow)
+        {
+#if DEBUG
+            int compressed = DebugDayLengthSeconds;
+            if (compressed > 0)
+            {
+                double elapsed = (utcNow - Epoch).TotalSeconds % compressed;
+                return System.TimeSpan.FromSeconds(compressed - elapsed);
+            }
+#endif
+            return utcNow.Date.AddDays(1) - utcNow;
         }
 
         public struct Pick

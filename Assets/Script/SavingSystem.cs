@@ -220,6 +220,16 @@ public struct SaveData
     public int dailyChallengePackSize;
     public int dailyChallengeLevel;
 
+    // The last day whose challenges the player actually LOOKED at -- set when the Daily Challenge
+    // hub is opened, not when one is played. Drives the "NEW" badge on the main menu's daily card,
+    // which is about unseen content rather than unfinished content: a day can be seen and left
+    // unplayed, and the badge should still go away.
+    //
+    // Needs no schema bump. JsonUtility defaults it to 0 on an existing save, 0 means "no day has
+    // been seen", and that correctly shows the badge -- which is right, because on the build that
+    // introduces it nobody has seen today's challenges through this UI yet.
+    public int dailyChallengeLastSeenDay;
+
     public int dailyChallengeLastCompletedDay;
     public int dailyChallengeStreak;
     public int dailyChallengesCompletedTotal;

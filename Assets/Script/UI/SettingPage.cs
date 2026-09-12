@@ -34,8 +34,19 @@ public class SettingPage : Page
     [SerializeField] private TextMeshProUGUI versionText;
     [SerializeField] private TextMeshProUGUI resetProgressText;
 
-    private const string ResetPromptText = "Reset all progress";
-    private const string ResetConfirmText = "Tap again to confirm";
+    // Developer-only: shorten the daily-challenge period so a reset can be watched in seconds
+    // instead of waiting for UTC midnight. The fields are declared unconditionally so the scene
+    // wiring stays valid in every build configuration -- it is the SECTION and the LOGIC that are
+    // gated, in RefreshDeveloperSection and OnDailyResetSecondsChanged. In a build without DEBUG
+    // the section is switched off and the handler compiles away to nothing.
+    [Header("Developer (DEBUG builds only)")]
+    [SerializeField] private GameObject developerSection;
+    [SerializeField] private TMP_InputField dailyResetSecondsInput;
+    [SerializeField] private TextMeshProUGUI dailyResetStatusText;
+
+    // Upper case to match the other rows on this screen ("SHARE PATHZA", "PRIVACY POLICY").
+    private const string ResetPromptText = "RESET ALL PROGRESS";
+    private const string ResetConfirmText = "TAP AGAIN TO CONFIRM";
     private const float ResetConfirmWindow = 3f;
 
     private bool resetArmed;
@@ -71,7 +82,59 @@ public class SettingPage : Page
             versionText.text = "PATHZA " + Application.version;
         }
         ResetConfirmState();
+        RefreshDeveloperSection();
     }
+
+    /// <summary>Shows the developer section and fills it from the current override, or -- in a
+    /// build without the DEBUG symbol -- switches the whole thing off so a player can never see
+    /// it. Unity defines DEBUG in the Editor and in Development Builds, and not in a release
+    /// build, which is exactly the split wanted here.</summary>
+    private void RefreshDeveloperSection()
+    {
+        if (developerSection == null) { return; }
+
+#if DEBUG
+        developerSection.SetActive(true);
+
+        int seconds = FreeFlow.GamePlay.DailyChallengeSelector.DebugDayLengthSeconds;
+        if (dailyResetSecondsInput != null)
+        {
+            // WithoutNotify: filling the box must not read as the developer having typed in it,
+            // which would write the value straight back and fight whatever they are mid-edit on.
+            dailyResetSecondsInput.SetTextWithoutNotify(seconds > 0 ? seconds.ToString() : "");
+        }
+        SetDailyResetStatus(seconds);
+#else
+        developerSection.SetActive(false);
+#endif
+    }
+
+    /// <summary>Applies a typed daily-reset period, in seconds. Blank or 0 restores real calendar
+    /// days. Takes effect immediately: everything about the daily challenge keys off
+    /// DailyChallengeSelector.DayIndex, so the next time any screen asks what day it is, it gets
+    /// the compressed answer -- and the hub, which re-checks once a second, rebuilds itself on the
+    /// next period boundary without needing to be reopened.</summary>
+    public void OnDailyResetSecondsChanged(string value)
+    {
+#if DEBUG
+        int seconds;
+        if (!int.TryParse(value, out seconds) || seconds < 0) { seconds = 0; }
+
+        FreeFlow.GamePlay.DailyChallengeSelector.DebugDayLengthSeconds = seconds;
+        SetDailyResetStatus(seconds);
+#endif
+    }
+
+#if DEBUG
+    private void SetDailyResetStatus(int seconds)
+    {
+        if (dailyResetStatusText == null) { return; }
+
+        dailyResetStatusText.text = seconds > 0
+            ? "Daily resets every " + seconds + "s  (debug override)"
+            : "Daily resets at UTC midnight  (normal)";
+    }
+#endif
 
     public void OnMusicSliderValueChanged()
     {
@@ -126,9 +189,22 @@ public class SettingPage : Page
         knob.anchoredPosition = new Vector2(isOn ? x : -x, knob.anchoredPosition.y);
     }
 
-    // Requires two taps within ResetConfirmWindow so a single stray tap can never wipe a save.
+    /// <summary>
+    /// Deletes the entire save file -- every pack's progress, the daily-challenge streaks and
+    /// history, and the audio/vibration/hint preferences -- then reloads the scene so the whole
+    /// game rebuilds from the defaults SavingSystem.Awake writes for a first run. Nothing here is
+    /// recoverable afterwards.
+    ///
+    /// Which is why it takes two taps within <see cref="ResetConfirmWindow"/>: the first arms it
+    /// and changes the label to say so, and the window lapses on its own if the player thinks
+    /// better of it. Leaving and reopening Settings disarms it too (see OnEnable). A single stray
+    /// tap on a row sitting directly under "PRIVACY POLICY" must never be able to wipe a save.
+    /// </summary>
     public void OnResetProgressClick()
     {
+        if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
+        AudioManager.Instance.PlayButtonClickSound();
+
         if (resetArmed && Time.unscaledTime <= resetArmedUntil)
         {
             SavingSystem.Instance.DeleteFile();
@@ -141,6 +217,13 @@ public class SettingPage : Page
         resetArmed = true;
         resetArmedUntil = Time.unscaledTime + ResetConfirmWindow;
         if (resetProgressText != null) { resetProgressText.text = ResetConfirmText; }
+    }
+
+    /// <summary>Lets the armed state lapse on its own, so a confirm prompt left on screen does not
+    /// stay live indefinitely waiting for a second tap that was never coming.</summary>
+    private void Update()
+    {
+        if (resetArmed && Time.unscaledTime > resetArmedUntil) { ResetConfirmState(); }
     }
 
     private void ResetConfirmState()
