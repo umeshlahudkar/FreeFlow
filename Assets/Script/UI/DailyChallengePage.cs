@@ -228,7 +228,6 @@ namespace FreeFlow.UI
             {
                 LevelButton spawned = Instantiate(levelButtonPrefab, levelsParent);
                 spawned.ThisTransform.localPosition = Vector3.zero;
-                spawned.ThisTransform.sizeDelta = new Vector2(120f, 120f);
 
                 // LevelButton.OnButtonClick's default action always calls UIController.LoadLevel
                 // directly, which knows nothing about daily challenges (it would open the level as

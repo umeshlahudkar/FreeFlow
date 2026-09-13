@@ -21,14 +21,8 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI fractionText;
         [SerializeField] private TextMeshProUGUI percentText;
         [SerializeField] private Slider progressSlider;
-        [SerializeField] private Image actionImage;
         [SerializeField] private GameObject actionIconPlay;
         [SerializeField] private GameObject actionIconDone;
-        [SerializeField] private Button actionButton;
-
-        [Header("Action Sprites")]
-        [SerializeField] private Sprite actionPlaySprite;
-        [SerializeField] private Sprite actionDoneSprite;
 
         // Indexed by packSize - MinThumbSize (5x5 .. 9x9, matching the pack_thumb_*.png set --
         // there is no thumbnail art for any other board size, so ThumbSpriteFor clamps into range
@@ -54,11 +48,8 @@ namespace FreeFlow.UI
 
             bool isDone = completed >= total;
 
-            if (actionImage != null) { actionImage.sprite = isDone ? actionDoneSprite : actionPlaySprite; }
             if (actionIconPlay != null) { actionIconPlay.SetActive(!isDone); }
             if (actionIconDone != null) { actionIconDone.SetActive(isDone); }
-
-            if (actionButton != null) { actionButton.interactable = true; }
         }
 
         /// <summary>The size-appropriate grid-preview thumbnail. Clamps into the 5x5-9x9 range
