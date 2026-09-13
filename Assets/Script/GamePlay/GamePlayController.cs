@@ -260,7 +260,7 @@ namespace FreeFlow.GamePlay
 
                     if(isClicked)
                     {
-                        AudioManager.Instance.PlayBlockSelectSound();
+                        AudioManager.Instance.PlaySFX(SoundType.PathStart);
 
                         HighlightSelectedColorTypeBlock(block, grabbedPairId);
                         Color clr = (block.IsPairBlock && !block.IsSharedGoal)
@@ -558,7 +558,7 @@ namespace FreeFlow.GamePlay
 
                 if (IsPairSatisfied(selectedBlocks[0].PairId))
                 {
-                    AudioManager.Instance.PlayPairCompleteSound();
+                    AudioManager.Instance.PlaySFX(SoundType.PathComplete);
                 }
             }
 
@@ -2274,7 +2274,7 @@ namespace FreeFlow.GamePlay
             pairSegments[pairId] = new List<List<Block>> { path };
 
             moves++;
-            AudioManager.Instance.PlayPairCompleteSound();
+            AudioManager.Instance.PlaySFX(SoundType.PathComplete);
 
             hintRoutine = null;
 

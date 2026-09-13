@@ -17636,23 +17636,23 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 647144941842003624, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchorMax.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 647144941842003624, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchorMin.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 647144941842003624, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 0
+      value: 250
       objectReference: {fileID: 0}
     - target: {fileID: 647144941842003624, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0
+      value: -68
       objectReference: {fileID: 0}
     - target: {fileID: 1051060917926240044, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_SizeDelta.y
-      value: 0
+      value: 86
       objectReference: {fileID: 0}
     - target: {fileID: 3211263585036158428, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_Name
@@ -17660,19 +17660,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4580491058092813814, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchorMax.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4580491058092813814, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchorMin.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4580491058092813814, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 0
+      value: 250
       objectReference: {fileID: 0}
     - target: {fileID: 4580491058092813814, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0
+      value: -25
       objectReference: {fileID: 0}
     - target: {fileID: 9213113526283610621, guid: 782b3189dcd3be943bff02ea3315ea53, type: 3}
       propertyPath: m_Pivot.x
@@ -19695,7 +19695,7 @@ AudioSource:
   OutputAudioMixerGroup: {fileID: -644393446826137028, guid: af41b7299cd533744a55eb3825a81cc0, type: 2}
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 0}
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_Volume: 1
   m_Pitch: 1
   Loop: 0
@@ -22425,9 +22425,33 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   bgAudioSource: {fileID: 508452521}
   sfxAudioSource: {fileID: 1337469307}
-  buttonClickClip: {fileID: 8300000, guid: c62eebb3209c3fc4f84326941b65353c, type: 3}
-  blockSelectClip: {fileID: 8300000, guid: a8dc417811d98084f99d25022757161b, type: 3}
-  pairCompleteClip: {fileID: 8300000, guid: ffb34ee9797fd214cbb335698fc0ddf3, type: 3}
+  sounds:
+  - type: 0
+    clip: {fileID: 8300000, guid: c62eebb3209c3fc4f84326941b65353c, type: 3}
+    channel: 0
+    volume: 1
+    pitch: 1
+  - type: 1
+    clip: {fileID: 8300000, guid: a8dc417811d98084f99d25022757161b, type: 3}
+    channel: 0
+    volume: 1
+    pitch: 1
+  - type: 2
+    clip: {fileID: 8300000, guid: ffb34ee9797fd214cbb335698fc0ddf3, type: 3}
+    channel: 0
+    volume: 1
+    pitch: 1
+  - type: 3
+    clip: {fileID: 0}
+    channel: 0
+    volume: 1
+    pitch: 1
+  - type: 4
+    clip: {fileID: 8300000, guid: 4bd343a3e0db03546b5c287ba9b6b16a, type: 3}
+    channel: 1
+    volume: 1
+    pitch: 1
+  sfxVoiceCount: 4
 --- !u!1 &1535628737
 GameObject:
   m_ObjectHideFlags: 0

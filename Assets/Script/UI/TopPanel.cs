@@ -42,7 +42,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 PageManager.Instance.ClosePage();
             }
         }
@@ -51,7 +51,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 PageManager.Instance.OpenAsOverlay(PageType.Setting);
             }
         }

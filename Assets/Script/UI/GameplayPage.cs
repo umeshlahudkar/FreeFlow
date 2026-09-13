@@ -171,7 +171,7 @@ namespace FreeFlow.UI
             // further down this call stack would always fail and lose the tap.
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
                 if (UIController.Instance.HintsRemaining <= 0)
                 {
@@ -193,7 +193,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput() && UIController.Instance.HasPrevLevel)
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.GoToPrevLevel();
             }
         }
@@ -202,7 +202,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput() && UIController.Instance.HasNextLevel)
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.GoToNextLevel();
             }
         }

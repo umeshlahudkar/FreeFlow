@@ -195,7 +195,7 @@ public class SettingPage : Page
     public void OnShareGameClick()
     {
         if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
-        AudioManager.Instance.PlayButtonClickSound();
+        AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
         FreeFlow.Share.ShareService.Instance.ShareGame();
     }
@@ -214,7 +214,7 @@ public class SettingPage : Page
     public void OnResetProgressClick()
     {
         if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
-        AudioManager.Instance.PlayButtonClickSound();
+        AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
         if (resetArmed && Time.unscaledTime <= resetArmedUntil)
         {
@@ -245,7 +245,7 @@ public class SettingPage : Page
 
     public void OnCloseButtonClick()
     {
-        AudioManager.Instance.PlayButtonClickSound();
+        AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
         PageManager.Instance.CloseOverlay(PageType.Setting);
     }
 }

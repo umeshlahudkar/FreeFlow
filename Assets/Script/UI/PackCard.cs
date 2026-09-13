@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using FreeFlow.Input;
+using FreeFlow.Enums;
 
 namespace FreeFlow.UI
 {
@@ -79,7 +80,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 GetComponentInParent<PackSelectPage>(true).OnPackSelected(packSize);
             }
         }

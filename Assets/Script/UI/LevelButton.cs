@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using FreeFlow.Input;
+using FreeFlow.Enums;
 
 namespace FreeFlow.UI
 {
@@ -40,7 +41,7 @@ namespace FreeFlow.UI
 
         // Lets a caller (e.g. DailyChallengePage, reusing this same prefab for today's pick)
         // substitute what a tap does -- set once, right after Instantiate. Deliberately NOT a
-        // second CanInput()/PlayButtonClickSound() gate of its own: OnButtonClick below already
+        // second CanInput()/PlaySFX() gate of its own: OnButtonClick below already
         // gates once before invoking this, and a second gate in the override action would consume
         // CanInput()'s one-shot debounce a second time in the same call stack, always silently
         // no-op-ing (see PackSelectPage.OnPackSelected's own doc comment for the same bug shipped
@@ -104,7 +105,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 if (onClickOverride != null) { onClickOverride(); }
                 else { UIController.Instance.LoadLevel(levelNumber); }
             }

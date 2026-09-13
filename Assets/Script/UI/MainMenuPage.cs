@@ -150,7 +150,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.SetMode(GameMode.Classic);
                 PageManager.Instance.OpenPage(PageType.PackSelect);
             }
@@ -160,7 +160,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.SetMode(GameMode.Advanced);
                 PageManager.Instance.OpenPage(PageType.PackSelect);
             }
@@ -173,7 +173,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 PageManager.Instance.OpenPage(PageType.DailyChallenge);
             }
         }

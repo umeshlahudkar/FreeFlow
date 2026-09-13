@@ -215,7 +215,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.RetryCurrentLevel();
             }
         }
@@ -229,7 +229,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.DismissLevelCompleteOverlay();
             }
         }
@@ -238,7 +238,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.GoToMainMenu();
             }
         }
@@ -254,7 +254,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 ShareService.Instance.ShareResult(lastResult);
             }
         }
@@ -266,7 +266,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput() && UIController.Instance.HasPrevLevel)
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.GoToPrevLevel();
             }
         }
@@ -280,7 +280,7 @@ namespace FreeFlow.UI
         {
             if (InputManager.Instance.CanInput())
             {
-                AudioManager.Instance.PlayButtonClickSound();
+                AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
                 if (UIController.Instance.HasNextLevel) { UIController.Instance.GoToNextLevel(); }
                 else { UIController.Instance.ExitToRunHome(); }
