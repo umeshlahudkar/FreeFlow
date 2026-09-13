@@ -29,6 +29,11 @@ namespace FreeFlow.UI
         // The "x3" pill: how many hints are left to spend.
         [SerializeField] private TextMeshProUGUI hintCountText;
 
+        // The halo behind the button. A SIBLING drawn before it rather than a child -- a child
+        // would draw on top of the icon -- so hiding the button leaves this glowing on its own
+        // unless it is switched off with it.
+        [SerializeField] private GameObject hintGlow;
+
         [Header("Level navigation")]
         // The footer's two stepping buttons. Faded and inert rather than hidden when a step is
         // unavailable (level 1, a next level still behind the unlock frontier, the first/last of
@@ -125,6 +130,7 @@ namespace FreeFlow.UI
             SaveData data = SavingSystem.Instance.Load();
 
             if (hintCountText != null) { hintCountText.text = "×" + data.hintsRemaining; }
+            if (hintGlow != null) { hintGlow.SetActive(data.showHintButton); }
 
             if (hintButton == null) { return; }
 

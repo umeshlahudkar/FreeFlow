@@ -104,6 +104,12 @@ public class AudioManager : Singleton<AudioManager>
         bgAudioSource.volume = bgVolume;
 
         ApplySfxSettings();
+
+        // The music used to start itself through the source's Play On Awake, which meant the clip
+        // on the source decided what played and the table did not. Started here instead: one place
+        // decides, the row's own volume and pitch apply, and a muted player still gets a track
+        // playing silently underneath rather than no track at all to unmute.
+        PlayMusic(SoundType.BGMusic);
     }
 
     /// <summary>Indexes the Inspector's table by SoundType. A type listed twice keeps the FIRST

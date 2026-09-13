@@ -171,6 +171,14 @@ public class SettingPage : Page
         data.showHintButton = isOn;
         SavingSystem.Instance.Save(data);
         SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, isOn);
+
+        // Tell the gameplay HUD now. It reads this flag when it refreshes, and refreshing means a
+        // level load or a hint spent -- neither of which happens while this screen is open, because
+        // Settings is an OVERLAY: the gameplay page underneath is never disabled, so its OnEnable
+        // does not fire when this closes. Without this the player turns the button off, returns to
+        // the board, and finds it still sitting there until the next level.
+        GameplayPage gameplay = PageManager.Instance.Get<GameplayPage>(PageType.Gameplay);
+        if (gameplay != null) { gameplay.RefreshHintButton(); }
     }
 
     // Unity's stock Toggle has no built-in support for "swap the whole track sprite and slide a
