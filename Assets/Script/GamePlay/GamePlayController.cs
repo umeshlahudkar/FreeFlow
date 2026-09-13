@@ -526,7 +526,18 @@ namespace FreeFlow.GamePlay
 
                 if (entryDir != Direction.None)
                 {
-                    if (releasedLast.GetDirectionFillAmount(entryDir) < 0.5f)
+                    // Reaching this pair's own dot is exempt from the 50% rule. Releasing the
+                    // instant the finger touches the destination is the most natural way to
+                    // finish a pair, and it lands well short of half-connected nearly every
+                    // time -- so the rule was undoing the very step the player had just
+                    // completed, and the pair silently failed to join. The ambiguity the rule
+                    // exists to settle is not present here either: a cell brushed on the way
+                    // past really is "did they mean that?", a destination reached is not.
+                    // IsDotFor rather than PairId, so a shared goal answers for every pair that
+                    // ends on it.
+                    bool reachedOwnDot = releasedLast.IsDotFor(selectedBlocks[0].PairId);
+
+                    if (!reachedOwnDot && releasedLast.GetDirectionFillAmount(entryDir) < 0.5f)
                     {
                         // Nothing special for arrows any more: a path may rest on one, because
                         // entering it and leaving it are two moves the player makes, not one the
