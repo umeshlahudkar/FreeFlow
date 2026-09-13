@@ -2278,8 +2278,9 @@ namespace FreeFlow.GamePlay
 
             hintRoutine = null;
 
-            // Only if the board is still where the draw left it: pausing mid-draw is legal, and
-            // handing play back here would take the pause screen's own state away from it.
+            // Only if the board is still where the draw left it: anything that moved the state
+            // on mid-draw (the level being completed, or torn down) owns it now, and handing play
+            // back here would take it away from whatever did.
             if (gameState == GameState.Waiting) { gameState = GameState.Playing; }
 
             CheckForLevelComplete();

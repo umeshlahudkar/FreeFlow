@@ -6,8 +6,8 @@ using FreeFlow.Enums;
 namespace FreeFlow.UI
 {
     /// <summary>A short message explaining why something the player just tapped did not happen --
-    /// "No More Hints" being the first of them. Opened with PageManager.OpenAsOverlay, like Pause
-    /// and the level-complete sheet, so it is never on the back-stack.
+    /// "No More Hints" being the first of them. Opened with PageManager.OpenAsOverlay, like the
+    /// level-complete sheet, so it is never on the back-stack.
     ///
     /// Unlike those two it carries no button and takes no input at all (its panel and label are
     /// both raycast-transparent): it puts itself away after <see cref="visibleSeconds"/>, and the
@@ -52,14 +52,12 @@ namespace FreeFlow.UI
             base.Close();
         }
 
-        /// <summary>Closes through PageManager rather than deactivating directly, the same way
-        /// PausePage's own Resume button does -- a page must not put itself away behind the
-        /// manager's back.</summary>
+        /// <summary>Closes through PageManager rather than deactivating directly -- a page must
+        /// not put itself away behind the manager's back.</summary>
         private IEnumerator HideAfterDelay()
         {
-            // Unscaled: the pause overlay and the level-complete sheet both sit on top of a board
-            // that may have stopped, and a notice that freezes with it would sit there until play
-            // resumed.
+            // Unscaled: the level-complete sheet sits on top of a board that has stopped, and a
+            // notice that froze with it would stay on screen until play resumed.
             yield return new WaitForSecondsRealtime(visibleSeconds);
 
             hideRoutine = null;

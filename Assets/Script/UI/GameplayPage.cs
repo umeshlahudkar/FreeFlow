@@ -152,16 +152,6 @@ namespace FreeFlow.UI
             if (group != null) { group.alpha = available ? 1f : unavailableAlpha; }
         }
 
-        public void OnPauseButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                GamePlayController.Instance.GameState = Enums.GameState.Paused;
-                PageManager.Instance.OpenAsOverlay(PageType.Pause);
-            }
-        }
-
         /// <summary>
         /// Joins one pair along the level's own answer, at the cost of one hint from the player's
         /// balance and the move it adds to this attempt.

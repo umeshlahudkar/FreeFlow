@@ -810,32 +810,27 @@ namespace FreeFlow.UI
 
         /// <summary>
         /// Resets gameplay state and reloads the level currently in progress -- what every
-        /// "Retry" button (Pause overlay, Level Complete overlay) does. Goes through
+        /// "Retry" button (the Level Complete overlay's) does. Goes through
         /// LoadCurrentModeLevel rather than LoadLevel precisely so it does NOT touch
         /// <see cref="currentSource"/>: retrying a daily challenge is still that daily challenge.
-        /// Unconditionally closes the Pause overlay -- safe even when it was never open (see
-        /// PageManager.CloseOverlay) -- so this one method works for both callers without either
-        /// needing to know about the other's overlay.
         /// </summary>
         public void RetryCurrentLevel()
         {
             GamePlayController.Instance.ResetGameplay();
-            PageManager.Instance.CloseOverlay(PageType.Pause);
             // LoadCurrentModeLevel closes the LevelComplete overlay itself before opening Gameplay.
             LoadCurrentModeLevel(currentLevel);
         }
 
         /// <summary>
         /// Resets gameplay state and returns to the main menu -- what every "Home" button
-        /// (Pause overlay, Level Complete overlay, in-HUD Home) does. Unconditionally closes both
-        /// overlays -- safe even when neither was open -- so this one method works from any of
-        /// those callers.
+        /// (the Level Complete overlay's, and the in-HUD Home) does. Unconditionally closes the
+        /// Level Complete overlay -- safe even when it was never open -- so this one method works
+        /// from either caller.
         /// </summary>
         public void GoToMainMenu()
         {
             GamePlayController.Instance.ResetGameplay();
 
-            PageManager.Instance.CloseOverlay(PageType.Pause);
             PageManager.Instance.CloseOverlay(PageType.LevelComplete);
             PageManager.Instance.OpenPage(PageType.MainMenu);
         }
@@ -848,11 +843,10 @@ namespace FreeFlow.UI
         /// impossible.
         ///
         /// Three things have to happen together. The overlay closes; the board goes back to
-        /// <see cref="GameState.Playing"/> so it accepts touches again (the same transition
-        /// Resume makes from the Pause overlay -- input is gated on that state, so without it the
-        /// board would only be visible, not usable); and the HUD is refreshed, because completing
-        /// the level may have just moved the unlock frontier and the gameplay Next arrow was last
-        /// set before that happened.
+        /// <see cref="GameState.Playing"/> so it accepts touches again (input is gated on that
+        /// state, so without it the board would only be visible, not usable); and the HUD is
+        /// refreshed, because completing the level may have just moved the unlock frontier and the
+        /// gameplay Next arrow was last set before that happened.
         ///
         /// Re-completing the board from here is allowed and simply reopens this overlay. It does
         /// not record a second completion -- see GamePlayController.completionRecordedThisAttempt.
@@ -881,7 +875,6 @@ namespace FreeFlow.UI
         {
             GamePlayController.Instance.ResetGameplay();
 
-            PageManager.Instance.CloseOverlay(PageType.Pause);
             PageManager.Instance.CloseOverlay(PageType.LevelComplete);
             PageManager.Instance.OpenPage(currentSource == LevelSource.Daily
                 ? PageType.DailyChallenge

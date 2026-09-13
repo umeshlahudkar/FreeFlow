@@ -12,7 +12,7 @@ namespace FreeFlow.UI
     /// touching a page's GameObject directly.
     ///
     /// <see cref="pageStack"/> drives Back-button navigation and holds ONLY full pages (MainMenu,
-    /// PackSelect, Levels, DailyChallenge, Gameplay). Overlays (Pause, Setting, LevelComplete,
+    /// PackSelect, Levels, DailyChallenge, Gameplay). Overlays (Setting, LevelComplete,
     /// Warning) are opened on top of whatever page is current and closed by their own explicit
     /// action -- they never go on the stack, per the user's own explicit call.
     ///
@@ -118,8 +118,8 @@ namespace FreeFlow.UI
             return typed;
         }
 
-        /// <summary>Opens an overlay (Pause/Setting/LevelComplete/Warning) on top of the current
-        /// page without touching the back-stack.</summary>
+        /// <summary>Opens an overlay (Setting/LevelComplete/Warning) on top of the current page
+        /// without touching the back-stack.</summary>
         public void OpenAsOverlay(PageType type)
         {
             if (pageMap.TryGetValue(type, out Page overlay)) { overlay.Open(); }
