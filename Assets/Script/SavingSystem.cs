@@ -77,7 +77,7 @@ public struct SaveData
     // same pattern GAME_EXPANSION_PLAN §4.4 established for LevelData), so schemaVersion 0->1
     // is a no-op migration. The seam exists so the NEXT structural change has a real place to
     // convert old data instead of inventing versioning under pressure. See SaveData.Migrate.
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
     public int schemaVersion;
 
     /// <summary>Brings a save from whatever <see cref="schemaVersion"/> it was written at up to
@@ -136,6 +136,13 @@ public struct SaveData
                 };
             }
         }
+
+        // 4 -> 5: hints became a spendable balance (hintsRemaining) rather than only a per-level
+        // tally. Nothing to transform: hintsInitialized reads false on any save written before
+        // this, which is exactly the state that makes UIController.EnsureHintBalance hand the
+        // player their opening hints -- the same number a brand-new save gets. The count itself
+        // is authored in the inspector, not here, so a designer can change it without a
+        // migration; false means "never granted", not "granted zero".
 
         data.schemaVersion = CurrentSchemaVersion;
     }
@@ -365,6 +372,20 @@ public struct SaveData
     // interactable once shown).
     public bool vibrationEnabled;
     public bool showHintButton;
+
+    // -- hint balance ------------------------------------------------------------------------
+    //
+    // Hints are spendable: each one taken costs one from this, and at zero the hint button stops
+    // being interactable. Separate from the per-level hint tallies (see HintsForKey), which are
+    // telemetry -- they record where hints were spent and drive the level-complete star rating,
+    // and they only ever grow. This is the wallet; those are the receipts.
+    //
+    // hintsInitialized is what separates "spent every hint" from "never had any": a save written
+    // before hints were spendable, and a save JsonUtility has just defaulted, both read
+    // hintsRemaining as 0, and a returning player must not be handed an empty wallet. It is set
+    // once, when UIController.EnsureHintBalance grants the opening hints, and never cleared.
+    public int hintsRemaining;
+    public bool hintsInitialized;
 
     /// <summary>Highest level finished in <paramref name="mode"/>.</summary>
     public int CompletedLevelFor(FreeFlow.Enums.GameMode mode)

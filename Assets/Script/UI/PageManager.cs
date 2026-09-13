@@ -12,9 +12,12 @@ namespace FreeFlow.UI
     /// touching a page's GameObject directly.
     ///
     /// <see cref="pageStack"/> drives Back-button navigation and holds ONLY full pages (MainMenu,
-    /// PackSelect, Levels, DailyChallenge, Gameplay). Overlays (Pause, Setting, LevelComplete) are
-    /// opened on top of whatever page is current and closed by their own explicit action -- they
-    /// never go on the stack, per the user's own explicit call.
+    /// PackSelect, Levels, DailyChallenge, Gameplay). Overlays (Pause, Setting, LevelComplete,
+    /// Warning) are opened on top of whatever page is current and closed by their own explicit
+    /// action -- they never go on the stack, per the user's own explicit call.
+    ///
+    /// It is also the one place a page reference lives. Anything needing to talk to a page asks
+    /// <see cref="Get{T}"/> for it rather than serializing its own field -- see that method.
     /// </summary>
     public class PageManager : Singleton<PageManager>
     {
@@ -85,8 +88,38 @@ namespace FreeFlow.UI
             pageStack.Peek().Open();
         }
 
-        /// <summary>Opens an overlay (Pause/Setting/LevelComplete) on top of the current page
-        /// without touching the back-stack.</summary>
+        /// <summary>
+        /// The page registered for <paramref name="type"/>, typed. This is how anything that needs
+        /// to TALK to a page -- fill in the level-complete sheet, put a message on the warning
+        /// notifier, refresh the gameplay HUD -- reaches it.
+        ///
+        /// Nothing outside this class should serialize a second reference to a page: the pages
+        /// array here is the registry, and a duplicate reference in another component is one that
+        /// can be left pointing at a stale or missing object while this one still works (or the
+        /// reverse), with nothing to say the two disagree.
+        ///
+        /// Returns null and complains rather than throwing, so a mis-wired Inspector surfaces as a
+        /// named error instead of a NullReferenceException three frames later.
+        /// </summary>
+        public T Get<T>(PageType type) where T : Page
+        {
+            if (!pageMap.TryGetValue(type, out Page page))
+            {
+                Debug.LogError("PageManager: no page registered for " + type);
+                return null;
+            }
+
+            T typed = page as T;
+            if (typed == null)
+            {
+                Debug.LogError("PageManager: " + type + " is a " + page.GetType().Name
+                    + ", not a " + typeof(T).Name + ".");
+            }
+            return typed;
+        }
+
+        /// <summary>Opens an overlay (Pause/Setting/LevelComplete/Warning) on top of the current
+        /// page without touching the back-stack.</summary>
         public void OpenAsOverlay(PageType type)
         {
             if (pageMap.TryGetValue(type, out Page overlay)) { overlay.Open(); }

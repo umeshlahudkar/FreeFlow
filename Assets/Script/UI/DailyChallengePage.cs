@@ -289,17 +289,5 @@ namespace FreeFlow.UI
                 PageManager.Instance.ClosePage();
             }
         }
-
-        /// <summary>Jumps into the first of today's challenges the player has not finished --
-        /// LoadDailyChallenge opens the Gameplay page itself via PageManager, which closes
-        /// whatever page was current (this hub) as part of that same call.</summary>
-        public void OnPlayButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                UIController.Instance.LoadDailyChallenge();
-            }
-        }
     }
 }

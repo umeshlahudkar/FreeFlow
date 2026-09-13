@@ -167,23 +167,14 @@ namespace FreeFlow.UI
         }
 
         /// <summary>Opens the Daily Challenge hub (streak, this week, today's pick) rather than
-        /// jumping straight into gameplay -- actually loading today's level is
-        /// DailyChallengePage.OnPlayButtonClick's job.</summary>
+        /// jumping straight into gameplay -- actually loading a challenge is done by tapping its
+        /// own card on that hub.</summary>
         public void OnDailyChallengeButtonClick()
         {
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 PageManager.Instance.OpenPage(PageType.DailyChallenge);
-            }
-        }
-
-        public void OnQuitButtonClick()
-        {
-            if (InputManager.Instance.CanInput())
-            {
-                AudioManager.Instance.PlayButtonClickSound();
-                Application.Quit();
             }
         }
     }

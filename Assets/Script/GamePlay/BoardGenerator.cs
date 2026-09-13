@@ -302,17 +302,5 @@ namespace FreeFlow.GamePlay
         {
             get { return boardArea != null ? boardArea : thisTransform; }
         }
-
-        /// <summary>
-        /// Clears the board by destroying every cell. A board is built fresh each time rather than
-        /// recycled: the cells were pooled, which meant every visual a mechanic touches had to be
-        /// put back by hand before the object could be handed to the next level, and a single
-        /// missed field showed up as a mechanic bleeding across levels. A new board is 25-64 UI
-        /// objects on a level change, which is not a cost worth that class of bug.
-        /// </summary>
-        public void ResetBoard()
-        {
-            GamePlayController.Instance.ResetBlocks();
-        }
     }
 }

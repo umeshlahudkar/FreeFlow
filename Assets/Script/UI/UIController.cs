@@ -12,40 +12,11 @@ namespace FreeFlow.UI
     /// </summary>
     public class UIController : Singleton<UIController>
     {
-        [Header("Menu Screen")]
-        [SerializeField] private LevelsPage levelScreenController;
-        [SerializeField] private BoardGenerator boardGenerator;
-
-        [Header("Game over Screen")]
-        [SerializeField] private LevelCompletePage levelCompletePage;
-
-        [Header("Gameplay Screen")]
-        // Needed so dismissing the level-complete overlay can refresh the HUD underneath it --
-        // see DismissLevelCompleteOverlay. The page is not re-enabled on dismiss (the overlay was
-        // never on the back-stack), so its own OnEnable would not fire.
-        [SerializeField] private GameplayPage gameplayPage;
-
-        [Header("Gameplay")]
-        // Filled-cells fraction ("16/36 CELLS") and percent ("44%") on the HUD progress card.
-        // gameplayMoveText no longer shows a move count -- the new HUD has no moves readout, see
-        // UpdateMovesCount -- it is repurposed to show the percent instead, so no field/reference
-        // needed to go dead.
-        [SerializeField] private TextMeshProUGUI gameplayPairText;
-        [SerializeField] private TextMeshProUGUI gameplayMoveText;
-        [SerializeField] private Slider gameplaySlider;
-
-        // Turned off on any level with no stored answer (nothing shipped today lacks one, but the
-        // column has always been optional -- see LevelData.solutionPairId). Left visible but not
-        // interactable rather than hidden, so the header does not reshuffle itself between levels.
-        [SerializeField] private Button hintButton;
-
-        [Header("Level Data")]
-        // Counts are authored metadata, not derived from a loaded array -- each level's grid data
-        // lives in its own SingleLevelDataSO under Resources/Levels/<Mode>/, loaded on demand so
-        // memory scales with levels visited, not levels that exist. Keep these in sync when adding
-        // level assets.
-        [SerializeField] private int classicLevelCount;
-        [SerializeField] private int advancedLevelCount;
+        [Header("Hints")]
+        // What a player starts with, granted once per save (see EnsureHintBalance). One balance
+        // for the whole game -- not per level, per pack or per run -- so a hint saved on a Classic
+        // 6x6 level is a hint still available in tomorrow's daily challenge.
+        [SerializeField] private int startingHintCount = 3;
 
         [Header("Packs")]
         // Board sizes that have a generated pack, and how many levels each holds. A pack is a
@@ -182,13 +153,12 @@ namespace FreeFlow.UI
             return packSize > 0 ? mode.ToString() + packSize + "x" + packSize : mode.ToString();
         }
 
+        /// <summary>Levels in the run currently on screen. Every run is a pack, and every pack
+        /// holds <see cref="packLevelCount"/> levels -- the legacy linear campaigns, which had
+        /// their own per-mode totals, no longer have level assets to load.</summary>
         public int TotalLevelCount
         {
-            get
-            {
-                if (currentPackSize > 0) { return packLevelCount; }
-                return CurrentMode == GameMode.Advanced ? advancedLevelCount : classicLevelCount;
-            }
+            get { return packLevelCount; }
         }
 
         /// <summary>
@@ -208,11 +178,6 @@ namespace FreeFlow.UI
                     ? CurrentMode.ToString() + currentPackSize + "x" + currentPackSize
                     : CurrentMode.ToString();
             }
-        }
-
-        public int LevelCountFor(GameMode mode)
-        {
-            return mode == GameMode.Advanced ? advancedLevelCount : classicLevelCount;
         }
 
         /// <summary>
@@ -248,7 +213,7 @@ namespace FreeFlow.UI
                 currentPackSize = available.Length > 0 ? available[0] : 0;
             }
 
-            levelScreenController.SpawnLevelButtons(TotalLevelCount);
+            LevelsScreen.SpawnLevelButtons(TotalLevelCount);
         }
 
         /// <summary>
@@ -259,10 +224,23 @@ namespace FreeFlow.UI
         {
             if (currentPackSize == packSize) { return; }
             currentPackSize = packSize;
-            levelScreenController.SpawnLevelButtons(TotalLevelCount);
+            LevelsScreen.SpawnLevelButtons(TotalLevelCount);
         }
 
         public int CurrentLevelGoal { get { return currentLevelData.pairCount; } }
+
+        // Pages are reached through PageManager, which is the one place their references live --
+        // a second serialized field here is a second thing to keep wired, and a second thing that
+        // can quietly end up pointing somewhere else. See PageManager.Get.
+        private LevelsPage LevelsScreen
+        {
+            get { return PageManager.Instance.Get<LevelsPage>(PageType.Levels); }
+        }
+
+        private GameplayPage GameplayScreen
+        {
+            get { return PageManager.Instance.Get<GameplayPage>(PageType.Gameplay); }
+        }
 
         private void Start()
         {
@@ -277,8 +255,54 @@ namespace FreeFlow.UI
                 currentPackSize = available.Length > 0 ? available[0] : 0;
             }
 
-            levelScreenController.SpawnLevelButtons(TotalLevelCount);
+            LevelsScreen.SpawnLevelButtons(TotalLevelCount);
+
+            // Before any screen can read the balance, so a save that has never held one is never
+            // seen as a save with no hints left.
+            EnsureHintBalance();
         }
+
+        // ---- hints -----------------------------------------------------------------------
+        //
+        // One balance for the whole game, held in the save file rather than here so it survives
+        // the session; this class owns only the opening grant. Spending is GamePlayController's
+        // (see RecordHintUsed) -- it is the thing that knows a hint actually committed to a pair.
+
+        /// <summary>How many hints the player has left, across every mode, pack and run.</summary>
+        public int HintsRemaining
+        {
+            get { return SavingSystem.Instance.Load().hintsRemaining; }
+        }
+
+        /// <summary>Grants <see cref="startingHintCount"/> hints to a save that has never been
+        /// granted any, and does nothing to one that has. Keyed on SaveData.hintsInitialized
+        /// rather than on the balance being 0, so a player who has spent every hint is not handed
+        /// a fresh set on the next level load.</summary>
+        private void EnsureHintBalance()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+            if (data.hintsInitialized) { return; }
+
+            data.hintsRemaining = Mathf.Max(0, startingHintCount);
+            data.hintsInitialized = true;
+            SavingSystem.Instance.Save(data);
+        }
+
+        /// <summary>Puts a short message on screen -- why a tap did nothing, typically -- and lets
+        /// it take itself away again (see WarningNotifier). Composed here, the same way this class
+        /// owns every other piece of wording the screens show, so the same situation cannot be
+        /// described two different ways on two different screens.</summary>
+        public void ShowWarning(string message)
+        {
+            WarningNotifier notifier = PageManager.Instance.Get<WarningNotifier>(PageType.Warning);
+            if (notifier == null) { return; }
+
+            notifier.SetMessage(message);
+            PageManager.Instance.OpenAsOverlay(PageType.Warning);
+        }
+
+        /// <summary>What the hint button says when it is tapped with nothing left to spend.</summary>
+        public string NoHintsMessage { get { return "No More Hints"; } }
 
         // ---- header text -------------------------------------------------------------------
         //
@@ -579,7 +603,6 @@ namespace FreeFlow.UI
                 currentLevel = levelNumber;
 
                 GamePlayController.Instance.ResetGameplay();
-                boardGenerator.ResetBoard();
 
                 if (currentLevelDataAsset != null)
                 {
@@ -603,24 +626,16 @@ namespace FreeFlow.UI
                 PageManager.Instance.CloseOverlay(PageType.LevelComplete);
                 PageManager.Instance.OpenPage(PageType.Gameplay);
 
-                boardGenerator.GenerateBoard(currentLevelData);
+                GamePlayController.Instance.GenerateBoard(currentLevelData);
 
-                // GameplayPage's own OnEnable refreshes its TopPanel title/subtitle and the state
-                // of its prev/next arrows -- OpenPage above already triggered it (it cycles the
-                // page even when Gameplay was already current, see PageManager.OpenPage) -- so no
-                // header text or button state is set directly here.
-                UpdateFilledCells();
-                UpdateMovesCount(0);
-
-                // After GenerateBoard, which is what hands the level's answer over.
-                if (hintButton != null)
-                {
-                    // Show/hide is the player's own Settings-screen preference; interactable is
-                    // still purely GamePlayController.HintAvailable so a shown-but-unusable button
-                    // still refuses a level with no stored answer.
-                    hintButton.gameObject.SetActive(SavingSystem.Instance.Load().showHintButton);
-                    hintButton.interactable = GamePlayController.Instance.HintAvailable;
-                }
+                // GameplayPage's own OnEnable refreshes the whole screen -- header, progress
+                // card, hint button, prev/next buttons -- and OpenPage above already triggered it
+                // (it cycles the page even when Gameplay was already current, see
+                // PageManager.OpenPage). That ran BEFORE GenerateBoard though, so the hint button
+                // was set against the previous level's answer and the progress card against the
+                // previous board; refresh once more now this level's board is actually in place.
+                GameplayPage page = GameplayScreen;
+                if (page != null) { page.Refresh(); }
             }
         }
 
@@ -749,16 +764,6 @@ namespace FreeFlow.UI
             LoadCurrentModeLevel(picks[slot].levelNumber);
         }
 
-        /// <summary>Opens the first of today's daily challenges the player has not finished, or
-        /// the first one if the day is already done -- what a "Play" button with no slot of its
-        /// own should do.</summary>
-        public void LoadDailyChallenge()
-        {
-            EnsureTodayDailyPicks();
-            SaveData data = SavingSystem.Instance.Load();
-            LoadDailyChallenge(Mathf.Max(0, data.FirstUnsolvedDailyChallenge()));
-        }
-
         /// <summary>
         /// Activates the level complete screen and hands it the attempt's real stats (moves,
         /// hints, time, and the pack-progress before this completion -- all read from
@@ -781,9 +786,10 @@ namespace FreeFlow.UI
         /// completion, so the progress bar can show where the player was, not just where they are.</param>
         public void ActivateLevelCompleteScreen(int movesCount, int hintsUsedThisAttempt, float secondsTaken, int oldCompletedLevel)
         {
-            if (levelCompletePage != null)
+            LevelCompletePage page = PageManager.Instance.Get<LevelCompletePage>(PageType.LevelComplete);
+            if (page != null)
             {
-                levelCompletePage.SetLevelCompleteData(movesCount, hintsUsedThisAttempt, secondsTaken, oldCompletedLevel);
+                page.SetLevelCompleteData(movesCount, hintsUsedThisAttempt, secondsTaken, oldCompletedLevel);
             }
             PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
         }
@@ -800,7 +806,6 @@ namespace FreeFlow.UI
         public void RetryCurrentLevel()
         {
             GamePlayController.Instance.ResetGameplay();
-            boardGenerator.ResetBoard();
             PageManager.Instance.CloseOverlay(PageType.Pause);
             // LoadCurrentModeLevel closes the LevelComplete overlay itself before opening Gameplay.
             LoadCurrentModeLevel(currentLevel);
@@ -815,7 +820,6 @@ namespace FreeFlow.UI
         public void GoToMainMenu()
         {
             GamePlayController.Instance.ResetGameplay();
-            boardGenerator.ResetBoard();
 
             PageManager.Instance.CloseOverlay(PageType.Pause);
             PageManager.Instance.CloseOverlay(PageType.LevelComplete);
@@ -844,7 +848,8 @@ namespace FreeFlow.UI
             PageManager.Instance.CloseOverlay(PageType.LevelComplete);
             GamePlayController.Instance.GameState = GameState.Playing;
 
-            if (gameplayPage != null) { gameplayPage.Refresh(); }
+            GameplayPage page = GameplayScreen;
+            if (page != null) { page.Refresh(); }
         }
 
         /// <summary>
@@ -861,51 +866,12 @@ namespace FreeFlow.UI
         public void ExitToRunHome()
         {
             GamePlayController.Instance.ResetGameplay();
-            boardGenerator.ResetBoard();
 
             PageManager.Instance.CloseOverlay(PageType.Pause);
             PageManager.Instance.CloseOverlay(PageType.LevelComplete);
             PageManager.Instance.OpenPage(currentSource == LevelSource.Daily
                 ? PageType.DailyChallenge
                 : PageType.PackSelect);
-        }
-
-        /// <summary>
-        /// Shows how much of the board is filled, on the game screen.
-        ///
-        /// Deliberately cells rather than pairs. Completing a level needs every usable cell
-        /// covered, not just every pair joined, so a pair counter reads "4/4" -- the game
-        /// announcing the level is done -- while the level refuses to end. Players hit exactly
-        /// that and reported it as the game being broken. Cells are the real win condition, so
-        /// showing them means the readout can never claim completion the game will not honour.
-        /// </summary>
-        public void UpdateFilledCells()
-        {
-            GamePlayController controller = GamePlayController.Instance;
-            if (controller == null) { return; }
-
-            int filled = controller.FilledCellCount;
-            int usable = controller.UsableCellCount;
-
-            if (gameplayPairText != null) { gameplayPairText.text = filled + "/" + usable + " CELLS"; }
-            if (gameplayMoveText != null)
-            {
-                int percent = usable > 0 ? Mathf.RoundToInt(100f * filled / usable) : 0;
-                gameplayMoveText.text = percent + "%";
-            }
-            if (gameplaySlider != null)
-            {
-                gameplaySlider.value = usable > 0 ? (float)filled / usable : 0f;
-            }
-        }
-
-        /// <summary>
-        /// The new HUD has no moves readout (see gameplayMoveText, repurposed for the cells
-        /// percent) -- kept as a no-op rather than removed so GamePlayController's per-move call
-        /// site needs no change if a moves display ever comes back.
-        /// </summary>
-        public void UpdateMovesCount(int moves)
-        {
         }
 
     }

@@ -7,15 +7,27 @@ using FreeFlow.Input;
 
 namespace FreeFlow.UI
 {
-    /// <summary>The gameplay screen. Its HUD content (progress slider, hint button) is still
-    /// driven directly by UIController; this page owns the shared TopPanel's title/subtitle and
-    /// the footer's prev/next buttons, both of which it reads straight off UIController rather
-    /// than composing itself -- so the header and the buttons say the same thing here as on the
-    /// level-complete overlay, whether the player came in from a pack or from the daily
-    /// challenge.</summary>
+    /// <summary>The gameplay screen, and the owner of every widget on it: the header, the
+    /// progress card, the hint button and the footer's prev/next buttons. What those widgets SAY
+    /// is still UIController's to decide -- this page reads the wording and the run state straight
+    /// off it rather than composing either itself, so the header and the buttons say the same
+    /// thing here as on the level-complete overlay, whether the player came in from a pack or
+    /// from the daily challenge.</summary>
     public class GameplayPage : Page
     {
         [SerializeField] private TopPanel topPanel;
+
+        [Header("Progress card")]
+        // Cells rather than pairs, deliberately -- see UpdateFilledCells.
+        [SerializeField] private TextMeshProUGUI cellsText;
+        [SerializeField] private TextMeshProUGUI percentText;
+        [SerializeField] private Slider progressSlider;
+
+        [Header("Hint")]
+        // Left interactable with an empty balance on purpose -- see OnHintButtonClick.
+        [SerializeField] private Button hintButton;
+        // The "x3" pill: how many hints are left to spend.
+        [SerializeField] private TextMeshProUGUI hintCountText;
 
         [Header("Level navigation")]
         // The footer's two stepping buttons. Faded and inert rather than hidden when a step is
@@ -65,6 +77,65 @@ namespace FreeFlow.UI
                 ui.HasPrevLevel, ui.PrevStepTitle, ui.PrevStepSubtitle);
             SetStepButton(nextButton, nextGroup, nextTitleText, nextSubtitleText,
                 ui.HasNextLevel, ui.NextStepTitle, ui.NextStepSubtitle);
+
+            RefreshHintButton();
+            UpdateFilledCells();
+        }
+
+        /// <summary>
+        /// Shows how much of the board is filled, on the progress card.
+        ///
+        /// Deliberately cells rather than pairs. Completing a level needs every usable cell
+        /// covered, not just every pair joined, so a pair counter reads "4/4" -- the game
+        /// announcing the level is done -- while the level refuses to end. Players hit exactly
+        /// that and reported it as the game being broken. Cells are the real win condition, so
+        /// showing them means the readout can never claim completion the game will not honour.
+        /// </summary>
+        public void UpdateFilledCells()
+        {
+            GamePlayController controller = GamePlayController.Instance;
+            if (controller == null) { return; }
+
+            int filled = controller.FilledCellCount;
+            int usable = controller.UsableCellCount;
+
+            if (cellsText != null) { cellsText.text = filled + "/" + usable + " CELLS"; }
+            if (percentText != null)
+            {
+                int percent = usable > 0 ? Mathf.RoundToInt(100f * filled / usable) : 0;
+                percentText.text = percent + "%";
+            }
+            if (progressSlider != null)
+            {
+                progressSlider.value = usable > 0 ? (float)filled / usable : 0f;
+            }
+        }
+
+        /// <summary>
+        /// Puts the hint button in the state the save says it should be in: the count on its pill,
+        /// whether it is shown at all, and whether it can be tapped. Called on every level load
+        /// (through <see cref="Refresh"/>) and after every hint spent, so the pill and the button
+        /// can never disagree with the balance behind them.
+        ///
+        /// The balance itself belongs to UIController (one for the whole game, held in the save);
+        /// this only draws it.
+        /// </summary>
+        public void RefreshHintButton()
+        {
+            SaveData data = SavingSystem.Instance.Load();
+
+            if (hintCountText != null) { hintCountText.text = "×" + data.hintsRemaining; }
+
+            if (hintButton == null) { return; }
+
+            // Show/hide is the player's own Settings-screen preference. Interactable is only about
+            // whether the board can be hinted at all (GamePlayController.HintAvailable -- a level
+            // with no stored answer has nothing to show); an empty balance deliberately leaves the
+            // button live, because a tap on it is what raises the "No More Hints" notice. A dead
+            // button would answer the same tap with nothing at all.
+            hintButton.gameObject.SetActive(data.showHintButton);
+            hintButton.interactable = GamePlayController.Instance != null
+                && GamePlayController.Instance.HintAvailable;
         }
 
         /// <summary>One stepping button: what it leads to, and whether it can be taken. A step
@@ -92,18 +163,33 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Joins one pair along the level's own answer. One hint, one pair, no limit on how many
-        /// times it can be used -- the only cost is the move it adds, and a player who taps it for
-        /// every pair has asked to be shown the board rather than to play it.
+        /// Joins one pair along the level's own answer, at the cost of one hint from the player's
+        /// balance and the move it adds to this attempt.
         ///
-        /// A hint that finds nothing to do is silent by design: the board is either already correct
-        /// or has no stored answer, and in the second case the button is not interactable anyway.
+        /// With the balance empty the tap is answered with the "No More Hints" notice instead of
+        /// being swallowed: the button stays interactable in that state on purpose (see
+        /// <see cref="RefreshHintButton"/>), because a player who has just watched the pill count
+        /// down to zero will tap it again, and silence is the one response that explains nothing.
+        ///
+        /// A hint that finds nothing to do IS silent by design: the board is either already
+        /// correct or has no stored answer, and in the second case the button is not interactable
+        /// anyway.
         /// </summary>
         public void OnHintButtonClick()
         {
+            // One CanInput() for the whole tap -- it is a one-shot debounce, so checking it again
+            // further down this call stack would always fail and lose the tap.
             if (InputManager.Instance.CanInput())
             {
                 AudioManager.Instance.PlayButtonClickSound();
+
+                if (UIController.Instance.HintsRemaining <= 0)
+                {
+                    UIController.Instance.ShowWarning(UIController.Instance.NoHintsMessage);
+                    return;
+                }
+
+
                 GamePlayController.Instance.TryApplyHint();
             }
         }

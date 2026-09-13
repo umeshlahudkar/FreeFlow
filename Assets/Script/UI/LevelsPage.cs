@@ -402,8 +402,8 @@ namespace FreeFlow.UI
             }
         }
 
-        /// <summary>Jumps directly to <paramref name="stageIndex"/> -- what the stage tabs (and
-        /// OnLeftButtonClick/OnRightButtonClick) call. Slides the old current page out and the
+        /// <summary>Jumps directly to <paramref name="stageIndex"/> -- what the stage tabs call.
+        /// Slides the old current page out and the
         /// target page in from the appropriate side, the same as a completed swipe, regardless of
         /// how many pages away the target is -- intermediate pages are never instantiated.</summary>
         public void JumpToStage(int stageIndex)
@@ -460,16 +460,6 @@ namespace FreeFlow.UI
                     stageTabTexts[i].fontStyle = isOn ? FontStyles.Bold : FontStyles.Normal;
                 }
             }
-        }
-
-        public void OnRightButtonClick()
-        {
-            JumpToStage(currentstageOnScreen + 1);
-        }
-
-        public void OnLeftButtonClick()
-        {
-            JumpToStage(currentstageOnScreen - 1);
         }
     }
 }

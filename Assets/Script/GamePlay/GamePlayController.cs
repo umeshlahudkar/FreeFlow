@@ -546,7 +546,6 @@ namespace FreeFlow.GamePlay
                 if (selectedBlocks.Count > 1)
                 {
                     moves++;
-                    UIController.Instance.UpdateMovesCount(moves);
                 }
 
                 if (selectedBlocks.Count > 1)
@@ -583,7 +582,7 @@ namespace FreeFlow.GamePlay
         private void CheckForLevelComplete()
         {
             int count = GetPairCompleteCount();
-            UIController.Instance.UpdateFilledCells();
+            if (Hud != null) { Hud.UpdateFilledCells(); }
 
             bool boardFull = IsBoardFullyCovered();
             bool complete = count >= UIController.Instance.CurrentLevelGoal && boardFull;
@@ -1940,6 +1939,27 @@ namespace FreeFlow.GamePlay
             SavingSystem.Instance.Save(data);
         }
 
+        // What builds the board this controller then plays: the cells, their walls and dots,
+        // and the grid handed back through InitGrid. Held here rather than by UIController, which
+        // used to own it only because it owned the gameplay screen too -- BoardGenerator talks to
+        // this class on nearly every line of its own work, and nothing else talks to it at all.
+        [SerializeField] private BoardGenerator boardGenerator;
+
+        /// <summary>The gameplay screen, for the readouts that have to follow the board: the
+        /// progress card and the hint button's count. Asked of PageManager each time rather than
+        /// cached, so this never holds a reference to a page that was rebuilt or never wired --
+        /// the lookup is a dictionary hit, and these are tap- and drag-rate calls, not per-frame
+        /// ones.</summary>
+        private static GameplayPage Hud
+        {
+            get
+            {
+                return PageManager.Instance == null
+                    ? null
+                    : PageManager.Instance.Get<GameplayPage>(PageType.Gameplay);
+            }
+        }
+
         /// <summary>Whether this board can be hinted at all -- see <see cref="SetSolution"/>.</summary>
         public bool HintAvailable
         {
@@ -1963,6 +1983,11 @@ namespace FreeFlow.GamePlay
         {
             if (gameState != GameState.Playing || !HintAvailable) { return false; }
 
+            // Nothing left to spend. The button is already non-interactable in this state (see
+            // GameplayPage.RefreshHintButton), so this is the backstop rather than the gate --
+            // but it is the one that actually protects the balance.
+            if (SavingSystem.Instance.Load().hintsRemaining <= 0) { return false; }
+
             // Mid-drag the board is half-edited and selectedBlocks owns cells that are not in any
             // segment yet; a hint landing in the middle of that would be drawing against state the
             // pointer is still moving. Likewise while an earlier hint is still drawing itself.
@@ -1981,29 +2006,48 @@ namespace FreeFlow.GamePlay
 
             hintRoutine = StartCoroutine(DrawHintPathOverTime(pairId, path));
             RecordHintUsed();
+
+            // The pill on the button says what is left, so it has to move the moment one is spent
+            // -- the player is looking straight at it when they tap.
+            if (Hud != null) { Hud.RefreshHintButton(); }
+
             return true;
         }
 
         /// <summary>
-        /// Credits one hint tap to the level currently playing, the same per-level/per-pack shape
-        /// <see cref="BeginAttempt"/> already uses for attempts. Counted the moment the hint
-        /// commits to a pair -- not when the coroutine finishes drawing it -- since a player who
-        /// tears down the board mid-trace (ResetGameplay stops the routine, see its own doc
-        /// comment) still asked for the hint and still got the move it cost.
+        /// Spends one hint and credits the tap to the level currently playing -- the balance the
+        /// hint button counts down (SaveData.hintsRemaining, one for the whole game) and the
+        /// per-level tally the level-complete star rating reads, in one save write.
+        ///
+        /// Both happen the moment the hint commits to a pair -- not when the coroutine finishes
+        /// drawing it -- since a player who tears down the board mid-trace (ResetGameplay stops
+        /// the routine, see its own doc comment) still asked for the hint and still got the move
+        /// it cost.
+        ///
+        /// The balance is spent even when the tally cannot be attributed to a level, so a hint can
+        /// never be taken for free: the per-level column is the same per-pack shape
+        /// <see cref="BeginAttempt"/> uses for attempts and is only meaningful for a level inside
+        /// the current pack, while the balance belongs to the player, not to any level.
         /// </summary>
         private void RecordHintUsed()
         {
-            if (UIController.Instance == null) { return; }
-            int currentLevel = UIController.Instance.CurrentLevel;
-            int totalLevelCount = UIController.Instance.TotalLevelCount;
-            if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
-
-            string key = UIController.Instance.ProgressKey;
             SaveData data = SavingSystem.Instance.Load();
 
-            int[] hints = EnsureLength(data.HintsForKey(key), totalLevelCount);
-            hints[currentLevel - 1]++;
-            data.SetHintsForKey(key, hints);
+            if (data.hintsRemaining > 0) { data.hintsRemaining--; }
+
+            if (UIController.Instance != null)
+            {
+                int currentLevel = UIController.Instance.CurrentLevel;
+                int totalLevelCount = UIController.Instance.TotalLevelCount;
+
+                if (currentLevel >= 1 && currentLevel <= totalLevelCount)
+                {
+                    string key = UIController.Instance.ProgressKey;
+                    int[] hints = EnsureLength(data.HintsForKey(key), totalLevelCount);
+                    hints[currentLevel - 1]++;
+                    data.SetHintsForKey(key, hints);
+                }
+            }
 
             SavingSystem.Instance.Save(data);
         }
@@ -2217,7 +2261,7 @@ namespace FreeFlow.GamePlay
                 to.HighlightBlockDirection(entry, type, pairId, growFromFarEdge: true);
                 yield return GrowBar(to, entry, halfStep, edge, toCenter);
 
-                UIController.Instance.UpdateFilledCells();
+                if (Hud != null) { Hud.UpdateFilledCells(); }
             }
 
             for (int i = 0; i < path.Count; i++)
@@ -2230,7 +2274,6 @@ namespace FreeFlow.GamePlay
             pairSegments[pairId] = new List<List<Block>> { path };
 
             moves++;
-            UIController.Instance.UpdateMovesCount(moves);
             AudioManager.Instance.PlayPairCompleteSound();
 
             hintRoutine = null;
@@ -2295,8 +2338,23 @@ namespace FreeFlow.GamePlay
 
 
         /// <summary>
-        /// Resets the gameplay state to its initial conditions
+        /// Resets the gameplay state to its initial conditions, board included -- every caller
+        /// wanted both, and a reset that left the old cells standing was never a useful state to
+        /// be in.
         /// </summary>
+        /// <summary>Builds the board for <paramref name="data"/> -- the level load's last step,
+        /// after <see cref="ResetGameplay"/> has cleared whatever was there before.</summary>
+        public void GenerateBoard(LevelData data)
+        {
+            if (boardGenerator == null)
+            {
+                Debug.LogError("GamePlayController: no BoardGenerator assigned -- no board can be built.");
+                return;
+            }
+
+            boardGenerator.GenerateBoard(data);
+        }
+
         public void ResetGameplay()
         {
             moves = 0;
@@ -2326,6 +2384,9 @@ namespace FreeFlow.GamePlay
             isClicked = false;
             hasSelectExistingFromLast = false;
             hasSelectExistingFromMiddle = false;
+
+            // Last: the clearing above reads grid state that this destroys.
+            ResetBlocks();
         }
 
         /// <summary>
