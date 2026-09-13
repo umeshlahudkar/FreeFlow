@@ -3885,7 +3885,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   startingHintCount: 3
   classicPackSizes: 0500000006000000070000000800000009000000
-  advancedPackSizes: 06000000
+  advancedPackSizes: 0600000007000000
   packLevelCount: 100
   currentPackSize: 6
   startingMode: 1
