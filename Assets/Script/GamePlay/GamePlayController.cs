@@ -261,6 +261,7 @@ namespace FreeFlow.GamePlay
                     if(isClicked)
                     {
                         AudioManager.Instance.PlaySFX(SoundType.PathStart);
+                        Haptics.Play(HapticType.Selection);
 
                         HighlightSelectedColorTypeBlock(block, grabbedPairId);
                         Color clr = (block.IsPairBlock && !block.IsSharedGoal)
@@ -559,6 +560,7 @@ namespace FreeFlow.GamePlay
                 if (IsPairSatisfied(selectedBlocks[0].PairId))
                 {
                     AudioManager.Instance.PlaySFX(SoundType.PathComplete);
+                    Haptics.Play(HapticType.Light);
                 }
             }
 
@@ -2275,6 +2277,7 @@ namespace FreeFlow.GamePlay
 
             moves++;
             AudioManager.Instance.PlaySFX(SoundType.PathComplete);
+            Haptics.Play(HapticType.Light);
 
             hintRoutine = null;
 

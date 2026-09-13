@@ -809,6 +809,7 @@ namespace FreeFlow.UI
             // With the sheet, not with the last pair joined: PathComplete already sounds for that,
             // and the two would land on top of each other.
             AudioManager.Instance.PlaySFX(SoundType.LevelComplete);
+            Haptics.Play(HapticType.Success);
             PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
         }
 

@@ -163,6 +163,14 @@ public class SettingPage : Page
         data.vibrationEnabled = isOn;
         SavingSystem.Instance.Save(data);
         SetToggleVisual(vibrationTrackImage, vibrationKnob, isOn);
+
+        // Haptics keep the preference cached rather than re-reading the save on every dot picked
+        // up, so the switch has to tell them it moved.
+        Haptics.SetEnabled(isOn);
+
+        // And then demonstrate it. A switch controlling something you cannot see is only
+        // answerable by feel, so turning it on plays the tap it just enabled.
+        if (isOn) { Haptics.Play(HapticType.Selection); }
     }
 
     public void OnShowHintButtonToggleChanged(bool isOn)

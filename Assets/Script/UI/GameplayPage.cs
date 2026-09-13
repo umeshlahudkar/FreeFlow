@@ -181,6 +181,10 @@ namespace FreeFlow.UI
 
                 if (UIController.Instance.HintsRemaining <= 0)
                 {
+                    // Felt as well as read: the notice explains the refusal, the haptic is what
+                    // tells a player looking at the board rather than the toast that the tap landed
+                    // and was turned down.
+                    Haptics.Play(HapticType.Warning);
                     UIController.Instance.ShowWarning(UIController.Instance.NoHintsMessage);
                     return;
                 }
