@@ -189,6 +189,17 @@ public class SettingPage : Page
         knob.anchoredPosition = new Vector2(isOn ? x : -x, knob.anchoredPosition.y);
     }
 
+    /// <summary>The General card's Share row: promotes the game itself, any time, with no result
+    /// attached -- see ShareService.ShareGame. The level-complete screen's own Share button is a
+    /// different share (a result, with a card image), not this one with different text.</summary>
+    public void OnShareGameClick()
+    {
+        if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
+        AudioManager.Instance.PlayButtonClickSound();
+
+        FreeFlow.Share.ShareService.Instance.ShareGame();
+    }
+
     /// <summary>
     /// Deletes the entire save file -- every pack's progress, the daily-challenge streaks and
     /// history, and the audio/vibration/hint preferences -- then reloads the scene so the whole

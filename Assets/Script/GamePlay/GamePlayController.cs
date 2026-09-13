@@ -2017,7 +2017,7 @@ namespace FreeFlow.GamePlay
         /// <summary>
         /// Spends one hint and credits the tap to the level currently playing -- the balance the
         /// hint button counts down (SaveData.hintsRemaining, one for the whole game) and the
-        /// per-level tally the level-complete star rating reads, in one save write.
+        /// per-level tally the difficulty telemetry reads, in one save write.
         ///
         /// Both happen the moment the hint commits to a pair -- not when the coroutine finishes
         /// drawing it -- since a player who tears down the board mid-trace (ResetGameplay stops

@@ -3,13 +3,14 @@ using UnityEngine.UI;
 using TMPro;
 using FreeFlow.Enums;
 using FreeFlow.Input;
+using FreeFlow.Share;
 
 namespace FreeFlow.UI
 {
     /// <summary>The level-complete (game over) overlay. Opened with PageManager.OpenAsOverlay,
     /// closed with CloseOverlay -- never part of the back-stack. Owns every field this screen's
-    /// content needs -- title/subtitle, next-level subtitle, stat cards, progress bar, star
-    /// rating and streak banner -- rather than UIController holding any of it directly;
+    /// content needs -- title/subtitle, next-level subtitle, stat cards, progress bar and
+    /// streak banner -- rather than UIController holding any of it directly;
     /// <see cref="SetLevelCompleteData"/> is the one entry point UIController calls to fill it
     /// all in.
     ///
@@ -53,18 +54,16 @@ namespace FreeFlow.UI
         [SerializeField] private Slider progressSlider;
         [SerializeField] private TextMeshProUGUI progressLabelText;
 
-        // No underlying scoring system exists (no per-level "best" or points anywhere in
-        // SaveData) -- see freeflow_newui_redesign memory for why. These stars are a display-only
-        // rating derived from hints used this attempt, never persisted, so they can't be confused
-        // with a real save-backed stat.
-        [Header("Star rating (derived, not persisted)")]
-        [SerializeField] private Image[] starImages;
-        [SerializeField] private Sprite starOnSprite;
-        [SerializeField] private Sprite starOffSprite;
-
         [Header("Daily streak")]
         [SerializeField] private GameObject streakBanner;
         [SerializeField] private TextMeshProUGUI streakText;
+
+        // The attempt this screen is currently reporting. Held because Share happens later, on a
+        // tap, and these numbers exist nowhere else by then: moves, time and hints-this-attempt
+        // are never written to the save (see GamePlayController.lastCompletion*), so once
+        // SetLevelCompleteData has drawn them into its labels there is nothing left to read them
+        // back from.
+        private ShareResultData lastResult;
 
         /// <summary>Fills in this screen's content for the attempt that was just completed --
         /// called by UIController.ActivateLevelCompleteScreen right before it opens this overlay.
@@ -103,10 +102,20 @@ namespace FreeFlow.UI
             if (timeStatText != null) { timeStatText.text = FormatTime(secondsTaken); }
             if (hintsStatText != null) { hintsStatText.text = hintsUsedThisAttempt.ToString(); }
 
-            SetStars(hintsUsedThisAttempt);
             SetProgress(ui, oldCompletedLevel);
+
             SetStreakBanner(ui);
             SetNavigation(ui);
+
+            lastResult = new ShareResultData
+            {
+                Headline = ui.LevelHeaderTitle,
+                Subheadline = ui.LevelHeaderSubtitle,
+                Phrase = ui.LevelPhrase,
+                Moves = movesCount,
+                Hints = hintsUsedThisAttempt,
+                Seconds = secondsTaken,
+            };
         }
 
         /// <summary>Shown only on a daily challenge, and worded for whether the DAY is finished --
@@ -148,18 +157,6 @@ namespace FreeFlow.UI
             // about to do, and can never promise a level it would refuse to load.
             if (nextLevelTitleText != null) { nextLevelTitleText.text = ui.NextActionTitle; }
             if (nextLevelSubtitleText != null) { nextLevelSubtitleText.text = ui.NextActionSubtitle; }
-        }
-
-        private void SetStars(int hintsThisAttempt)
-        {
-            if (starImages == null) { return; }
-
-            int earned = hintsThisAttempt <= 0 ? 3 : (hintsThisAttempt <= 2 ? 2 : 1);
-            for (int i = 0; i < starImages.Length; i++)
-            {
-                if (starImages[i] == null) { continue; }
-                starImages[i].sprite = i < earned ? starOnSprite : starOffSprite;
-            }
         }
 
         /// <summary>Fills the progress card for the run the player is in.
@@ -243,6 +240,22 @@ namespace FreeFlow.UI
             {
                 AudioManager.Instance.PlayButtonClickSound();
                 UIController.Instance.GoToMainMenu();
+            }
+        }
+
+        /// <summary>Shares what the player just did -- the level and the attempt's stats, as a
+        /// rendered card plus text (see ShareService.ShareResult). Not the same share as the
+        /// Settings screen's, which promotes the game and has no result to show.
+        ///
+        /// The overlay is deliberately left open behind the share sheet: the player came back from
+        /// sharing to the screen they shared from, and closing it would drop them somewhere they
+        /// did not ask to be.</summary>
+        public void OnShareButtonClick()
+        {
+            if (InputManager.Instance.CanInput())
+            {
+                AudioManager.Instance.PlayButtonClickSound();
+                ShareService.Instance.ShareResult(lastResult);
             }
         }
 

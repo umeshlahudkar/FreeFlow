@@ -310,6 +310,20 @@ namespace FreeFlow.UI
         // overlay can never disagree about what the player is playing -- they were separately
         // composed strings before, and only the gameplay one knew the daily challenge existed.
 
+        /// <summary>The same thing <see cref="LevelHeaderTitle"/> names, written as prose rather
+        /// than as a UI label: "Level 24", "today's Daily Challenge". For text a person READS --
+        /// a shared message, where the header's all-caps reads as shouting rather than as a
+        /// heading.</summary>
+        public string LevelPhrase
+        {
+            get
+            {
+                return currentSource == LevelSource.Daily
+                    ? "today's Daily Challenge"
+                    : "Level " + currentLevel;
+            }
+        }
+
         /// <summary>The big line of the header: which level, or that this is the daily
         /// challenge -- a daily challenge is a whole different run, not "level 37 of a pack",
         /// even though it is drawn from one.</summary>

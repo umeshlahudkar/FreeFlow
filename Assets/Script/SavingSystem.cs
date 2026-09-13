@@ -377,8 +377,8 @@ public struct SaveData
     //
     // Hints are spendable: each one taken costs one from this, and at zero the hint button stops
     // being interactable. Separate from the per-level hint tallies (see HintsForKey), which are
-    // telemetry -- they record where hints were spent and drive the level-complete star rating,
-    // and they only ever grow. This is the wallet; those are the receipts.
+    // telemetry -- they record where hints were spent, as a signal of which levels players
+    // struggle on, and they only ever grow. This is the wallet; those are the receipts.
     //
     // hintsInitialized is what separates "spent every hint" from "never had any": a save written
     // before hints were spendable, and a save JsonUtility has just defaulted, both read
