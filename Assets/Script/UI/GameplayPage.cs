@@ -9,8 +9,8 @@ namespace FreeFlow.UI
 {
     /// <summary>The gameplay screen. Its HUD content (progress slider, hint button) is still
     /// driven directly by UIController; this page owns the shared TopPanel's title/subtitle and
-    /// the prev/next arrows, both of which it reads straight off UIController rather than
-    /// composing itself -- so the header and the arrows say the same thing here as on the
+    /// the footer's prev/next buttons, both of which it reads straight off UIController rather
+    /// than composing itself -- so the header and the buttons say the same thing here as on the
     /// level-complete overlay, whether the player came in from a pack or from the daily
     /// challenge.</summary>
     public class GameplayPage : Page
@@ -18,25 +18,29 @@ namespace FreeFlow.UI
         [SerializeField] private TopPanel topPanel;
 
         [Header("Level navigation")]
-        // Faded and inert rather than hidden when a step is unavailable (level 1, a next level
-        // still behind the unlock frontier, the first/last of today's challenges) so the HUD does
-        // not reshuffle itself as the player moves along it.
+        // The footer's two stepping buttons. Faded and inert rather than hidden when a step is
+        // unavailable (level 1, a next level still behind the unlock frontier, the first/last of
+        // today's challenges) so the footer does not reshuffle itself as the player moves along it.
         [SerializeField] private Button prevButton;
         [SerializeField] private Button nextButton;
 
-        // Which level each arrow leads to ("LEVEL 74"). Short form: there is no room beside an
-        // 88px arrow for the board size, and the header directly above already carries it.
-        [SerializeField] private TextMeshProUGUI prevCaptionText;
-        [SerializeField] private TextMeshProUGUI nextCaptionText;
+        // Each button's two lines: the heading says what the button DOES ("NEXT DAILY"), the
+        // subtitle what it would open ("LEVEL 74 · 6×6"). The same two steps the level-complete
+        // overlay offers, in the shorter wording these narrower buttons can hold -- see
+        // UIController's footer step labels.
+        [SerializeField] private TextMeshProUGUI prevTitleText;
+        [SerializeField] private TextMeshProUGUI prevSubtitleText;
+        [SerializeField] private TextMeshProUGUI nextTitleText;
+        [SerializeField] private TextMeshProUGUI nextSubtitleText;
 
         // The fade. A CanvasGroup rather than the Button's own disabled tint because that only
-        // tints the button's target graphic -- the chevron and the caption are separate graphics
-        // and would stay at full strength, so a locked arrow would read as merely unresponsive.
+        // tints the button's target graphic -- the chevron and both labels are separate graphics
+        // and would stay at full strength, so a locked button would read as merely unresponsive.
         [SerializeField] private CanvasGroup prevGroup;
         [SerializeField] private CanvasGroup nextGroup;
 
         // Faded enough to read as unavailable at a glance, not so faint the level number it names
-        // stops being legible -- the caption is the point of the fade, not a casualty of it.
+        // stops being legible -- the labels are the point of the fade, not a casualty of it.
         [SerializeField, Range(0f, 1f)] private float unavailableAlpha = 0.35f;
 
         // Every load re-opens this page through PageManager, which cycles it (Close then Open)
@@ -57,18 +61,22 @@ namespace FreeFlow.UI
                 topPanel.SetTopPanel(ui.LevelHeaderTitle, ui.LevelHeaderSubtitle);
             }
 
-            SetArrow(prevButton, prevGroup, prevCaptionText, ui.HasPrevLevel, ui.PrevLevelCaption);
-            SetArrow(nextButton, nextGroup, nextCaptionText, ui.HasNextLevel, ui.NextLevelCaption);
+            SetStepButton(prevButton, prevGroup, prevTitleText, prevSubtitleText,
+                ui.HasPrevLevel, ui.PrevStepTitle, ui.PrevStepSubtitle);
+            SetStepButton(nextButton, nextGroup, nextTitleText, nextSubtitleText,
+                ui.HasNextLevel, ui.NextStepTitle, ui.NextStepSubtitle);
         }
 
-        /// <summary>One arrow: what it leads to, and whether it can be taken. A step that names a
-        /// level but cannot be taken (a next level still locked behind the unlock frontier) keeps
-        /// the caption and fades -- the player is told which level is waiting and that it is not
-        /// open yet, rather than being shown a button that silently does nothing.</summary>
-        private void SetArrow(Button button, CanvasGroup group, TextMeshProUGUI caption,
-            bool available, string leadsTo)
+        /// <summary>One stepping button: what it leads to, and whether it can be taken. A step
+        /// that names a level but cannot be taken (a next level still locked behind the unlock
+        /// frontier) keeps its labels and fades -- the player is told which level is waiting and
+        /// that it is not open yet, rather than being shown a button that silently does
+        /// nothing.</summary>
+        private void SetStepButton(Button button, CanvasGroup group, TextMeshProUGUI title,
+            TextMeshProUGUI subtitle, bool available, string doesWhat, string leadsTo)
         {
-            if (caption != null) { caption.text = leadsTo; }
+            if (title != null) { title.text = doesWhat; }
+            if (subtitle != null) { subtitle.text = leadsTo; }
             if (button != null) { button.interactable = available; }
             if (group != null) { group.alpha = available ? 1f : unavailableAlpha; }
         }
@@ -100,10 +108,11 @@ namespace FreeFlow.UI
             }
         }
 
-        /// <summary>Steps to the previous/next level without leaving gameplay. What "previous" and
-        /// "next" mean is UIController's call, not this page's: within a pack they are level
-        /// numbers (Next respecting the same unlock frontier the level grid enforces), within a
-        /// daily challenge they are the other challenges of the same day.</summary>
+        /// <summary>Steps to the previous/next level without leaving gameplay -- the footer's two
+        /// arrow buttons. What "previous" and "next" mean is UIController's call, not this page's:
+        /// within a pack they are level numbers (Next respecting the same unlock frontier the
+        /// level grid enforces), within a daily challenge they are the other challenges of the
+        /// same day.</summary>
         public void OnPrevLevelClick()
         {
             if (InputManager.Instance.CanInput() && UIController.Instance.HasPrevLevel)

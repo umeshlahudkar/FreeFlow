@@ -349,40 +349,77 @@ namespace FreeFlow.UI
             }
         }
 
-        // ---- gameplay HUD arrow captions ----------------------------------------------------
+        // ---- gameplay footer step labels -----------------------------------------------------
         //
-        // The short form, for the 88px arrows flanking the HUD card -- there is no room beside
-        // them for the board size the level-complete overlay's buttons carry, and the header
-        // directly above already states it.
+        // The footer's two stepping buttons, which say the same things as the level-complete
+        // overlay's pair. The subtitle uses a tighter separator than the overlay's: 320px of
+        // button with a 100px chevron in it leaves about 215px of text, where the overlay's
+        // primary button has 480, and the wider spacing pushes the longest daily subtitle onto
+        // a second line.
         //
-        // These name the level that EXISTS either side of this one, whether or not it can be
-        // opened yet: a next level the player has not unlocked still says which level it is, and
-        // the arrow is faded and inert instead (see HasNextLevel, and GameplayPage.Refresh). Only
-        // a genuine end of the run -- the first/last level of a pack, the first/last challenge of
-        // a day -- gives an empty caption, because then there is no such level to name.
+        // Next is deliberately not NextActionTitle/NextActionSubtitle: that pair turns into a way
+        // OUT of the run at the end of a pack or a day, which the footer's button does not do (it
+        // fades instead), so borrowing it would have the footer promise "CHOOSE A PACK" on a
+        // button that refuses the tap.
+        //
+        // A subtitle names the level that EXISTS either side of this one whether or not it can be
+        // opened yet: a next level still behind the unlock frontier is named and the button faded
+        // (see HasNextLevel, and GameplayPage.Refresh), so the player is told what is waiting
+        // rather than shown a button that silently does nothing. Only a genuine end of the run --
+        // the pack's first/last level, the day's first/last challenge -- empties it, because then
+        // there is no such level to name.
 
-        public string PrevLevelCaption
+        public string PrevStepTitle
+        {
+            get { return currentSource == LevelSource.Daily ? "PREV CHALLENGE" : "PREV LEVEL"; }
+        }
+
+        public string NextStepTitle
+        {
+            get { return currentSource == LevelSource.Daily ? "NEXT CHALLENGE" : "NEXT LEVEL"; }
+        }
+
+        public string PrevStepSubtitle
         {
             get
             {
                 if (currentSource == LevelSource.Daily)
                 {
-                    return dailyIndex > 0 ? "DAILY " + dailyIndex : "";
+                    if (dailyIndex <= 0) { return ""; }
+                    DailyPick prev = dailyPicks[dailyIndex - 1];
+                    return "DAILY " + dailyIndex + " OF " + DailyCount
+                         + " · " + prev.packSize + "×" + prev.packSize;
                 }
-                return currentLevel > 1 ? "LEVEL " + (currentLevel - 1) : "";
+
+                if (currentLevel <= 1) { return ""; }
+
+                return "LEVEL " + (currentLevel - 1) + PackSizeSuffix;
             }
         }
 
-        public string NextLevelCaption
+        public string NextStepSubtitle
         {
             get
             {
                 if (currentSource == LevelSource.Daily)
                 {
-                    return dailyIndex < DailyCount - 1 ? "DAILY " + (dailyIndex + 2) : "";
+                    if (dailyIndex >= DailyCount - 1) { return ""; }
+                    DailyPick next = dailyPicks[dailyIndex + 1];
+                    return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount
+                         + " · " + next.packSize + "×" + next.packSize;
                 }
-                return currentLevel < TotalLevelCount ? "LEVEL " + (currentLevel + 1) : "";
+
+                if (currentLevel >= TotalLevelCount) { return ""; }
+
+                return "LEVEL " + (currentLevel + 1) + PackSizeSuffix;
             }
+        }
+
+        /// <summary>" · 6×6", or nothing at all for a pack whose size is unknown -- a bare
+        /// trailing separator would read as a truncated label.</summary>
+        private string PackSizeSuffix
+        {
+            get { return currentPackSize > 0 ? " · " + currentPackSize + "×" + currentPackSize : ""; }
         }
 
         /// <summary>The heading on the level-complete overlay's primary button. It is the same
