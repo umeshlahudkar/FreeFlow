@@ -38,8 +38,13 @@ public class SettingPage : Page
     // instead of waiting for UTC midnight. The fields are declared unconditionally so the scene
     // wiring stays valid in every build configuration -- it is the SECTION and the LOGIC that are
     // gated, in RefreshDeveloperSection and OnDailyResetSecondsChanged. In a build without DEBUG
-    // the section is switched off and the handler compiles away to nothing.
+    // both objects are switched off and the handler compiles away to nothing.
+    //
+    // The heading is its own field because this screen lays every section out as a Label_X/Card_X
+    // pair of SIBLINGS rather than nesting the label inside the card, so hiding the card alone
+    // leaves the heading behind.
     [Header("Developer (DEBUG builds only)")]
+    [SerializeField] private GameObject developerHeading;
     [SerializeField] private GameObject developerSection;
     [SerializeField] private TMP_InputField dailyResetSecondsInput;
     [SerializeField] private TextMeshProUGUI dailyResetStatusText;
@@ -91,10 +96,8 @@ public class SettingPage : Page
     /// build, which is exactly the split wanted here.</summary>
     private void RefreshDeveloperSection()
     {
-        if (developerSection == null) { return; }
-
 #if DEBUG
-        developerSection.SetActive(true);
+        SetDeveloperVisible(true);
 
         int seconds = FreeFlow.GamePlay.DailyChallengeSelector.DebugDayLengthSeconds;
         if (dailyResetSecondsInput != null)
@@ -105,8 +108,23 @@ public class SettingPage : Page
         }
         SetDailyResetStatus(seconds);
 #else
-        developerSection.SetActive(false);
+        SetDeveloperVisible(false);
 #endif
+    }
+
+    /// <summary>Switches the developer block on or off as a unit -- the "DEVELOPER" heading as
+    /// well as the card under it.
+    ///
+    /// Both are needed because they are siblings, not parent and child: every section on this
+    /// screen is a Label_X/Card_X pair under Content. Hiding only the card left "DEVELOPER"
+    /// sitting above the version line in a release build, heading nothing at all.
+    ///
+    /// Each reference is guarded separately rather than behind one early return, so a missing
+    /// wire on one of them cannot silently leave the other one showing.</summary>
+    private void SetDeveloperVisible(bool visible)
+    {
+        if (developerHeading != null) { developerHeading.SetActive(visible); }
+        if (developerSection != null) { developerSection.SetActive(visible); }
     }
 
     /// <summary>Applies a typed daily-reset period, in seconds. Blank or 0 restores real calendar

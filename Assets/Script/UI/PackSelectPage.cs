@@ -52,7 +52,7 @@ namespace FreeFlow.UI
 
                 PackCard card = Instantiate(packCardPrefab, packCardParent);
                 card.gameObject.SetActive(true);
-                card.SetDetails(size, completed, total);
+                card.SetDetails(mode, size, completed, total);
                 spawnedCards.Add(card);
             }
 

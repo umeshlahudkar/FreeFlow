@@ -31,15 +31,30 @@ namespace FreeFlow.UI
         [Header("Pack Icon Thumbnails (index 0 = 5x5 .. index 4 = 9x9)")]
         [SerializeField] private Sprite[] thumbSprites;
 
+        [Header("Difficulty Tag")]
+        // Breathing room each side of the label, and the pill's fixed height. The pill sprite is a
+        // stadium (its 9-slice border spans the full sprite height), so the ends stay semicircular
+        // at any height and only the width has to be computed.
+        private const float TagSidePadding = 34f;
+        private const float TagHeight = 46f;
+
+        [SerializeField] private PackMetadataSO packMetadata;
+        [SerializeField] private GameObject difficultyTag;
+        [SerializeField] private Image difficultyTagBackground;
+        [SerializeField] private TextMeshProUGUI difficultyTagLabel;
+
         private int packSize;
 
-        public void SetDetails(int packSize, int completed, int total)
+        public void SetDetails(GameMode mode, int packSize, int completed, int total)
         {
             this.packSize = packSize;
 
             if (iconImage != null) { iconImage.sprite = ThumbSpriteFor(packSize); }
             if (sizeText != null) { sizeText.text = packSize + "×" + packSize; }
-            if (subtitleText != null) { subtitleText.text = (packSize * packSize) + " cells"; }
+
+            // Writes the subtitle as well as the tag -- the colour range lives in the same
+            // authored entry as the tier, so both are set in one place or neither is.
+            ApplyDifficultyTag(mode, packSize);
 
             if (fractionText != null) { fractionText.text = completed + "/" + total; }
             int percent = total > 0 ? Mathf.RoundToInt(100f * completed / total) : 0;
@@ -50,6 +65,60 @@ namespace FreeFlow.UI
 
             if (actionIconPlay != null) { actionIconPlay.SetActive(!isDone); }
             if (actionIconDone != null) { actionIconDone.SetActive(isDone); }
+        }
+
+        /// <summary>
+        /// The tier tab across the card's top edge.
+        ///
+        /// The tier is read from PackMetadataSO rather than derived: it is deliberately authored,
+        /// because the measured LevelData.difficultyScore comes out nearly flat and non-monotonic
+        /// across the shipped packs -- see that asset's own doc comment.
+        ///
+        /// A pack with no authored entry hides the tab rather than showing a tier it was never
+        /// given: a board size added to UIController before it is authored here should read as
+        /// unlabelled, not as "EASY".
+        ///
+        /// The entry also carries the pack's pair-count range. Nothing draws it at the moment --
+        /// the card was cut back to icon, size, tag, bar and count -- but it stays authored so it
+        /// costs nothing to put back.
+        /// </summary>
+        private void ApplyDifficultyTag(GameMode mode, int packSize)
+        {
+            PackMetadataSO.Entry entry = packMetadata != null ? packMetadata.For(mode, packSize) : null;
+
+            if (entry == null)
+            {
+                if (difficultyTag != null) { difficultyTag.SetActive(false); }
+                return;
+            }
+
+            if (difficultyTag != null) { difficultyTag.SetActive(true); }
+
+            PackMetadataSO.TierStyle style = packMetadata.StyleFor(entry.tier);
+            if (style == null) { return; }
+
+            if (difficultyTagBackground != null) { difficultyTagBackground.color = style.background; }
+            if (difficultyTagLabel == null) { return; }
+
+            difficultyTagLabel.text = style.label;
+            difficultyTagLabel.color = style.text;
+
+            // The pill hugs its own label, measured here rather than by a ContentSizeFitter and a
+            // HorizontalLayoutGroup. Those cost a layout rebuild on a screen that otherwise needs
+            // none, and they measured this label wrong anyway -- the group reported a preferred
+            // width of 448 for text 67 wide. ForceMeshUpdate is required because preferredValues
+            // reads the mesh TMP has generated, and the text was assigned on the line above: with
+            // no update the first card would be sized from whatever label the template carried.
+            difficultyTagLabel.ForceMeshUpdate();
+            float labelWidth = difficultyTagLabel.preferredWidth;
+
+            RectTransform pill = difficultyTagBackground != null
+                ? difficultyTagBackground.rectTransform
+                : null;
+            if (pill != null)
+            {
+                pill.sizeDelta = new Vector2(labelWidth + TagSidePadding * 2f, TagHeight);
+            }
         }
 
         /// <summary>The size-appropriate grid-preview thumbnail. Clamps into the 5x5-9x9 range
