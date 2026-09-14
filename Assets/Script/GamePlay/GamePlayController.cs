@@ -1625,11 +1625,16 @@ namespace FreeFlow.GamePlay
         /// nothing. Walking up means any raycastable graphic in the cell -- the hit area, or a child
         /// that gets raycastTarget turned on later -- finds the same cell.
         ///
-        /// A cell still needs at least one raycast target to be hit at all. That is the invisible
-        /// full-cell Image on the root: alpha 0, so it draws nothing, with the CanvasRenderer's
-        /// transparent-mesh culling turned OFF, because GraphicRaycaster skips a graphic whose mesh
-        /// has been culled and a fully transparent one would be. Delete that Image and the board
-        /// stops responding to touch entirely.
+        /// A cell still needs at least one raycast target to be hit at all. That is the full-cell
+        /// NonDrawingGraphic on the root. It emits no mesh, so unlike the alpha-0 Image it replaced
+        /// it costs no vertices and no blended fill, while the hit test is unaffected -- that works
+        /// off the RectTransform, not the mesh.
+        ///
+        /// The CanvasRenderer's transparent-mesh culling must stay OFF. GraphicRaycaster skips any
+        /// graphic whose mesh has been culled, and an empty mesh is precisely what that culling
+        /// looks for -- so turning it on, or removing this component, stops the board responding to
+        /// touch entirely. (Unity still assigns the graphic a real depth despite the empty mesh,
+        /// which is the other half of why this works; verified on 6000.3 against all 81 cells.)
         /// </summary>
         private Block BlockFromHit(RaycastResult hit)
         {

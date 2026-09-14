@@ -12,6 +12,14 @@ namespace FreeFlow.GamePlay
     {
         [SerializeField] private Image blockBgHighlightImage;
 
+        // The plain white sprite this cell's background and path wash draw with, and the reason
+        // it exists at all: it lives in Atlas_Gameplay alongside the bars, dots and markers. An
+        // Image with NO sprite draws from Unity's built-in white texture instead, which is a
+        // different texture from the atlas page -- so a sprite-less cell background breaks the
+        // board's batch twice per cell, once entering the cell and once leaving it. Assigning a
+        // sprite that is already on the page is what lets the whole board batch together.
+        [SerializeField] private Sprite cellBackgroundSprite;
+
         [SerializeField] private Image[] directionImages;
 
         // Everything below is a MECHANIC-SPECIFIC visual: most cells on a board are Normal and
@@ -1172,11 +1180,29 @@ namespace FreeFlow.GamePlay
             ApplyCapScale(idx, capRadius);
 
             float fraction = directionBarFraction[idx];
+
+            // A bar of zero length draws nothing, but an ENABLED Graphic is still a live
+            // CanvasRenderer: it stays registered with the canvas and gets walked every time that
+            // canvas rebuilds its batches. With four bars per cell that is four renderers per cell
+            // sitting in the batch permanently -- 324 of them on a 9x9, the largest board shipped
+            // -- and the live drag preview dirties the canvas on every frame a finger is moving,
+            // so the whole lot was being re-batched at drag rate to redraw one or two bars.
+            //
+            // Disabling the IMAGE unregisters it from the canvas; disabling the GameObject is what
+            // used to pop the bars on and off, so the GameObject deliberately stays active. Nothing
+            // reads these images' enabled state and the only tween that touches them is DOKill, so
+            // a disabled bar needs nothing re-found or re-initialised when it comes back -- colour
+            // set while disabled (HighlightBlockDirection) simply applies when it is re-enabled.
+            Image barImage = directionImages[idx];
+
             if (fraction <= 0f)
             {
                 barRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 0f);
+                if (barImage.enabled) { barImage.enabled = false; }
                 return;
             }
+
+            if (!barImage.enabled) { barImage.enabled = true; }
 
             float length = fullLength * fraction;
 
@@ -1446,8 +1472,11 @@ namespace FreeFlow.GamePlay
             blockBgHighlightImage.gameObject.SetActive(true);
 
             // A plain fill: this image is shared with the obstacle art, so a cell that was drawn
-            // as blocked has to drop that sprite before it can carry a path wash.
-            blockBgHighlightImage.sprite = null;
+            // as blocked has to drop that sprite before it can carry a path wash. It drops back to
+            // the plain white ATLAS sprite rather than to null, because null would silently move
+            // this image onto Unity's built-in white texture and break the board's batch on every
+            // cell the player washes.
+            blockBgHighlightImage.sprite = cellBackgroundSprite;
 
             Color color = GamePlayController.Instance.GetColor(HighlightedColorType);
             color.a = PathHighlightAlpha;

@@ -1,0 +1,123 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!687078895 &4343727234628468602
+SpriteAtlas:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Atlas_Gameplay
+  m_EditorData:
+    serializedVersion: 2
+    textureSettings:
+      serializedVersion: 2
+      anisoLevel: 0
+      compressionQuality: 0
+      maxTextureSize: 0
+      textureCompression: 0
+      filterMode: 1
+      generateMipMaps: 0
+      readable: 0
+      crunchedCompression: 0
+      sRGB: 1
+    platformSettings:
+    - serializedVersion: 4
+      m_BuildTarget: DefaultTexturePlatform
+      m_MaxTextureSize: 2048
+      m_ResizeAlgorithm: 0
+      m_TextureFormat: -1
+      m_TextureCompression: 1
+      m_CompressionQuality: 50
+      m_CrunchedCompression: 0
+      m_AllowsAlphaSplitting: 0
+      m_Overridden: 0
+      m_IgnorePlatformSupport: 0
+      m_AndroidETC2FallbackOverride: 0
+      m_ForceMaximumCompressionQuality_BC6H_BC7: 0
+    - serializedVersion: 4
+      m_BuildTarget: Android
+      m_MaxTextureSize: 2048
+      m_ResizeAlgorithm: 0
+      m_TextureFormat: 48
+      m_TextureCompression: 1
+      m_CompressionQuality: 50
+      m_CrunchedCompression: 0
+      m_AllowsAlphaSplitting: 0
+      m_Overridden: 1
+      m_IgnorePlatformSupport: 0
+      m_AndroidETC2FallbackOverride: 0
+      m_ForceMaximumCompressionQuality_BC6H_BC7: 0
+    - serializedVersion: 4
+      m_BuildTarget: iOS
+      m_MaxTextureSize: 2048
+      m_ResizeAlgorithm: 0
+      m_TextureFormat: 48
+      m_TextureCompression: 1
+      m_CompressionQuality: 50
+      m_CrunchedCompression: 0
+      m_AllowsAlphaSplitting: 0
+      m_Overridden: 1
+      m_IgnorePlatformSupport: 0
+      m_AndroidETC2FallbackOverride: 0
+      m_ForceMaximumCompressionQuality_BC6H_BC7: 0
+    packingSettings:
+      serializedVersion: 2
+      padding: 4
+      blockOffset: 0
+      allowAlphaSplitting: 0
+      enableRotation: 0
+      enableTightPacking: 0
+      enableAlphaDilation: 0
+    secondaryTextureSettings: {}
+    variantMultiplier: 1
+    packables:
+    - {fileID: 21300000, guid: 99c4e38c9db05da4684c7fbb2ae74d42, type: 3}
+    - {fileID: 21300000, guid: 34b21be0a062f738dead11806e963690, type: 3}
+    - {fileID: 21300000, guid: fec17c206ab056dadeaca36065e131e2, type: 3}
+    - {fileID: 21300000, guid: 680d997434afec25dea90046a9260f61, type: 3}
+    - {fileID: 21300000, guid: 55e690c855884377b89755a49413db63, type: 3}
+    - {fileID: 21300000, guid: 822586a802f709f7deadf5a6bc965173, type: 3}
+    - {fileID: 21300000, guid: cf47328d89af4c92af412049ee93a924, type: 3}
+    - {fileID: 21300000, guid: 0c52d2c7c110463e807ca0961dbc2db8, type: 3}
+    - {fileID: 21300000, guid: ef3d35edb6eda714babd0371b0b91ea2, type: 3}
+    - {fileID: 21300000, guid: 8d719f7935dc40144a0a9a2301f89c2c, type: 3}
+    bindAsDefault: 1
+    isAtlasV2: 0
+    cachedData: {fileID: 0}
+    packedSpriteRenderDataKeys:
+    - fec17c206ab056dadeaca36065e131e2: 21300000
+    - 34b21be0a062f738dead11806e963690: 21300000
+    - 680d997434afec25dea90046a9260f61: 21300000
+    - 0c52d2c7c110463e807ca0961dbc2db8: 21300000
+    - 822586a802f709f7deadf5a6bc965173: 21300000
+    - 55e690c855884377b89755a49413db63: 21300000
+    - 8d719f7935dc40144a0a9a2301f89c2c: 21300000
+    - 99c4e38c9db05da4684c7fbb2ae74d42: 21300000
+    - cf47328d89af4c92af412049ee93a924: 21300000
+    - ef3d35edb6eda714babd0371b0b91ea2: 21300000
+  m_MasterAtlas: {fileID: 0}
+  m_PackedSprites:
+  - {fileID: 21300000, guid: fec17c206ab056dadeaca36065e131e2, type: 3}
+  - {fileID: 21300000, guid: 34b21be0a062f738dead11806e963690, type: 3}
+  - {fileID: 21300000, guid: 680d997434afec25dea90046a9260f61, type: 3}
+  - {fileID: 21300000, guid: 0c52d2c7c110463e807ca0961dbc2db8, type: 3}
+  - {fileID: 21300000, guid: 822586a802f709f7deadf5a6bc965173, type: 3}
+  - {fileID: 21300000, guid: 55e690c855884377b89755a49413db63, type: 3}
+  - {fileID: 21300000, guid: 8d719f7935dc40144a0a9a2301f89c2c, type: 3}
+  - {fileID: 21300000, guid: 99c4e38c9db05da4684c7fbb2ae74d42, type: 3}
+  - {fileID: 21300000, guid: cf47328d89af4c92af412049ee93a924, type: 3}
+  - {fileID: 21300000, guid: ef3d35edb6eda714babd0371b0b91ea2, type: 3}
+  m_PackedSpriteNamesToIndex:
+  - mark_bridge
+  - mark_arrow
+  - mark_checkpoint
+  - cell_blocked_hatch
+  - edge_wall
+  - edge_oneway
+  - cell_white
+  - PathCapsule
+  - edge_wall_vertical
+  - play_progress_knob
+  m_RenderDataMap: {}
+  m_Tag: Atlas_Gameplay
+  m_IsVariant: 0
