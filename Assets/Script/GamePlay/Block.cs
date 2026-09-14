@@ -111,7 +111,22 @@ namespace FreeFlow.GamePlay
         // by too little to read as stripes at all; 0.42 opens that gap while keeping the cell
         // clearly deader than any path colour.
         private static readonly Color BlockedColor = new Color(0.42f, 0.42f, 0.42f, 1f);
-        private static readonly Color ArrowMarkerColor = new Color(1f, 1f, 1f, 0.85f);
+
+        // The markers whose rule belongs to NO particular pair -- the arrow, the bridge and the
+        // one-way bar -- carry their colour on their own prefab's Image (BlockParts/BlockArrowMarker,
+        // BlockBridgeMarker, BlockOneWay) and nothing here overwrites it. That is deliberate: the
+        // tint is authored art, one prefab per mechanic, so it can be changed without touching code.
+        // Anything added here that sets .color on those images silently takes that control away
+        // again -- which is exactly how they ended up white on a white board: they were tinted for
+        // the old dark board, and a code assignment kept them white after it went light.
+        //
+        // Pair-neutral is why they cannot take a pair colour: the rule applies to whatever colour
+        // is passing through, so tinting one of them Red would be a lie. The shade they carry is
+        // the app's own ink, near-neutral, which no pair in PairColorData.asset is.
+        //
+        // Checkpoint and the permission border are the exception and stay code-driven, because
+        // their colour is DATA rather than art -- the pair each one names (a checkpoint's colour is
+        // the only thing telling two checkpoints on one board apart), which no prefab can hold.
 
         private int row_ID;
         private int coloum_ID;
@@ -675,11 +690,12 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Shows the arrow marker, pointing the way a path is forced to leave. Neutral white: the
-        /// rule applies to every pair, so tinting it to one would be a lie. This is the one marker
-        /// whose meaning is its rotation, which is why the arrow glyph is reserved for it -- a
-        /// OneWay cell marks its entry EDGE instead, so the two directional mechanics never look
-        /// alike. The base sprite points UP; MarkerRotationFor turns it from there.
+        /// Shows the arrow marker, pointing the way a path is forced to leave. Its colour comes
+        /// from BlockArrowMarker.prefab and is left alone here -- pair-neutral, because the rule
+        /// applies to every pair, so tinting it to one would be a lie. This is the one marker whose
+        /// meaning is its rotation, which is why the arrow glyph is reserved for it -- a OneWay cell
+        /// marks its entry EDGE instead, so the two directional mechanics never look alike. The base
+        /// sprite points UP; MarkerRotationFor turns it from there.
         /// </summary>
         private void ShowArrowMarker()
         {
@@ -687,20 +703,18 @@ namespace FreeFlow.GamePlay
 
             arrowMarkerImage.gameObject.SetActive(true);
             arrowMarkerImage.transform.localEulerAngles = new Vector3(0, 0, MarkerRotationFor(forcedExitDirection));
-            arrowMarkerImage.color = ArrowMarkerColor;
         }
 
         /// <summary>
         /// Shows the bridge marker: a crossing, marking a cell two pairs may share on strict
-        /// terms. Plain white -- the rule applies to whichever two pairs cross here, so tinting it
-        /// to either would be a lie, same reasoning as the arrow.
+        /// terms. Colour comes from BlockBridgeMarker.prefab -- pair-neutral, because the rule
+        /// applies to whichever two pairs cross here, so tinting it to either would be a lie.
         /// </summary>
         private void ShowBridgeMarker()
         {
             if (EnsureBridgeMarker() == null) { return; }
 
             bridgeMarkerImage.gameObject.SetActive(true);
-            bridgeMarkerImage.color = Color.white;
         }
 
         /// <summary>
