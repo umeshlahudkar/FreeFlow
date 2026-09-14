@@ -22,6 +22,12 @@ namespace FreeFlow.Enums
 
         // The toast that explains why something a player just tapped did not happen -- see
         // WarningNotifier.
-        Warning
+        Warning,
+
+        // Developer tools screen, reached from the Settings screen's own DEVELOPER row (which is
+        // itself hidden in a FINAL_BUILD). An overlay like Setting, opened on top of it, so
+        // closing it returns to Settings rather than popping whatever page is underneath. Added at
+        // the END, per the warning above.
+        Developer
     }
 }

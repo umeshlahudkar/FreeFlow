@@ -125,15 +125,31 @@ namespace FreeFlow.UI
         // Everything here keys off UTC calendar days, same as DailyChallengeSelector/SaveData's
         // streak fields -- mixing in local-time day boundaries would let this chain disagree with
         // the streak count it is illustrating right at midnight.
+        //
+        // Every column's day index is worked out by ARITHMETIC from today's, never by asking
+        // DailyChallengeSelector.DayIndex for the index of a calendar date. The two are the same
+        // thing only while a day really is a day: under the developer screen's compressed-day
+        // override a date-derived index lands thousands of periods away from the live one, so the
+        // "today" ring matched no day at all and no solved day ever lit up -- the whole row sat
+        // frozen while the challenges, tallies and countdown beside it reset every few seconds.
+        // In a normal build the arithmetic is exactly equivalent (consecutive dates differ by one
+        // index), so nothing about a real week changes.
         private void RefreshWeekChain(SaveData data)
         {
             System.DateTime todayUtc = System.DateTime.UtcNow.Date;
-            int todayIndex = DailyChallengeSelector.DayIndex(todayUtc);
+            int todayIndex = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
 
             // DayOfWeek.Sunday == 0 in .NET; remap so Monday is the first column, matching the
             // reference's M T W T F S S ordering.
-            int todayDow = ((int)todayUtc.DayOfWeek + 6) % 7;
-            System.DateTime monday = todayUtc.AddDays(-todayDow);
+            int calendarDow = ((int)todayUtc.DayOfWeek + 6) % 7;
+            System.DateTime monday = todayUtc.AddDays(-calendarDow);
+
+            // Which column today occupies. A compressed day has no weekday to take it from --
+            // seven of them can pass inside a minute, so a column picked from DayOfWeek would not
+            // move for a whole real day. Stepping one column per period is what makes the row
+            // show the roll-over the override exists to demonstrate.
+            bool compressed = DailyChallengeSelector.DayIsCompressed;
+            int todayDow = compressed ? Mod(todayIndex, 7) : calendarDow;
 
             bool hasStreak = data.dailyChallengeStreak > 0;
             int runStart = hasStreak ? data.dailyChallengeLastCompletedDay - data.dailyChallengeStreak + 1 : int.MaxValue;
@@ -142,12 +158,16 @@ namespace FreeFlow.UI
             int solvedCount = 0;
             for (int i = 0; i < 7; i++)
             {
-                System.DateTime day = monday.AddDays(i);
-                int dayIndex = DailyChallengeSelector.DayIndex(day);
+                int dayIndex = todayIndex - todayDow + i;
 
                 if (dayNumbers != null && i < dayNumbers.Length && dayNumbers[i] != null)
                 {
-                    dayNumbers[i].text = day.Day.ToString();
+                    // The caption is a date for real days. A compressed period has no date, so it
+                    // shows the day index's own last two digits instead -- a number that actually
+                    // ticks, rather than a date that would sit still all session.
+                    dayNumbers[i].text = compressed
+                        ? Mod(dayIndex, 100).ToString()
+                        : monday.AddDays(i).Day.ToString();
                 }
 
                 bool solved = hasStreak && dayIndex >= runStart && dayIndex <= runEnd;
@@ -173,6 +193,14 @@ namespace FreeFlow.UI
                 // indicator for where in the week today sits, independent of solve state.
                 chainSlider.value = (todayDow + 0.5f) / 7f;
             }
+        }
+
+        /// <summary>Non-negative remainder. C#'s % keeps the sign of the dividend, which would put
+        /// a negative column index on the row if a day index ever sat below the start of its own
+        /// week -- the arithmetic above can reach one week back from today.</summary>
+        private static int Mod(int value, int m)
+        {
+            return ((value % m) + m) % m;
         }
 
         /// <summary>Instantiates (once) or refreshes one LevelButton per daily challenge the day

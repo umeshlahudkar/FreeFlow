@@ -17,9 +17,9 @@ namespace FreeFlow.Tests
         private const int TestSalt = 424242;
         private const int OtherSalt = 13;
 
-#if DEBUG
-        // DayIndex has a developer override (Settings > DEVELOPER) that compresses a "day" into a
-        // few seconds, and it persists in PlayerPrefs -- so a developer who left it on would
+#if !FINAL_BUILD
+        // DayIndex has a developer override (Settings > DEVELOPER TOOLS) that compresses a "day"
+        // into a few seconds, and it persists in PlayerPrefs -- so a developer who left it on would
         // otherwise come back to a suite failing on the two DayIndex tests below for no visible
         // reason. Cleared for the duration of each test and put back afterwards, so running the
         // tests neither depends on it nor quietly switches it off mid-experiment.
@@ -174,7 +174,7 @@ namespace FreeFlow.Tests
             }
         }
 
-#if DEBUG
+#if !FINAL_BUILD
         [Test]
         public void TheDebugOverride_CompressesTheDayAndTheCountdownTogether()
         {

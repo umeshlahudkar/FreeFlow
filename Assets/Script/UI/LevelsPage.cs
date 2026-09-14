@@ -51,6 +51,16 @@ namespace FreeFlow.UI
             ScrollToUnlockedLevel();
         }
 
+        /// <summary>Re-reads the save and repaints every tile and the header, without changing
+        /// how many tiles there are. For anything that edits progress while this page is already
+        /// on screen underneath an OVERLAY -- the Settings screen's developer level-unlock -- where
+        /// OnEnable will not fire again because this page was never disabled.</summary>
+        public void Refresh()
+        {
+            RefreshButtons();
+            RefreshHeaderAndProgress();
+        }
+
         /// <summary>
         /// Prepares the level selection screen for <paramref name="totalLevels"/> levels. Only the
         /// LEVEL BUTTONS are pack-specific (lock/done state, level numbers), so a pack switch

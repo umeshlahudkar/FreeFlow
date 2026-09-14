@@ -47,11 +47,11 @@ namespace FreeFlow.GamePlay
         // them. It does not need to mean anything; it only needs to never change.
         private static readonly System.DateTime Epoch = new System.DateTime(2020, 1, 1, 0, 0, 0, System.DateTimeKind.Utc);
 
-#if DEBUG
+#if !FINAL_BUILD
         /// <summary>
         /// Developer-only override for how long a "day" lasts, in seconds. 0 means off -- real
-        /// calendar days. Set from the Settings screen's DEVELOPER section, which only exists in
-        /// DEBUG builds, so that waiting 24 hours is not the only way to see a daily reset.
+        /// calendar days. Set from the developer tools screen, which exists in every build except
+        /// a FINAL_BUILD, so that waiting 24 hours is not the only way to see a daily reset.
         ///
         /// Kept in PlayerPrefs rather than SaveData for two reasons: a debug setting must never be
         /// able to ride along inside a shipped save file, and wiping progress (which deletes that
@@ -83,17 +83,37 @@ namespace FreeFlow.GamePlay
         }
 #endif
 
+        /// <summary>Whether <see cref="DayIndex"/> is currently counting compressed debug periods
+        /// rather than real calendar days. Always false in a FINAL_BUILD, where the override does
+        /// not exist.
+        ///
+        /// Declared unconditionally, body gated, so display code can ask the question without
+        /// carrying a <c>#if</c> of its own -- the same split the developer screen's handlers
+        /// use. Anything that lays a day index alongside a CALENDAR date needs this: the two
+        /// agree only while a day really is a day.</summary>
+        public static bool DayIsCompressed
+        {
+            get
+            {
+#if !FINAL_BUILD
+                return DebugDayLengthSeconds > 0;
+#else
+                return false;
+#endif
+            }
+        }
+
         /// <summary>Whole calendar days (UTC) since <see cref="Epoch"/>. The stable identity of
         /// "today" everything else here keys off -- SaveData stores this directly rather than a
         /// date string, so streak comparisons are integer arithmetic, not calendar-aware parsing.
         ///
-        /// In DEBUG builds a developer can compress a "day" to a handful of seconds (see
+        /// Outside a FINAL_BUILD a developer can compress a "day" to a handful of seconds (see
         /// <see cref="DebugDayLengthSeconds"/>); the index then counts those periods instead. It
         /// is still a whole number that advances by one per period, which is all any caller
         /// assumes about it.</summary>
         public static int DayIndex(System.DateTime utcNow)
         {
-#if DEBUG
+#if !FINAL_BUILD
             int compressed = DebugDayLengthSeconds;
             if (compressed > 0)
             {
@@ -104,12 +124,12 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>How long until the next daily reset -- until UTC midnight normally, or until
-        /// the next compressed period in a DEBUG build with the override on. Lives here rather
+        /// the next compressed period when the developer override is on. Lives here rather
         /// than on the screen that displays it so the countdown can never disagree with the
         /// <see cref="DayIndex"/> it is counting down to.</summary>
         public static System.TimeSpan TimeUntilNextDay(System.DateTime utcNow)
         {
-#if DEBUG
+#if !FINAL_BUILD
             int compressed = DebugDayLengthSeconds;
             if (compressed > 0)
             {

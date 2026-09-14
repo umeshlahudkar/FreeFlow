@@ -34,20 +34,17 @@ public class SettingPage : Page
     [SerializeField] private TextMeshProUGUI versionText;
     [SerializeField] private TextMeshProUGUI resetProgressText;
 
-    // Developer-only: shorten the daily-challenge period so a reset can be watched in seconds
-    // instead of waiting for UTC midnight. The fields are declared unconditionally so the scene
-    // wiring stays valid in every build configuration -- it is the SECTION and the LOGIC that are
-    // gated, in RefreshDeveloperSection and OnDailyResetSecondsChanged. In a build without DEBUG
-    // both objects are switched off and the handler compiles away to nothing.
+    // The row that opens the developer tools screen (DeveloperPage) -- the daily-reset override,
+    // the level unlock, and anything else of that kind. The TOOLS themselves live on their own
+    // page; what is left here is the door to it, and switching that door off is what keeps a
+    // player from ever reaching them. See RefreshDeveloperSection.
     //
     // The heading is its own field because this screen lays every section out as a Label_X/Card_X
     // pair of SIBLINGS rather than nesting the label inside the card, so hiding the card alone
     // leaves the heading behind.
-    [Header("Developer (DEBUG builds only)")]
+    [Header("Developer (absent from a FINAL_BUILD)")]
     [SerializeField] private GameObject developerHeading;
     [SerializeField] private GameObject developerSection;
-    [SerializeField] private TMP_InputField dailyResetSecondsInput;
-    [SerializeField] private TextMeshProUGUI dailyResetStatusText;
 
     // Upper case to match the other rows on this screen ("SHARE PATHZA", "PRIVACY POLICY").
     private const string ResetPromptText = "RESET ALL PROGRESS";
@@ -90,23 +87,25 @@ public class SettingPage : Page
         RefreshDeveloperSection();
     }
 
-    /// <summary>Shows the developer section and fills it from the current override, or -- in a
-    /// build without the DEBUG symbol -- switches the whole thing off so a player can never see
-    /// it. Unity defines DEBUG in the Editor and in Development Builds, and not in a release
-    /// build, which is exactly the split wanted here.</summary>
+    /// <summary>Shows the row that opens the developer tools, or -- in a build that defines
+    /// FINAL_BUILD -- switches it off so a player can never reach them.
+    ///
+    /// FINAL_BUILD is OUR symbol, added to Player Settings' Scripting Define Symbols for the
+    /// store build only, rather than one Unity maintains. Two things follow from that, and both
+    /// are the point. The tools are present by DEFAULT, so every build made along the way has
+    /// them -- including a non-development build handed to a playtester, which Unity's DEBUG
+    /// would have switched them off in, that being the one build where they are most wanted. And
+    /// stripping them is one deliberate act -- adding FINAL_BUILD -- rather than something that
+    /// rides on whether anyone remembered to leave "Development Build" unticked.
+    ///
+    /// This is the ONLY route to DeveloperPage, so hiding the row is what gates the whole screen.
+    /// The tools on it are separately gated as well (every handler there has a
+    /// <c>#if !FINAL_BUILD</c> body), so a final build that somehow opened it could still not
+    /// change anything.</summary>
     private void RefreshDeveloperSection()
     {
-#if DEBUG
+#if !FINAL_BUILD
         SetDeveloperVisible(true);
-
-        int seconds = FreeFlow.GamePlay.DailyChallengeSelector.DebugDayLengthSeconds;
-        if (dailyResetSecondsInput != null)
-        {
-            // WithoutNotify: filling the box must not read as the developer having typed in it,
-            // which would write the value straight back and fight whatever they are mid-edit on.
-            dailyResetSecondsInput.SetTextWithoutNotify(seconds > 0 ? seconds.ToString() : "");
-        }
-        SetDailyResetStatus(seconds);
 #else
         SetDeveloperVisible(false);
 #endif
@@ -127,32 +126,17 @@ public class SettingPage : Page
         if (developerSection != null) { developerSection.SetActive(visible); }
     }
 
-    /// <summary>Applies a typed daily-reset period, in seconds. Blank or 0 restores real calendar
-    /// days. Takes effect immediately: everything about the daily challenge keys off
-    /// DailyChallengeSelector.DayIndex, so the next time any screen asks what day it is, it gets
-    /// the compressed answer -- and the hub, which re-checks once a second, rebuilds itself on the
-    /// next period boundary without needing to be reopened.</summary>
-    public void OnDailyResetSecondsChanged(string value)
+    /// <summary>Opens the developer tools screen. As an OVERLAY on top of this one, not a stacked
+    /// page: this screen is itself an overlay, so pushing DeveloperPage would close whatever full
+    /// page is underneath Settings and leave Back returning to the wrong place. Closing it (see
+    /// DeveloperPage.OnCloseButtonClick) simply reveals this screen again.</summary>
+    public void OnDeveloperToolsClick()
     {
-#if DEBUG
-        int seconds;
-        if (!int.TryParse(value, out seconds) || seconds < 0) { seconds = 0; }
+        if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
+        AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
-        FreeFlow.GamePlay.DailyChallengeSelector.DebugDayLengthSeconds = seconds;
-        SetDailyResetStatus(seconds);
-#endif
+        PageManager.Instance.OpenAsOverlay(PageType.Developer);
     }
-
-#if DEBUG
-    private void SetDailyResetStatus(int seconds)
-    {
-        if (dailyResetStatusText == null) { return; }
-
-        dailyResetStatusText.text = seconds > 0
-            ? "Daily resets every " + seconds + "s  (debug override)"
-            : "Daily resets at UTC midnight  (normal)";
-    }
-#endif
 
     public void OnMusicSliderValueChanged()
     {
