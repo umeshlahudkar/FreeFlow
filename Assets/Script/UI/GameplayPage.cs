@@ -90,7 +90,20 @@ namespace FreeFlow.UI
 
             if (topPanel != null)
             {
-                topPanel.SetTopPanel(ui.LevelHeaderTitle, ui.LevelHeaderSubtitle);
+                // The info button belongs to Advanced and to every board in it -- every Advanced
+                // level carries at least one mechanic, while Classic carries none at all (no
+                // blocked cells, no walls, nothing for a card to explain). Mode alone decides it,
+                // which also covers an Advanced board reached through the DAILY CHALLENGE: that
+                // route sets the mode from the pick before the board is built, so by the time this
+                // runs CurrentMode already says Advanced.
+                //
+                // Always tappable, not gated on whether this particular mechanic has a card
+                // authored yet: a button that greys out on some Advanced levels and not others
+                // reads as broken, and the gap is a content one that closes as the remaining cards
+                // are written.
+                bool advanced = ui.CurrentMode == GameMode.Advanced;
+                topPanel.SetTopPanel(ui.LevelHeaderTitle, ui.LevelHeaderSubtitle, showInfo: advanced);
+                topPanel.SetInfoInteractable(true);
             }
 
             SetStepButton(prevButton, prevGroup, prevTitleText, prevSubtitleText,

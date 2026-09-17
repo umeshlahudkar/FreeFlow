@@ -618,6 +618,27 @@ public struct SaveData
         mechanicSkills[index].completions++;
     }
 
+    /// <summary>Whether <paramref name="mechanic"/> has ever been put in front of this player --
+    /// one attempt is enough, finished or not. What the first-encounter teaching card asks before
+    /// it interrupts a level load (see GamePlayController.FirstUnseenMechanic).
+    ///
+    /// Reads the same counter <see cref="RecordMechanicAttempt"/> writes rather than a separate
+    /// "taught" flag, so there is nothing to keep in step and no migration: every existing save
+    /// already knows which mechanics its player has met. The cost is that a player mid-way through
+    /// the Advanced packs when this ships is never shown the cards for the mechanics they have
+    /// already played -- which is the correct outcome, not a gap.</summary>
+    public bool HasMetMechanic(string mechanic)
+    {
+        if (mechanicSkills == null) { return false; }
+
+        for (int i = 0; i < mechanicSkills.Length; i++)
+        {
+            if (mechanicSkills[i].mechanic == mechanic) { return mechanicSkills[i].attempts > 0; }
+        }
+
+        return false;
+    }
+
     /// <summary>0-100 completion rate for one mechanic, or 0 before it has been attempted --
     /// indistinguishable from "attempted and always failed to finish", which cannot actually
     /// happen (an abandoned attempt never completes, but it also never regresses the rate below

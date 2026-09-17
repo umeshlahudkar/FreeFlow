@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 277d5fec12e621548829a945a0679276, type: 3}
+  m_Name: MechanicIntro_Forbidden
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.GamePlay.MechanicIntroSO
+  mechanicKey: Forbidden
+  title: Forbidden Cell
+  rule: The colour marked on this cell may not enter it. Any other colour passes
+    straight through.
+  demoBoard:
+    gridSize: 4
+    pairCount: 2
+    gridRows:
+    - coloum: 00000000000000000100000000000000
+      pairId: 00000000000000000000000000000000
+      blockType: 00000000000000000000000000000000
+      wallMask: 00000000000000000000000000000000
+      requiredEntryDirection: 00000000000000000000000000000000
+      forcedExitDirection: 00000000000000000000000000000000
+      secondPairId: 00000000000000000000000000000000
+      thirdPairId: 00000000000000000000000000000000
+      fourthPairId: 00000000000000000000000000000000
+      solutionPairId: 
+    - coloum: 02000000000000000000000002000000
+      pairId: 00000000000000000200000000000000
+      blockType: 00000000000000000300000000000000
+      wallMask: 00000000000000000000000000000000
+      requiredEntryDirection: 00000000000000000000000000000000
+      forcedExitDirection: 00000000000000000000000000000000
+      secondPairId: 00000000000000000000000000000000
+      thirdPairId: 00000000000000000000000000000000
+      fourthPairId: 00000000000000000000000000000000
+      solutionPairId: 
+    - coloum: 00000000000000000000000000000000
+      pairId: 00000000000000000000000000000000
+      blockType: 00000000000000000000000000000000
+      wallMask: 00000000000000000000000000000000
+      requiredEntryDirection: 00000000000000000000000000000000
+      forcedExitDirection: 00000000000000000000000000000000
+      secondPairId: 00000000000000000000000000000000
+      thirdPairId: 00000000000000000000000000000000
+      fourthPairId: 00000000000000000000000000000000
+      solutionPairId: 
+    - coloum: 00000000000000000100000000000000
+      pairId: 00000000000000000000000000000000
+      blockType: 00000000000000000000000000000000
+      wallMask: 00000000000000000000000000000000
+      requiredEntryDirection: 00000000000000000000000000000000
+      forcedExitDirection: 00000000000000000000000000000000
+      secondPairId: 00000000000000000000000000000000
+      thirdPairId: 00000000000000000000000000000000
+      fourthPairId: 00000000000000000000000000000000
+      solutionPairId: 
+    difficultyScore: 0
+  runs:
+  - cells:
+    - {x: 1, y: 0}
+    - {x: 1, y: 1}
+    - {x: 1, y: 2}
+    endsRefused: 1
+    keepPrevious: 0
+  - cells:
+    - {x: 0, y: 2}
+    - {x: 1, y: 2}
+    - {x: 2, y: 2}
+    - {x: 3, y: 2}
+    endsRefused: 0
+    keepPrevious: 0
+  - cells:
+    - {x: 1, y: 0}
+    - {x: 2, y: 0}
+    - {x: 2, y: 1}
+    - {x: 2, y: 2}
+    - {x: 2, y: 3}
+    - {x: 1, y: 3}
+    endsRefused: 0
+    keepPrevious: 0

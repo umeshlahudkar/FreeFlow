@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 277d5fec12e621548829a945a0679276, type: 3}
+  m_Name: MechanicIntro_Checkpoint
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.GamePlay.MechanicIntroSO
+  mechanicKey: Checkpoint
+  title: Checkpoint
+  rule: The matching colour's path must run through this cell. Joining every pair
+    is not enough on its own -- the level will not finish until this cell is on that
+    colour's route.
+  icon: {fileID: 0}
+  demoBoard:
+    gridSize: 0
+    pairCount: 0
+    gridRows: []
+    difficultyScore: 0
+  runs: []

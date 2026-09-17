@@ -301,6 +301,36 @@ namespace FreeFlow.UI
             PageManager.Instance.OpenAsOverlay(PageType.Warning);
         }
 
+        /// <summary>Puts the first-encounter card for one mechanic on screen -- see
+        /// MechanicIntroPage. Composed here beside ShowWarning for the same reason: this class
+        /// owns what the screens say, and a page is reached through PageManager rather than
+        /// through a second serialized reference.</summary>
+        public void ShowMechanicIntro(string mechanicKey)
+        {
+            MechanicIntroPage card = PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
+            if (card == null) { return; }
+
+            card.SetMechanic(mechanicKey);
+            PageManager.Instance.OpenAsOverlay(PageType.MechanicIntro);
+        }
+
+        /// <summary>Opens the guide on every mechanic the board being played has a card for --
+        /// the header's info button. A different page from the first-encounter card on purpose:
+        /// see MechanicGuidePage. Silently does nothing on a board with nothing to list.</summary>
+        public void ShowMechanicGuideForCurrentBoard()
+        {
+            string[] keys = GamePlayController.Instance == null
+                ? null
+                : GamePlayController.Instance.MechanicsWithIntro;
+            if (keys == null || keys.Length == 0) { return; }
+
+            MechanicGuidePage guide = PageManager.Instance.Get<MechanicGuidePage>(PageType.MechanicGuide);
+            if (guide == null || !guide.HasAnythingFor(keys)) { return; }
+
+            guide.SetMechanics(keys);
+            PageManager.Instance.OpenAsOverlay(PageType.MechanicGuide);
+        }
+
         /// <summary>What the hint button says when it is tapped with nothing left to spend.</summary>
         public string NoHintsMessage { get { return "No More Hints"; } }
 
@@ -694,8 +724,19 @@ namespace FreeFlow.UI
 
             if (data.dailyChallengeCachedDay != today || wrongLength)
             {
+                // BOTH campaigns, not just Classic. A day's slots rotate through the pools in
+                // the order given here, so Classic first keeps the easiest sizes at the front of
+                // the rotation while Advanced boards -- and the mechanics they carry -- appear in
+                // most days' picks. Every pack is 100 levels in both modes, so the one
+                // packLevelCount still describes them all.
+                DailyChallengeSelector.Pool[] pools =
+                {
+                    new DailyChallengeSelector.Pool { mode = GameMode.Classic, packSizes = PackSizesFor(GameMode.Classic) },
+                    new DailyChallengeSelector.Pool { mode = GameMode.Advanced, packSizes = PackSizesFor(GameMode.Advanced) },
+                };
+
                 DailyChallengeSelector.Pick[] picks = DailyChallengeSelector.SelectDay(
-                    today, GameMode.Classic, PackSizesFor(GameMode.Classic), packLevelCount,
+                    today, pools, packLevelCount,
                     data.OverallSkillRating(), data.playerSalt, wanted);
 
                 DailyPick[] stored = new DailyPick[picks.Length];
@@ -752,7 +793,7 @@ namespace FreeFlow.UI
             if (picks.Length == 0)
             {
                 Debug.LogError("UIController: no daily challenge could be selected for today -- "
-                    + "check that " + GameMode.Classic + " has at least one pack size configured.");
+                    + "check that at least one campaign has a pack size configured.");
                 return;
             }
 

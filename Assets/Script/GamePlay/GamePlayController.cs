@@ -1978,7 +1978,94 @@ namespace FreeFlow.GamePlay
             solutionPairId = HintPath.ReadSolution(data);
 
             currentMechanics = LevelMechanics.Identify(data);
+
+            // Asked BEFORE the attempt is credited, and that ordering is the whole trick:
+            // RecordMechanicAttempts is what turns "never met" into "met once", so asking
+            // afterwards would answer that every mechanic on the board is already familiar and no
+            // card would ever show.
+            string unseen = FirstUnseenMechanic();
+
             RecordMechanicAttempts();
+
+            // The ONE mechanic that caused the interruption, not the board's whole list: this
+            // opens by itself because something is new, and a catalogue would bury the new thing
+            // among things the player already knows. The info button's guide is where the full
+            // list lives.
+            if (unseen != null) { UIController.Instance.ShowMechanicIntro(unseen); }
+        }
+
+        /// <summary>The first mechanic on the board currently loaded that has an intro card
+        /// authored for it, whether or not this player has met it before -- what the header's
+        /// info button re-opens, and what decides whether that button is tappable at all. Null on
+        /// a board with no mechanics, or none that has a card yet.</summary>
+        public string MechanicWithIntro { get { return FirstMechanicWithIntro(onlyUnseen: false); } }
+
+        /// <summary>EVERY mechanic on the board that has a card, in LevelMechanics.Keys order --
+        /// what the intro page shows as tabs. A board carrying a blocked-cell layout AND a rule
+        /// has two things to explain, and one of them being scenery does not make it not worth a
+        /// line of text.</summary>
+        public string[] MechanicsWithIntro
+        {
+            get
+            {
+                MechanicIntroPage card = PageManager.Instance == null
+                    ? null
+                    : PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
+                if (card == null || currentMechanics == MechanicFlags.None) { return new string[0]; }
+
+                string[] keys = LevelMechanics.Keys(currentMechanics);
+                var found = new List<string>(keys.Length);
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    if (card.HasIntroFor(keys[i])) { found.Add(keys[i]); }
+                }
+                return found.ToArray();
+            }
+        }
+
+        /// <summary>The first mechanic on the board being loaded that this player has never met
+        /// and that has a card authored for it, or null when there is none.
+        ///
+        /// One per load, not all of them: a board introducing two mechanics at once would
+        /// otherwise stack two cards before the player has seen either board. The second stays
+        /// unseen -- nothing credits it as taught -- so the next board carrying it teaches it
+        /// then.</summary>
+        private string FirstUnseenMechanic()
+        {
+            return FirstMechanicWithIntro(onlyUnseen: true);
+        }
+
+        /// <summary>
+        /// Shared by the first-encounter card and the header's info button, which differ only in
+        /// whether an already-met mechanic counts: teaching skips it, re-opening does not.
+        ///
+        /// <see cref="LevelMechanics.Keys"/> rather than SkillKeys: this is about mechanics, and
+        /// SkillKeys folds a mechanic-free Classic board into a board-SIZE bucket ("BasicFlow6x6")
+        /// which is not a mechanic and has nothing to teach.
+        /// </summary>
+        private string FirstMechanicWithIntro(bool onlyUnseen)
+        {
+            if (currentMechanics == MechanicFlags.None || UIController.Instance == null) { return null; }
+
+            MechanicIntroPage card = PageManager.Instance == null
+                ? null
+                : PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
+            if (card == null) { return null; }
+
+            SaveData data = SavingSystem.Instance.Load();
+            string[] keys = LevelMechanics.Keys(currentMechanics);
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (onlyUnseen && data.HasMetMechanic(keys[i])) { continue; }
+
+                // A mechanic with no card authored yet is passed over rather than stopping the
+                // player with an empty one -- and, because nothing here writes, it stays unseen
+                // and gets its card on some later board once one exists.
+                if (card.HasIntroFor(keys[i])) { return keys[i]; }
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -147,6 +147,32 @@ namespace FreeFlow.GamePlay
             public int levelNumber;
         }
 
+        /// <summary>One mode's contribution to the day's pool: the mode, and the pack sizes that
+        /// ship for it. A day is drawn from every pool it is given, so handing it both campaigns
+        /// is what puts Advanced boards into the daily challenge alongside Classic ones.</summary>
+        public struct Pool
+        {
+            public GameMode mode;
+            public int[] packSizes;
+        }
+
+        /// <summary>One (mode, pack size) the day can draw from -- the pools above, flattened.
+        /// Slots rotate through THIS list, so which campaign a slot lands in falls out of the same
+        /// rotation that already decided its board size, rather than needing a rule of its
+        /// own.</summary>
+        private struct Entry
+        {
+            public GameMode mode;
+            public int packSize;
+        }
+
+        // Keeps Classic 6x6 and Advanced 6x6 from hashing to the same level number on a day that
+        // draws both -- they are different boards and should not be the same ordinal. Multiplying
+        // the MODE by this (Classic is 0, so its own hashes are bit-identical to before Advanced
+        // joined the pool) means adding Advanced does not reshuffle which Classic level a given
+        // day, slot and pack size was already going to produce.
+        private const int ModeHashStride = 1024;
+
         /// <summary>
         /// One day's pick. <paramref name="packSizesForMode"/> is whichever pack sizes exist for
         /// <paramref name="mode"/> (rotated through by day, so a week of play sees every size --
@@ -182,19 +208,39 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public static Pick[] SelectDay(int dayIndex, GameMode mode, int[] packSizesForMode, int packLevelCount, float skillRating, int playerSalt, int count)
         {
-            if (packSizesForMode == null || packSizesForMode.Length == 0) { return new Pick[0]; }
+            return SelectDay(dayIndex,
+                new[] { new Pool { mode = mode, packSizes = packSizesForMode } },
+                packLevelCount, skillRating, playerSalt, count);
+        }
+
+        /// <summary>
+        /// A whole day drawn from SEVERAL pools -- both campaigns, rather than one. Everything
+        /// else is unchanged: the slots still rotate one step per slot, still cover distinct
+        /// boards, and still come back in ascending board-size order.
+        ///
+        /// A day is a window of <paramref name="count"/> consecutive entries in the flattened
+        /// pool, so the campaign mix is whatever that window happens to hold and it moves along by
+        /// one each day. With five slots over Classic's five sizes plus Advanced's two, that is
+        /// one or two Advanced boards on six days in seven and an all-Classic day on the seventh.
+        /// Changing the mix is a matter of the order the pools are handed over, not of a rule in
+        /// here.
+        /// </summary>
+        public static Pick[] SelectDay(int dayIndex, Pool[] pools, int packLevelCount, float skillRating, int playerSalt, int count)
+        {
+            Entry[] entries = Flatten(pools);
+            if (entries.Length == 0) { return new Pick[0]; }
 
             BandRange(skillRating, packLevelCount, out int bandStart, out int bandEnd);
             int bandWidth = bandEnd - bandStart + 1;
 
             if (count < 1) { count = 1; }
-            int distinctAvailable = bandWidth * packSizesForMode.Length;
+            int distinctAvailable = bandWidth * entries.Length;
             if (count > distinctAvailable) { count = distinctAvailable; }
 
             Pick[] picks = new Pick[count];
             for (int i = 0; i < count; i++)
             {
-                Pick pick = SelectSlot(dayIndex, i, mode, packSizesForMode, packLevelCount, skillRating, playerSalt);
+                Pick pick = SelectSlot(dayIndex, i, entries, packLevelCount, skillRating, playerSalt);
 
                 // Two slots landing on the same (pack size, level) would show the SAME board twice
                 // in one day. Step forward inside the band -- wrapping at its end -- until the pair
@@ -220,10 +266,49 @@ namespace FreeFlow.GamePlay
 
             BandRange(skillRating, packLevelCount, out int bandStart, out int bandEnd);
 
-            int hash = Hash(dayIndex + slot * SlotStride, SeedVersion, packSize, playerSalt);
+            int hash = Hash(dayIndex + slot * SlotStride, SeedVersion, LevelSeed(mode, packSize), playerSalt);
             int levelNumber = bandStart + Mod(hash, bandEnd - bandStart + 1);
 
             return new Pick { mode = mode, packSize = packSize, levelNumber = levelNumber };
+        }
+
+        private static Pick SelectSlot(int dayIndex, int slot, Entry[] entries, int packLevelCount, float skillRating, int playerSalt)
+        {
+            Entry entry = entries[Mod(dayIndex + slot, entries.Length)];
+            return SelectSlot(dayIndex, slot, entry.mode, new[] { entry.packSize }, packLevelCount, skillRating, playerSalt);
+        }
+
+        /// <summary>The pack-size axis of the hash, with the mode folded in -- see
+        /// <see cref="ModeHashStride"/>.</summary>
+        private static int LevelSeed(GameMode mode, int packSize)
+        {
+            return packSize + (int)mode * ModeHashStride;
+        }
+
+        /// <summary>Every (mode, pack size) the pools offer, in the order the pools were given.
+        /// A pool with no sizes contributes nothing rather than an empty slot.</summary>
+        private static Entry[] Flatten(Pool[] pools)
+        {
+            if (pools == null) { return new Entry[0]; }
+
+            int total = 0;
+            for (int i = 0; i < pools.Length; i++)
+            {
+                if (pools[i].packSizes != null) { total += pools[i].packSizes.Length; }
+            }
+
+            Entry[] entries = new Entry[total];
+            int at = 0;
+            for (int i = 0; i < pools.Length; i++)
+            {
+                int[] sizes = pools[i].packSizes;
+                if (sizes == null) { continue; }
+                for (int j = 0; j < sizes.Length; j++)
+                {
+                    entries[at++] = new Entry { mode = pools[i].mode, packSize = sizes[j] };
+                }
+            }
+            return entries;
         }
 
         /// <summary>The inclusive level range this skill rating plays in. Lower/middle/upper third
@@ -243,7 +328,12 @@ namespace FreeFlow.GamePlay
         {
             for (int i = 0; i < filled; i++)
             {
-                if (picks[i].packSize == candidate.packSize && picks[i].levelNumber == candidate.levelNumber)
+                // Mode included: Classic 6x6 level 12 and Advanced 6x6 level 12 are two different
+                // boards, and a day is allowed to hold both. Comparing only size and number would
+                // read them as the same puzzle and step one of them away for nothing.
+                if (picks[i].mode == candidate.mode
+                    && picks[i].packSize == candidate.packSize
+                    && picks[i].levelNumber == candidate.levelNumber)
                 {
                     return true;
                 }
@@ -260,8 +350,13 @@ namespace FreeFlow.GamePlay
             {
                 Pick key = picks[i];
                 int j = i - 1;
+                // Board size first (the difficulty ramp the hub walks), then campaign, then level
+                // -- the campaign tiebreak only decides the order of a Classic and an Advanced
+                // board of the SAME size, which would otherwise depend on hash order.
                 while (j >= 0 && (picks[j].packSize > key.packSize
-                    || (picks[j].packSize == key.packSize && picks[j].levelNumber > key.levelNumber)))
+                    || (picks[j].packSize == key.packSize && picks[j].mode > key.mode)
+                    || (picks[j].packSize == key.packSize && picks[j].mode == key.mode
+                        && picks[j].levelNumber > key.levelNumber)))
                 {
                     picks[j + 1] = picks[j];
                     j--;
