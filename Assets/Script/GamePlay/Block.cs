@@ -55,6 +55,10 @@ namespace FreeFlow.GamePlay
         [SerializeField] private GameObject wallVisual;
         private RectTransform wallGroup;
         private Image[] wallImages;
+        // Captured from wallVisual's own prefab-authored Image color the first time it's
+        // instantiated, so the flash-feedback reset below restores whatever the prefab defines
+        // rather than a second, independent color living in code.
+        private Color wallBaseColor = Color.white;
 
         // The one-way marker has its own Image because its art is directional: a bar with chevrons
         // pointing INTO the cell, i.e. the way a path must be travelling to enter. A wall bar is
@@ -98,13 +102,6 @@ namespace FreeFlow.GamePlay
         [SerializeField] private Sprite wallSpriteVertical;
         [SerializeField] private Sprite oneWaySprite;
 
-        // Wall bars were rgb(0.05) against a pure-black cell background: the rule worked and
-        // no player could see it. Light enough to read as a wall, dark enough that it doesn't
-        // compete with a pair color.
-        // A warm bone, and deliberately brighter than the board's grid lines rather than darker.
-        // At 0.45 grey the bar was dimmer than the white line it straddles, so it read as a gap in
-        // the grid -- a shadow between two cells -- instead of something built on top of it.
-        private static readonly Color WallColor = new Color(0.93f, 0.89f, 0.81f, 1f);
         // The tint is a CEILING on how bright the blocked tile can get: the sprite is white with
         // its shape in alpha, so lowering alpha only fades a pixel toward the dark board behind,
         // never past the tint. At 0.28 the hatch stripes and the slab between them were separated
@@ -253,6 +250,8 @@ namespace FreeFlow.GamePlay
                 wallImages[(int)Direction.Right - 1] = FindImage(wallGroup, "RightWallImage");
                 wallImages[(int)Direction.Up - 1] = FindImage(wallGroup, "UpWallImage");
                 wallImages[(int)Direction.Down - 1] = FindImage(wallGroup, "DownWallImage");
+                Image firstWallImage = wallImages[(int)Direction.Left - 1];
+                if (firstWallImage != null) { wallBaseColor = firstWallImage.color; }
 
                 // Sized immediately rather than waiting for the next resize event -- a wall
                 // added mid-game (AddWall, after this cell's own SetBlock already ran) has no
@@ -624,7 +623,7 @@ namespace FreeFlow.GamePlay
             wallImages[idx].gameObject.SetActive(true);
             wallImages[idx].sprite = sprite != null ? sprite : wallSprite;
             wallImages[idx].type = Image.Type.Simple;
-            wallImages[idx].color = WallColor;
+            wallImages[idx].color = wallBaseColor;
         }
 
         private void ApplyWallGeometry()
@@ -1578,7 +1577,7 @@ namespace FreeFlow.GamePlay
             if (wallImage == null) { return; }
 
             wallImage.DOKill();
-            wallImage.color = WallColor;
+            wallImage.color = wallBaseColor;
             wallImage.DOColor(InvalidWallFlashColor, 0.09f).SetLoops(-1, LoopType.Yoyo);
         }
 
@@ -1588,7 +1587,7 @@ namespace FreeFlow.GamePlay
             if (wallImage == null) { return; }
 
             wallImage.DOKill();
-            wallImage.color = WallColor;
+            wallImage.color = wallBaseColor;
         }
 
         private Image WallImageFor(Direction edge)
