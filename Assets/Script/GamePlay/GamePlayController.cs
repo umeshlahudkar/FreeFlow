@@ -124,6 +124,17 @@ namespace FreeFlow.GamePlay
         // the board again" -- see CheckForLevelComplete, which acts only on the first.
         private bool boardWasComplete;
 
+        // Whether every pair was satisfied the last time the board came to rest. This is what
+        // makes the "joined everything, still not done" card a one-shot: it is raised on the
+        // TRANSITION into that state, never on the state merely persisting, so a player who joins
+        // the last pair and then spends a minute redrawing one path to cover the gaps is told
+        // once rather than on every pointer-up. Re-arms by itself the moment a pair comes apart,
+        // which is the only thing that makes joining them again new news.
+        //
+        // Same shape and same reason as boardWasComplete above: a repeated state is not a
+        // repeated event.
+        private bool pairsWereAllJoined;
+
         // Which direction (if any) is showing a live, not-yet-committed drag-progress
         // preview, and the block it's drawn on. The block has to be tracked too: the preview
         // lives on whichever cell was last when it was drawn, and a committed step moves
@@ -598,7 +609,13 @@ namespace FreeFlow.GamePlay
             if (Hud != null) { Hud.UpdateFilledCells(); }
 
             bool boardFull = IsBoardFullyCovered();
-            bool complete = count >= UIController.Instance.CurrentLevelGoal && boardFull;
+
+            // Every pair SATISFIED, which includes its checkpoint and length rules -- see
+            // IsPairSatisfied. So a board held back only by an unmet checkpoint never reads as
+            // "all joined" here, and gets the blinking checkpoint feedback below instead of a card
+            // telling it to fill cells that are not what is wrong with it.
+            bool allPairsJoined = count >= UIController.Instance.CurrentLevelGoal;
+            bool complete = allPairsJoined && boardFull;
 
             // Only the TRANSITION into a solved board ends the level, never the mere fact of one
             // being solved. The level-complete overlay can now be dismissed to hand the solved
@@ -612,6 +629,12 @@ namespace FreeFlow.GamePlay
             if (complete && !boardWasComplete)
             {
                 ClearUnmetCheckpointFeedback();
+
+                // The card is about a board that is not finished, and this one now is. Taken away
+                // before the level-complete sheet goes up rather than left to time out underneath
+                // it.
+                if (Hud != null) { Hud.HideBoardNotCoveredWarning(); }
+
                 GameState = GameState.Ending;
 
                 // Persist BEFORE showing the screen -- on a daily-challenge completion, the screen
@@ -625,9 +648,18 @@ namespace FreeFlow.GamePlay
             else if (!complete)
             {
                 RefreshUnmetCheckpointFeedback();
+
+                // Joined everything and still not done -- the one board state a player reads as
+                // the game being broken rather than as a move left to make. Only on the way into
+                // it; see pairsWereAllJoined.
+                if (allPairsJoined && !pairsWereAllJoined && Hud != null)
+                {
+                    Hud.ShowBoardNotCoveredWarning();
+                }
             }
 
             boardWasComplete = complete;
+            pairsWereAllJoined = allPairsJoined;
         }
 
         /// <summary>
@@ -2394,6 +2426,7 @@ namespace FreeFlow.GamePlay
             // Before GenerateBoard runs: the incoming board has not been solved yet, whatever the
             // outgoing one's state was.
             boardWasComplete = false;
+            pairsWereAllJoined = false;
             BeginAttempt();
 
             gameState = GameState.Waiting;

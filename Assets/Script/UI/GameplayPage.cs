@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -55,6 +56,25 @@ namespace FreeFlow.UI
         // stops being legible -- the labels are the point of the fade, not a casualty of it.
         [SerializeField, Range(0f, 1f)] private float unavailableAlpha = 0.35f;
 
+        [Header("Board-not-covered warning")]
+        // The card raised when every pair is joined but empty cells remain -- the exact moment a
+        // player believes they have finished and the level does not agree. It is the spoken form
+        // of what the progress card already counts (see UpdateFilledCells): the counter is there
+        // to pre-empt that confusion, this is for when it happens anyway.
+        //
+        // Raised by GamePlayController, which is what knows the board's state. This page owns the
+        // widget and its timing, not the rule.
+        [SerializeField] private GameObject warningCard;
+
+        // Long enough to read one line, short enough to be gone before the player has finished
+        // scanning the board for the gap it is telling them about.
+        [SerializeField] private float warningVisibleSeconds = 2f;
+
+        // Held so the card can be taken away early -- the level being finished while it is still
+        // up -- and so leaving the page does not leave a countdown's worth of state behind. Null
+        // whenever none is running.
+        private Coroutine warningRoutine;
+
         // Every load re-opens this page through PageManager, which cycles it (Close then Open)
         // even when Gameplay was already current -- so OnEnable really does run on every
         // prev/next/retry, not only on the first entry into gameplay.
@@ -80,6 +100,66 @@ namespace FreeFlow.UI
 
             RefreshHintButton();
             UpdateFilledCells();
+
+            // A fresh board has nothing to warn about yet, and this is also what puts the card
+            // into a known state: it is an ordinary GameObject that can be left active in the
+            // prefab, and ShowBoardNotCoveredWarning reads its active flag as "already showing".
+            HideBoardNotCoveredWarning();
+        }
+
+        /// <summary>
+        /// Raises the "every pair joined, board not covered" card for
+        /// <see cref="warningVisibleSeconds"/>, or does nothing at all if it is already up.
+        ///
+        /// Ignoring the call rather than restarting the countdown is the point: this is reached
+        /// from a board STATE, not from a tap, so it can be reached repeatedly while the same card
+        /// is still on screen. Restarting would let a player who keeps tinkering hold the card up
+        /// indefinitely; re-activating would flicker it.
+        ///
+        /// GamePlayController only calls this on the transition into that state, so this is the
+        /// second of two guards -- this one is what makes "one showing at a time" true of the card
+        /// itself, whoever calls it and however often.
+        /// </summary>
+        public void ShowBoardNotCoveredWarning()
+        {
+            if (warningCard == null || warningCard.activeSelf) { return; }
+
+            warningCard.SetActive(true);
+
+            if (warningRoutine != null) { StopCoroutine(warningRoutine); }
+            warningRoutine = StartCoroutine(HideWarningAfterDelay());
+        }
+
+        /// <summary>Takes the card away now, whatever is left of its countdown -- the level being
+        /// finished, or this page being left. Safe to call when it is not showing.</summary>
+        public void HideBoardNotCoveredWarning()
+        {
+            if (warningRoutine != null)
+            {
+                StopCoroutine(warningRoutine);
+                warningRoutine = null;
+            }
+
+            if (warningCard != null) { warningCard.SetActive(false); }
+        }
+
+        /// <summary>Unscaled, for the same reason WarningNotifier's countdown is: a board that has
+        /// stopped would hold a scaled timer still, leaving the card on screen underneath whatever
+        /// stopped it.</summary>
+        private IEnumerator HideWarningAfterDelay()
+        {
+            yield return new WaitForSecondsRealtime(warningVisibleSeconds);
+
+            warningRoutine = null;
+            if (warningCard != null) { warningCard.SetActive(false); }
+        }
+
+        /// <summary>Leaving gameplay takes the card with it. Unity kills the coroutine when the
+        /// object goes inactive, so without this the stale handle would still read as a running
+        /// countdown and the card would come back up with the page.</summary>
+        private void OnDisable()
+        {
+            HideBoardNotCoveredWarning();
         }
 
         /// <summary>

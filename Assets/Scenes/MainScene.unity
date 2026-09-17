@@ -36606,6 +36606,8 @@ MonoBehaviour:
   prevGroup: {fileID: 2106297340}
   nextGroup: {fileID: 1331064207}
   unavailableAlpha: 0.35
+  warningCard: {fileID: 1744707721}
+  warningVisibleSeconds: 5
 --- !u!1 &2117547074
 GameObject:
   m_ObjectHideFlags: 0
