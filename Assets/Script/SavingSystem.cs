@@ -360,6 +360,27 @@ public struct SaveData
         if (dailyChallengeStreak > bestDailyChallengeStreak) { bestDailyChallengeStreak = dailyChallengeStreak; }
     }
 
+    /// <summary>The streak as it should be SHOWN on <paramref name="todayIndex"/>: the stored
+    /// count while the run is still alive, 0 once it has been broken.
+    ///
+    /// <see cref="dailyChallengeStreak"/> is only ever written when a day is credited (see
+    /// <see cref="RecordDailyChallengeCompletion"/>), so between breaking a streak and completing
+    /// another day the field holds a number that is no longer true -- miss Wednesday and the card
+    /// still reads "2-DAY" on Friday, right up until the next completion quietly resets it to 1.
+    /// A run survives exactly while the last credited day is today (the day is already banked) or
+    /// yesterday (today is still playable); anything older is a gap, and the next completion
+    /// restarts the count at 1 regardless.
+    ///
+    /// Display-only, deliberately: the stored value is also the LENGTH of the last run, which
+    /// DailyChallengePage's week chain reads to light up the days that were actually solved.
+    /// Zeroing the field the moment a streak lapsed would erase that history along with it.</summary>
+    public int LiveDailyChallengeStreak(int todayIndex)
+    {
+        if (dailyChallengeStreak <= 0) { return 0; }
+
+        return todayIndex - dailyChallengeLastCompletedDay <= 1 ? dailyChallengeStreak : 0;
+    }
+
     public AudioData audioData;
 
     // -- settings screen preferences ---------------------------------------------------------

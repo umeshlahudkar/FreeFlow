@@ -1797,9 +1797,22 @@ namespace FreeFlow.GamePlay
                 && (b2.IsDotFor(b1.PairId) || b1.IsDotFor(b2.PairId));
         }
 
+        /// <summary>Whether the segment being RESUMED already runs from <paramref name="b1"/> to a
+        /// dot of the pair drawing it -- the case the resume guard in
+        /// <see cref="CanSelectToAdd"/> exists to refuse, since a finished segment must not grow
+        /// a tail past its own goal.
+        ///
+        /// Asked as "is b2 a dot of the pair occupying b1", for the same reason
+        /// <see cref="IsPairComplete"/> is: PairId is a raw column, and on a rule cell it names
+        /// the pair the RULE is about rather than a dot. Comparing it directly read a pair's own
+        /// checkpoint -- or a permitted cell naming that pair first -- as its second dot, so a
+        /// path parked on one could never be resumed: every next cell was refused and flashed
+        /// invalid, and only redrawing from the dot (which sets neither resume flag) got past it.
+        /// IsDotFor answers the dot question properly, and covers a shared destination's second,
+        /// third and fourth pairs, which PairId cannot name at all.</summary>
         private bool IsHighlightedPairComplete(Block b1, Block b2)
         {
-            return (!IsEqual(b1, b2) && b1.HighlightedPairId == b2.PairId);
+            return !IsEqual(b1, b2) && b2.IsDotFor(b1.HighlightedPairId);
         }
 
         /// <summary>

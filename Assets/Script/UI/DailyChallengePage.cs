@@ -83,7 +83,12 @@ namespace FreeFlow.UI
                 topPanel.SetTopPanel("DAILY CHALLENGE", date);
             }
 
-            if (currentStreakText != null) { currentStreakText.text = data.dailyChallengeStreak.ToString(); }
+            // Live rather than stored, for the reason spelled out on LiveDailyChallengeStreak:
+            // a broken run still carries its old count in the save until the next credited day.
+            if (currentStreakText != null)
+            {
+                currentStreakText.text = data.LiveDailyChallengeStreak(shownDayIndex).ToString();
+            }
             if (bestStreakText != null) { bestStreakText.text = data.bestDailyChallengeStreak.ToString(); }
 
             RefreshWeekChain(data);
@@ -151,6 +156,9 @@ namespace FreeFlow.UI
             bool compressed = DailyChallengeSelector.DayIsCompressed;
             int todayDow = compressed ? Mod(todayIndex, 7) : calendarDow;
 
+            // The stored streak on purpose, unlike the CURRENT STREAK card above: this row is a
+            // record of which days were solved, and the last run's days stay solved after the run
+            // lapses. A live-streak check here would blank out days the player really did finish.
             bool hasStreak = data.dailyChallengeStreak > 0;
             int runStart = hasStreak ? data.dailyChallengeLastCompletedDay - data.dailyChallengeStreak + 1 : int.MaxValue;
             int runEnd = data.dailyChallengeLastCompletedDay;

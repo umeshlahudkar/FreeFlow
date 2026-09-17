@@ -93,11 +93,14 @@ namespace FreeFlow.UI
 
             if (streakPill != null)
             {
-                bool hasStreak = data.dailyChallengeStreak > 0;
-                streakPill.SetActive(hasStreak);
-                if (hasStreak && streakPillText != null)
+                // The LIVE streak, not the stored one -- a lapsed run keeps its last count in
+                // the save until another day is credited, and a pill boasting "2-DAY" days after
+                // the streak actually died is worse than no pill at all.
+                int streak = data.LiveDailyChallengeStreak(today);
+                streakPill.SetActive(streak > 0);
+                if (streak > 0 && streakPillText != null)
                 {
-                    streakPillText.text = data.dailyChallengeStreak + "-DAY";
+                    streakPillText.text = streak + "-DAY";
                 }
             }
 
