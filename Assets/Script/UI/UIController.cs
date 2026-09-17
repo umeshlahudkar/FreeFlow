@@ -424,14 +424,12 @@ namespace FreeFlow.UI
                 if (currentSource == LevelSource.Daily)
                 {
                     if (dailyIndex <= 0) { return ""; }
-                    DailyPick prev = dailyPicks[dailyIndex - 1];
-                    return "DAILY " + dailyIndex + " OF " + DailyCount
-                         + " · " + prev.packSize + "×" + prev.packSize;
+                    return "DAILY " + dailyIndex + " OF " + DailyCount;
                 }
 
                 if (currentLevel <= 1) { return ""; }
 
-                return "LEVEL " + (currentLevel - 1) + PackSizeSuffix;
+                return "LEVEL " + (currentLevel - 1);
             }
         }
 
@@ -442,22 +440,13 @@ namespace FreeFlow.UI
                 if (currentSource == LevelSource.Daily)
                 {
                     if (dailyIndex >= DailyCount - 1) { return ""; }
-                    DailyPick next = dailyPicks[dailyIndex + 1];
-                    return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount
-                         + " · " + next.packSize + "×" + next.packSize;
+                    return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount;
                 }
 
                 if (currentLevel >= TotalLevelCount) { return ""; }
 
-                return "LEVEL " + (currentLevel + 1) + PackSizeSuffix;
+                return "LEVEL " + (currentLevel + 1);
             }
-        }
-
-        /// <summary>" · 6×6", or nothing at all for a pack whose size is unknown -- a bare
-        /// trailing separator would read as a truncated label.</summary>
-        private string PackSizeSuffix
-        {
-            get { return currentPackSize > 0 ? " · " + currentPackSize + "×" + currentPackSize : ""; }
         }
 
         /// <summary>The heading on the level-complete overlay's primary button. It is the same
