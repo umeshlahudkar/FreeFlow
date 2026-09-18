@@ -17,7 +17,7 @@ MonoBehaviour:
   rule: The matching colour's path must run through this cell. Joining every pair
     is not enough on its own -- the level will not finish until this cell is on that
     colour's route.
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 680d997434afec25dea90046a9260f61, type: 3}
   demoBoard:
     gridSize: 0
     pairCount: 0

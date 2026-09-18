@@ -16,7 +16,7 @@ MonoBehaviour:
   title: Blocked Cell
   rule: No colour can enter this cell. It is not part of the board you have to fill
     either, so a finished level leaves it empty.
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 0c52d2c7c110463e807ca0961dbc2db8, type: 3}
   demoBoard:
     gridSize: 0
     pairCount: 0
