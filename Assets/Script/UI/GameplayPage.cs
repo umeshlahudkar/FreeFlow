@@ -29,6 +29,12 @@ namespace FreeFlow.UI
         [SerializeField] private Button hintButton;
         // The "x3" pill: how many hints are left to spend.
         [SerializeField] private TextMeshProUGUI hintCountText;
+        // The pill itself, shown only while there's a balance to display.
+        [SerializeField] private GameObject countPill;
+        // Shown in place of the hint pill once the balance hits zero. UI-only for now --
+        // the watch-ad reward flow behind them lands in a later change.
+        [SerializeField] private GameObject watchAdPill;
+        [SerializeField] private GameObject watchAdHint;
 
         [Header("Level navigation")]
         // The footer's two stepping buttons. Faded and inert rather than hidden when a step is
@@ -218,6 +224,11 @@ namespace FreeFlow.UI
             SaveData data = SavingSystem.Instance.Load();
 
             if (hintCountText != null) { hintCountText.text = "×" + data.hintsRemaining; }
+
+            bool noHintsLeft = data.hintsRemaining <= 0;
+            if (countPill != null) { countPill.SetActive(!noHintsLeft); }
+            if (watchAdPill != null) { watchAdPill.SetActive(noHintsLeft); }
+            if (watchAdHint != null) { watchAdHint.SetActive(noHintsLeft); }
 
             if (hintButton == null) { return; }
 
