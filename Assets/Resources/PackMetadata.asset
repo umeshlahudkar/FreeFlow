@@ -51,21 +51,26 @@ MonoBehaviour:
   tierStyles:
   - tier: 0
     label: EASY
-    background: {r: 0.91764706, g: 0.9529412, b: 0.87058824, a: 1}
-    text: {r: 0.23137255, g: 0.42745098, b: 0.06666667, a: 1}
+    cardBackground: {r: 0.91764706, g: 0.972549, b: 0.93333334, a: 1}
+    badgeBackground: {r: 0.7490196, g: 0.9098039, b: 0.78431374, a: 1}
+    badgeText: {r: 0.15686275, g: 0.47843137, b: 0.23921569, a: 1}
   - tier: 1
     label: MEDIUM
-    background: {r: 0.98039216, g: 0.93333334, b: 0.85490197, a: 1}
-    text: {r: 0.52156866, g: 0.30980393, b: 0.043137256, a: 1}
+    cardBackground: {r: 0.91764706, g: 0.95686275, b: 0.9843137, a: 1}
+    badgeBackground: {r: 0.7490196, g: 0.8666667, b: 0.9411765, a: 1}
+    badgeText: {r: 0.15686275, g: 0.39607844, b: 0.5411765, a: 1}
   - tier: 2
     label: HARD
-    background: {r: 0.98039216, g: 0.9254902, b: 0.90588236, a: 1}
-    text: {r: 0.6, g: 0.23529412, b: 0.11372549, a: 1}
+    cardBackground: {r: 1, g: 0.9529412, b: 0.8980392, a: 1}
+    badgeBackground: {r: 1, g: 0.827451, b: 0.61960787, a: 1}
+    badgeText: {r: 0.65882355, g: 0.36078432, b: 0, a: 1}
   - tier: 3
     label: VERY HARD
-    background: {r: 0.9882353, g: 0.92156863, b: 0.92156863, a: 1}
-    text: {r: 0.6392157, g: 0.1764706, b: 0.1764706, a: 1}
+    cardBackground: {r: 0.96862745, g: 0.92941177, b: 0.98039216, a: 1}
+    badgeBackground: {r: 0.8666667, g: 0.7490196, b: 0.9098039, a: 1}
+    badgeText: {r: 0.45490196, g: 0.23137255, b: 0.5254902, a: 1}
   - tier: 4
     label: EXPERT
-    background: {r: 0.93333334, g: 0.92941177, b: 0.99607843, a: 1}
-    text: {r: 0.23529412, g: 0.20392157, b: 0.5372549, a: 1}
+    cardBackground: {r: 0.9882353, g: 0.92156863, b: 0.9254902, a: 1}
+    badgeBackground: {r: 0.9490196, g: 0.7254902, b: 0.74509805, a: 1}
+    badgeText: {r: 0.60784316, g: 0.15686275, b: 0.20784314, a: 1}

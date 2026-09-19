@@ -25,13 +25,9 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI advancedProgressText;
 
         [Header("Daily challenge card")]
-        // Today's state in one line, plus the best streak as a tail.
+        // Today's state in one line, plus the current and best streaks as a tail. Used to be
+        // a separate streak pill next to the card; folded in here when that pill was removed.
         [SerializeField] private TextMeshProUGUI dailySubtitleText;
-
-        // The streak chip on the right. Hidden outright at streak 0 rather than showing "0-DAY",
-        // which would advertise the absence of the thing it exists to celebrate.
-        [SerializeField] private GameObject streakPill;
-        [SerializeField] private TextMeshProUGUI streakPillText;
 
         // Shown from a daily reset until the player opens the hub -- unseen content, not unplayed
         // content, so it clears on a visit even if nothing is solved. See
@@ -91,24 +87,18 @@ namespace FreeFlow.UI
                 newBadge.SetActive(data.dailyChallengeLastSeenDay != today);
             }
 
-            if (streakPill != null)
-            {
-                // The LIVE streak, not the stored one -- a lapsed run keeps its last count in
-                // the save until another day is credited, and a pill boasting "2-DAY" days after
-                // the streak actually died is worse than no pill at all.
-                int streak = data.LiveDailyChallengeStreak(today);
-                streakPill.SetActive(streak > 0);
-                if (streak > 0 && streakPillText != null)
-                {
-                    streakPillText.text = streak + "-DAY";
-                }
-            }
-
             if (dailySubtitleText != null)
             {
                 string progress = solved == 0 ? total + " challenges today"
                     : solved < total ? solved + " / " + total + " solved today"
                     : "all " + total + " done today";
+
+                // The LIVE streak, not the stored one -- a lapsed run keeps its last count in
+                // the save until another day is credited, and a line boasting "3-day streak"
+                // days after the streak actually died is worse than not mentioning it at all.
+                // Only earns its space once there is one, same as best below.
+                int streak = data.LiveDailyChallengeStreak(today);
+                string current = streak > 0 ? "  ·  " + streak + "-day streak" : "";
 
                 // The best streak only earns its space once there is one; on a fresh save the
                 // line stays about today rather than trailing a hollow "best 0".
@@ -116,7 +106,7 @@ namespace FreeFlow.UI
                     ? "  ·  best " + data.bestDailyChallengeStreak
                     : "";
 
-                dailySubtitleText.text = progress + best;
+                dailySubtitleText.text = progress + current + best;
             }
         }
 

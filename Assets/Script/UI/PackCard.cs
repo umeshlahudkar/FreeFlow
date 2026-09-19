@@ -15,6 +15,7 @@ namespace FreeFlow.UI
     /// </summary>
     public class PackCard : MonoBehaviour
     {
+        [SerializeField] private Image cardBackground;
         [SerializeField] private Image iconImage;
         [SerializeField] private TextMeshProUGUI sizeText;
         [SerializeField] private TextMeshProUGUI subtitleText;
@@ -97,11 +98,12 @@ namespace FreeFlow.UI
             PackMetadataSO.TierStyle style = packMetadata.StyleFor(entry.tier);
             if (style == null) { return; }
 
-            if (difficultyTagBackground != null) { difficultyTagBackground.color = style.background; }
+            if (cardBackground != null) { cardBackground.color = style.cardBackground; }
+            if (difficultyTagBackground != null) { difficultyTagBackground.color = style.badgeBackground; }
             if (difficultyTagLabel == null) { return; }
 
             difficultyTagLabel.text = style.label;
-            difficultyTagLabel.color = style.text;
+            difficultyTagLabel.color = style.badgeText;
 
             // The pill hugs its own label, measured here rather than by a ContentSizeFitter and a
             // HorizontalLayoutGroup. Those cost a layout rebuild on a screen that otherwise needs

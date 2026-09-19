@@ -38,8 +38,9 @@ public class PackMetadataSO : ScriptableObject
     {
         public PackTier tier;
         public string label;
-        public Color background;
-        public Color text;
+        public Color cardBackground;
+        public Color badgeBackground;
+        public Color badgeText;
     }
 
     [SerializeField] private Entry[] entries;
