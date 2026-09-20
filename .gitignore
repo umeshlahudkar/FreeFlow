@@ -74,6 +74,21 @@ sysinfo.txt
 # Crashlytics generated file
 crashlytics-build.properties
 
+# External Dependency Manager's own local Maven repo for resolved Android libraries (Firebase and
+# similar) -- rebuilt automatically by Assets > External Dependency Manager > Android Resolver, so
+# there is nothing here worth tracking.
+/[Aa]ssets/[Gg]enerated[Ll]ocal[Rr]epo/
+/[Aa]ssets/[Gg]enerated[Ll]ocal[Rr]epo.meta
+
+# Firebase's desktop (macOS/.bundle, Linux/.so) native App SDK binaries -- only used for testing
+# Firebase from the Editor's Play Mode on those OSes, not needed for the Android/iOS builds this
+# game ships, and the macOS one alone exceeds GitHub's 100MB hard push limit. The much smaller
+# Windows .dll next to them stays tracked since it's still useful for Editor testing on Windows.
+/[Aa]ssets/[Ff]irebase/[Pp]lugins/x86_64/FirebaseCppApp-*.bundle
+/[Aa]ssets/[Ff]irebase/[Pp]lugins/x86_64/FirebaseCppApp-*.bundle.meta
+/[Aa]ssets/[Ff]irebase/[Pp]lugins/x86_64/FirebaseCppApp-*.so
+/[Aa]ssets/[Ff]irebase/[Pp]lugins/x86_64/FirebaseCppApp-*.so.meta
+
 # Packed Addressables
 /[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
 

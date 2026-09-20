@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@string/gcm_defaultSenderId,@string/google_storage_bucket,@string/project_id,@string/google_api_key,@string/google_crash_reporting_api_key,@string/google_app_id">
+  <string name="gcm_defaultSenderId" translatable="false">376376210506</string>
+  <string name="google_storage_bucket" translatable="false">pathza-15020.firebasestorage.app</string>
+  <string name="project_id" translatable="false">pathza-15020</string>
+  <string name="google_api_key" translatable="false">AIzaSyBXURIrsNvwZGpSMytHHvv98mndbNpPWh0</string>
+  <string name="google_crash_reporting_api_key" translatable="false">AIzaSyBXURIrsNvwZGpSMytHHvv98mndbNpPWh0</string>
+  <string name="google_app_id" translatable="false">1:376376210506:android:c11d8ae628743907a422b3</string>
+</resources>

@@ -880,6 +880,20 @@ namespace FreeFlow.GamePlay
             hintsAtAttemptStart = hintsSoFar[currentLevel - 1];
 
             SavingSystem.Instance.Save(data);
+
+            AnalyticsManager.LogLevelStart(currentLevel, AnalyticsModeLabel());
+        }
+
+        /// <summary>What "mode" means to analytics: Classic/Advanced for an ordinary pack level,
+        /// or DailyChallenge when this attempt is one of today's picks -- a daily challenge is
+        /// still drawn from one of those two modes underneath, but which day's challenge it was is
+        /// the more useful split for level_start/level_complete, since that is the loop the
+        /// feature is actually meant to drive.</summary>
+        private static string AnalyticsModeLabel()
+        {
+            return UIController.Instance.IsDailyChallenge
+                ? "DailyChallenge"
+                : UIController.Instance.CurrentMode.ToString();
         }
 
         private static int[] EnsureLength(int[] source, int length)
@@ -985,11 +999,14 @@ namespace FreeFlow.GamePlay
                 if (data.AllDailyChallengesSolved())
                 {
                     data.RecordDailyChallengeCompletion(data.dailyChallengeCachedDay);
+                    AnalyticsManager.LogDailyStreakComplete(data.dailyChallengeStreak);
                 }
             }
 
             SavingSystem.Instance.Save(data);
             completionRecordedThisAttempt = true;
+
+            AnalyticsManager.LogLevelComplete(currentLevel, AnalyticsModeLabel());
         }
 
         /// <summary>
@@ -2196,6 +2213,8 @@ namespace FreeFlow.GamePlay
                     int[] hints = EnsureLength(data.HintsForKey(key), totalLevelCount);
                     hints[currentLevel - 1]++;
                     data.SetHintsForKey(key, hints);
+
+                    AnalyticsManager.LogHintUsed(currentLevel);
                 }
             }
 

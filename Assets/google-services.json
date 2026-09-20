@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "376376210506",
+    "project_id": "pathza-15020",
+    "storage_bucket": "pathza-15020.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:376376210506:android:c11d8ae628743907a422b3",
+        "android_client_info": {
+          "package_name": "com.PlayEasy.Pathza"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXURIrsNvwZGpSMytHHvv98mndbNpPWh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
