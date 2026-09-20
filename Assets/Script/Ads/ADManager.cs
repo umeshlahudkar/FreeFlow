@@ -83,22 +83,18 @@ public class ADManager : Singleton<ADManager>, IInitializable
 #endif
     }
 
-    /// <summary>Boots the Mobile Ads SDK once, then starts the first load of each ad format so
-    /// one is usually already sitting in memory by the time a player asks for it.
-    /// <paramref name="onComplete"/> fires once initialization and both loads have been kicked
-    /// off -- not once an ad has actually finished loading, since a slow or failed load shouldn't
-    /// hold up every manager queued behind this one in GameBootstrap.</summary>
+    /// <summary>Starts the Mobile Ads SDK and, once that finishes, the first load of each ad
+    /// format so one is usually already sitting in memory by the time a player asks for it.
+    /// <paramref name="onComplete"/> fires immediately, before any of that has actually happened
+    /// -- GameBootstrap waits for it before moving on to whatever's queued after this manager, and
+    /// an ad SDK's own startup (a network round trip) is not worth blocking MainScene load over.
+    /// Ad loading finishes in the background on its own time; ShowRewardedAd/ShowInterstitialAd
+    /// already handle "asked for before it's ready" as a normal failure, not a crash.</summary>
     public void Initialize(Action onComplete)
     {
-        if (isInitialized)
-        {
-            onComplete?.Invoke();
-            return;
-        }
+        onComplete?.Invoke();
 
-        if (isInitializing)
-            return;
-
+        if (isInitialized || isInitializing) { return; }
         isInitializing = true;
 
         MobileAds.Initialize(initStatus =>
@@ -108,8 +104,6 @@ public class ADManager : Singleton<ADManager>, IInitializable
 
             LoadRewardedAd();
             LoadInterstitialAd();
-
-            onComplete?.Invoke();
         });
     }
 
@@ -142,6 +136,17 @@ public class ADManager : Singleton<ADManager>, IInitializable
     /// away.</summary>
     public void ShowRewardedAd(Action onComplete, Action onFailed)
     {
+        // A caller can reach this before GameBootstrap's fire-and-forget Initialize() has
+        // actually finished -- nothing here waits for it (see Initialize). Retrying the SDK's own
+        // init instead of calling LoadRewardedAd directly matters: an ad load attempted before
+        // MobileAds.Initialize completes is not something the SDK supports.
+        if (!isInitialized)
+        {
+            Initialize(null);
+            onFailed?.Invoke();
+            return;
+        }
+
         if (rewardedAd == null || !rewardedAd.CanShowAd())
         {
             onFailed?.Invoke();
@@ -199,6 +204,15 @@ public class ADManager : Singleton<ADManager>, IInitializable
     /// the ad actually showed.</summary>
     public void ShowInterstitialAd(Action onComplete, Action onFailed)
     {
+        // See the same check in ShowRewardedAd -- a caller can reach here before the
+        // fire-and-forget Initialize() from GameBootstrap has actually finished.
+        if (!isInitialized)
+        {
+            Initialize(null);
+            onFailed?.Invoke();
+            return;
+        }
+
         if (interstitialAd == null || !interstitialAd.CanShowAd())
         {
             onFailed?.Invoke();
