@@ -279,17 +279,40 @@ namespace FreeFlow.UI
 
                 if (UIController.Instance.HintsRemaining <= 0)
                 {
-                    // Felt as well as read: the notice explains the refusal, the haptic is what
-                    // tells a player looking at the board rather than the toast that the tap landed
-                    // and was turned down.
-                    Haptics.Play(HapticType.Warning);
-                    UIController.Instance.ShowWarning(UIController.Instance.NoHintsMessage);
+                    // CanInput() just disabled the EventSystem for its own 0.25s debounce, timed
+                    // for a normal in-game tap -- not for a rewarded ad, which can sit in front of
+                    // Unity for as long as the player watches it. Re-enabling here rather than
+                    // waiting on that timer means input is never left off for the ad's whole
+                    // lifetime, which is what made the game seem stuck once the ad closed.
+                    InputManager.Instance.EnableInput();
+
+                    // An empty balance now offers a rewarded ad instead of just refusing the tap --
+                    // ADManager.ShowRewardedAd calls back on whichever of the two actually
+                    // happened, never both.
+                    ADManager.Instance.ShowRewardedAd(OnHintAdCompleted, OnHintAdFailed);
                     return;
                 }
 
 
                 GamePlayController.Instance.TryApplyHint();
             }
+        }
+
+        /// <summary>The reward for watching the hint ad to the end: one hint added to the
+        /// player's balance, drawn on screen immediately. Not applied to the board on its own --
+        /// the player still taps Hint again to spend it, same as any other hint.</summary>
+        private void OnHintAdCompleted()
+        {
+            UIController.Instance.GrantHint(1);
+            RefreshHintButton();
+        }
+
+        /// <summary>The ad didn't pay out -- none was ready, the SDK couldn't show it, or the
+        /// player closed it early. Same notice style as the empty-balance refusal it replaced.</summary>
+        private void OnHintAdFailed()
+        {
+            Haptics.Play(HapticType.Warning);
+            UIController.Instance.ShowWarning(UIController.Instance.AdNotAvailableMessage);
         }
 
         /// <summary>Steps to the previous/next level without leaving gameplay -- the footer's two

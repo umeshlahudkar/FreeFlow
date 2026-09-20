@@ -288,6 +288,18 @@ namespace FreeFlow.UI
             SavingSystem.Instance.Save(data);
         }
 
+        /// <summary>Adds to the player's hint balance -- the rewarded-ad payout, as opposed to
+        /// <see cref="EnsureHintBalance"/>'s one-time opening grant. Whoever awards the hint (the
+        /// ad flow) still leaves refreshing the on-screen pill to its own caller.</summary>
+        public void GrantHint(int amount = 1)
+        {
+            if (amount <= 0) { return; }
+
+            SaveData data = SavingSystem.Instance.Load();
+            data.hintsRemaining += amount;
+            SavingSystem.Instance.Save(data);
+        }
+
         /// <summary>Puts a short message on screen -- why a tap did nothing, typically -- and lets
         /// it take itself away again (see WarningNotifier). Composed here, the same way this class
         /// owns every other piece of wording the screens show, so the same situation cannot be
@@ -333,6 +345,10 @@ namespace FreeFlow.UI
 
         /// <summary>What the hint button says when it is tapped with nothing left to spend.</summary>
         public string NoHintsMessage { get { return "No More Hints"; } }
+
+        /// <summary>What the hint button says when the rewarded ad it offered instead of a
+        /// balance could not be shown.</summary>
+        public string AdNotAvailableMessage { get { return "Ad Not Available. Try Again Later."; } }
 
         // ---- header text -------------------------------------------------------------------
         //
