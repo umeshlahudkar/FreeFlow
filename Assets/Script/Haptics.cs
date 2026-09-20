@@ -21,12 +21,6 @@ public static class Haptics
     private static bool? enabled;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-    // How long each tap runs and how hard, in milliseconds and 1-255 amplitude. Short: a haptic
-    // that outlasts the touch that caused it reads as a fault rather than as feedback.
-    private const int SelectionMs = 8;
-    private const int LightMs = 14;
-    private const int MediumMs = 24;
-
     private static AndroidJavaObject vibrator;
     private static AndroidJavaClass effectClass;
     private static int apiLevel;
@@ -77,12 +71,18 @@ public static class Haptics
 
 #if UNITY_ANDROID && !UNITY_EDITOR
     /// <summary>
-    /// One-shots through VibrationEffect, which is what gives a duration AND an amplitude -- the
-    /// older vibrate(long) runs the motor flat out and cannot produce a light tick.
+    /// Every tap goes through VibrationEffect.createWaveform -- including Selection/Light/Medium,
+    /// which used to be a single pulse (first via createOneShot(ms, amplitude), then via a
+    /// one-entry waveform) and produced nothing on the device this was tested on, no exception and
+    /// no vibration. Success and Warning, the only two that were ever felt, are also the only two
+    /// with more than one pulse, so every tap here is a real on/off/on pattern now.
     ///
-    /// Patterns are used for Success and Warning: two pulses with a gap reads as an event rather
-    /// than as a longer version of the same tap, which is the whole point of those two being
-    /// distinguishable by feel.
+    /// This device also never honoured an explicit amplitude (createOneShot's own amplitude
+    /// parameter did nothing either), and createWaveform's 2-arg overload used below has no
+    /// amplitude parameter at all -- every pulse runs at the platform default. With amplitude off
+    /// the table, pulse length is the only dial left for how strong a tap reads, which is why
+    /// Selection/Light sit close to Success's own 18-34ms pulse widths rather than the much
+    /// shorter ones tried first.
     /// </summary>
     private static void PlayAndroid(HapticType type)
     {
@@ -103,13 +103,13 @@ public static class Haptics
                     VibratePattern(new long[] { 0, 26, 50, 26 });
                     break;
                 case HapticType.Medium:
-                    VibrateOnce(MediumMs, 180);
+                    VibratePattern(new long[] { 0, 25, 50, 35 });
                     break;
                 case HapticType.Light:
-                    VibrateOnce(LightMs, 140);
+                    VibratePattern(new long[] { 0, 20, 45, 30 });
                     break;
                 default:
-                    VibrateOnce(SelectionMs, 90);
+                    VibratePattern(new long[] { 0, 18, 40, 18 });
                     break;
             }
         }
@@ -118,15 +118,6 @@ public static class Haptics
             // A device that refuses the call is not a reason to take the game down with it.
             androidReady = false;
             Debug.LogWarning("Haptics: the device refused a vibration (" + e.Message + ") -- haptics off for this session.");
-        }
-    }
-
-    private static void VibrateOnce(int milliseconds, int amplitude)
-    {
-        using (AndroidJavaObject effect = effectClass.CallStatic<AndroidJavaObject>(
-            "createOneShot", (long)milliseconds, amplitude))
-        {
-            vibrator.Call("vibrate", effect);
         }
     }
 
@@ -147,7 +138,6 @@ public static class Haptics
     private static bool EnsureAndroid()
     {
         if (androidReady) { return true; }
-        if (vibrator != null) { return false; }   // resolved once already and failed
 
         try
         {
@@ -162,6 +152,11 @@ public static class Haptics
                 vibrator = activity.Call<AndroidJavaObject>("getSystemService", "vibrator");
             }
 
+            // Deliberately not cached as a permanent "never try again": a device can genuinely
+            // report hasVibrator() false in a way that isn't going to change, but treating it as
+            // permanent used to mean vibrator staying non-null from this lookup would make every
+            // later call here return false without ever re-resolving, even after a transient
+            // failure. Simplest fix is to just not remember a failed lookup at all.
             if (vibrator == null || !vibrator.Call<bool>("hasVibrator")) { return false; }
 
             effectClass = new AndroidJavaClass("android.os.VibrationEffect");
