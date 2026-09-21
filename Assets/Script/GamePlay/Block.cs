@@ -43,6 +43,13 @@ namespace FreeFlow.GamePlay
         private RectTransform sharedDotGroup;
         private Image[] sharedDotImages;
 
+        // The bulb badge shown on a pair's source and target dot while its route was drawn by the
+        // Hint button rather than found by the player -- see GamePlayController.TryApplyHint. Most
+        // cells are never hinted, so this follows pairDotVisual's own lazy-instantiate pattern
+        // rather than a pre-built child on every cell.
+        [SerializeField] private GameObject hintIconVisual;
+        private GameObject hintIconInstance;
+
         // Edge bars, indexed like directionImages ((int)Direction - 1: Left=0, Right=1,
         // Up=2, Down=3). Reused for two mechanics that both mark a single edge of the cell:
         // dark for a wallMask bit, green for the one allowed entry edge on a OneWay cell.
@@ -237,6 +244,36 @@ namespace FreeFlow.GamePlay
                 }
             }
             return sharedDotGroup;
+        }
+
+        private GameObject EnsureHintIcon()
+        {
+            if (hintIconInstance == null && hintIconVisual != null)
+            {
+                hintIconInstance = Instantiate(hintIconVisual, transform);
+
+                // Last sibling, same as the pair dot it sits beside: a badge covered by a path bar
+                // or a mechanic drawn afterwards would defeat the point of marking the cell at all.
+                hintIconInstance.transform.SetAsLastSibling();
+            }
+            return hintIconInstance;
+        }
+
+        /// <summary>Shows the hint bulb on this cell -- GamePlayController calls this on a hinted
+        /// pair's source and target dot once the route TryApplyHint drew finishes animating.</summary>
+        public void ShowHintIcon()
+        {
+            GameObject icon = EnsureHintIcon();
+            if (icon != null) { icon.SetActive(true); }
+        }
+
+        /// <summary>Hides the hint bulb -- called the moment the player's own edit touches the pair
+        /// it was marking, whether that redraws the pair from its dot, steals one of its cells for
+        /// another pair, or trims it back for a bridge lane. A cell that was never hinted has no
+        /// instance yet, so this is a no-op rather than instantiating one just to hide it.</summary>
+        public void HideHintIcon()
+        {
+            if (hintIconInstance != null) { hintIconInstance.SetActive(false); }
         }
 
         private RectTransform EnsureWallGroup()

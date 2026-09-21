@@ -50,6 +50,13 @@ namespace FreeFlow.GamePlay
         // gives each branch a stable identity to be replaced or cleared by.
         private Dictionary<int, List<List<Block>>> pairSegments;
 
+        // The source and target dot a hint drew, per pair, so a later edit touching that pair can
+        // find the two cells wearing the hint bulb and turn it back off. Populated once
+        // DrawHintPathOverTime finishes and cleared the moment anything mutates that pair's
+        // committed segment -- see ClearHintMarkers and its callers.
+        private readonly Dictionary<int, Block> hintSourceBlocks = new Dictionary<int, Block>();
+        private readonly Dictionary<int, Block> hintTargetBlocks = new Dictionary<int, Block>();
+
         private EventSystem eventSystem;
         private List<RaycastResult> raycastResults;
         private PointerEventData eventData;
@@ -185,7 +192,7 @@ namespace FreeFlow.GamePlay
 
         void Update()
         {
-            if (gameState == GameState.Playing)
+            if (gameState == GameState.Playing && !IsMechanicOverlayOpen())
             {
                 if (UnityEngine.Input.GetMouseButtonDown(0))
                 {
@@ -200,6 +207,26 @@ namespace FreeFlow.GamePlay
                     OnPointerUp();
                 }
             }
+        }
+
+        /// <summary>
+        /// Whether the mechanic intro card or guide is currently up. Both draw their demo boards
+        /// from real <see cref="Block"/> prefabs (see MechanicDemoView) sitting in front of the
+        /// page's blocking backdrop, so a tap landing on a demo cell raycasts a genuine Block and
+        /// would otherwise be read as a real move on the level underneath -- the demo board is not
+        /// part of <see cref="grid"/> and has no business feeding it input.
+        /// </summary>
+        private bool IsMechanicOverlayOpen()
+        {
+            if (PageManager.Instance == null) { return false; }
+
+            Page mechanicIntro = PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
+            if (mechanicIntro != null && mechanicIntro.IsOpen) { return true; }
+
+            Page mechanicGuide = PageManager.Instance.Get<MechanicGuidePage>(PageType.MechanicGuide);
+            if (mechanicGuide != null && mechanicGuide.IsOpen) { return true; }
+
+            return false;
         }
 
         private void OnPointerDown()
@@ -1294,6 +1321,10 @@ namespace FreeFlow.GamePlay
 
                     if (indexToRemove != -1)
                     {
+                        // The stolen pair's own line is being cut back, in place, without going
+                        // through DetachSegment/ClearPairDrawing -- so this is the one mutation
+                        // ClearHintMarkers is not already reached by one of those.
+                        ClearHintMarkers(block.HighlightedPairId);
                         ResetBlockToRemove(blocks, indexToRemove);
                     }
                 }
@@ -1753,6 +1784,8 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private bool ClearSegmentsTouching(Block dot)
         {
+            ClearHintMarkers(dot.PairId);
+
             List<List<Block>> segments = SegmentsOf(dot.PairId);
             if (segments == null) { return false; }
 
@@ -1805,6 +1838,8 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void DetachSegment(int pairId, List<Block> segment)
         {
+            ClearHintMarkers(pairId);
+
             List<List<Block>> segments = SegmentsOf(pairId);
             if (segments == null) { return; }
 
@@ -2289,6 +2324,8 @@ namespace FreeFlow.GamePlay
         /// <summary>Drops every segment of <paramref name="pairId"/> and what they drew.</summary>
         private void ClearPairDrawing(int pairId)
         {
+            ClearHintMarkers(pairId);
+
             List<List<Block>> segments = SegmentsOf(pairId);
             if (segments == null) { return; }
 
@@ -2299,6 +2336,27 @@ namespace FreeFlow.GamePlay
             }
 
             pairSegments.Remove(pairId);
+        }
+
+        /// <summary>Turns off the hint bulb on <paramref name="pairId"/>'s source and target dot,
+        /// if it currently has one, and forgets which cells it was on. Called from every place that
+        /// mutates a committed segment for the pair -- redrawn from its dot, a cell stolen by
+        /// another pair, a bridge lane trimming it back -- so the bulb never survives an edit it no
+        /// longer describes. A pair that was never hinted has no entries here, so this is a no-op
+        /// for the overwhelming majority of calls.</summary>
+        private void ClearHintMarkers(int pairId)
+        {
+            if (hintSourceBlocks.TryGetValue(pairId, out Block source))
+            {
+                if (source != null) { source.HideHintIcon(); }
+                hintSourceBlocks.Remove(pairId);
+            }
+
+            if (hintTargetBlocks.TryGetValue(pairId, out Block target))
+            {
+                if (target != null) { target.HideHintIcon(); }
+                hintTargetBlocks.Remove(pairId);
+            }
         }
 
         /// <summary>
@@ -2359,6 +2417,10 @@ namespace FreeFlow.GamePlay
         {
             List<Block> segment = SegmentContaining(otherPairId, cell);
             if (segment == null) { return; }
+
+            // Trimmed either way below -- by index-1 or down to nothing -- so the bulb this pair's
+            // hint left behind no longer describes what is on the board.
+            ClearHintMarkers(otherPairId);
 
             int index = GetBlockIndex(segment, cell);
 
@@ -2441,6 +2503,20 @@ namespace FreeFlow.GamePlay
             ResetTouchPointer();
 
             pairSegments[pairId] = new List<List<Block>> { path };
+
+            // Marks the two dots this route was given for, not found for -- see ClearHintMarkers
+            // for how an edit touching either end of it turns the bulb back off.
+            if (path.Count > 0)
+            {
+                Block source = path[0];
+                Block target = path[path.Count - 1];
+
+                if (source != null) { source.ShowHintIcon(); }
+                if (target != null) { target.ShowHintIcon(); }
+
+                hintSourceBlocks[pairId] = source;
+                hintTargetBlocks[pairId] = target;
+            }
 
             moves++;
             AudioManager.Instance.PlaySFX(SoundType.PathComplete);
@@ -2552,6 +2628,11 @@ namespace FreeFlow.GamePlay
             selectedBlocks.Clear();
             pairSegments.Clear();
             highlightedBlock.Clear();
+
+            // The blocks these pointed at are about to be destroyed by ResetBlocks below; nothing
+            // to un-show on them, just stale references to forget.
+            hintSourceBlocks.Clear();
+            hintTargetBlocks.Clear();
 
             isClicked = false;
             hasSelectExistingFromLast = false;

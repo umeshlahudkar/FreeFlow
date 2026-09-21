@@ -364,6 +364,7 @@ MonoBehaviour:
   - {fileID: 10175557145039099}
   pairDotVisual: {fileID: 435701871790326368, guid: 84ebadcf157a2134abbf8799447890b9, type: 3}
   sharedDotVisual: {fileID: 8139417702917670032, guid: c6fdc506431e26a49a7148dcdd19d50b, type: 3}
+  hintIconVisual: {fileID: 435701871790326368, guid: 48917de70b20b0f4eb5ee8499573c21a, type: 3}
   wallVisual: {fileID: 6345405422621318518, guid: 14f8d6c6564a3c44e813031d37cbc8ca, type: 3}
   oneWayVisual: {fileID: 5805933503298359713, guid: 0e3a499130f5cd5419b12f14aca18ad9, type: 3}
   checkpointMarkerVisual: {fileID: 3871298214593391955, guid: b1af39c9d75fe9f40bc398b8b711fa02, type: 3}

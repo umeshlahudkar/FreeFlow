@@ -298,12 +298,15 @@ namespace FreeFlow.UI
             }
         }
 
-        /// <summary>The reward for watching the hint ad to the end: one hint added to the
-        /// player's balance, drawn on screen immediately. Not applied to the board on its own --
-        /// the player still taps Hint again to spend it, same as any other hint.</summary>
+        /// <summary>The reward for watching the hint ad to the end: one hint credited and spent in
+        /// the same beat, so the pair it draws is the payoff the player watched the ad for rather
+        /// than a balance they have to tap Hint again to cash in. TryApplyHint spends back exactly
+        /// what GrantHint just added, so a watched ad nets to "one pair hinted", not "one hint
+        /// banked" -- the same balance a manual tap would have left, minus the pair it drew.</summary>
         private void OnHintAdCompleted()
         {
             UIController.Instance.GrantHint(1);
+            GamePlayController.Instance.TryApplyHint();
             RefreshHintButton();
         }
 

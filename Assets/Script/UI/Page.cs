@@ -11,6 +11,9 @@ namespace FreeFlow.UI
 
         public PageType PageType { get { return pageType; } }
 
+        /// <summary>Whether PageManager currently has this page/overlay on screen.</summary>
+        public bool IsOpen { get { return gameObject.activeInHierarchy; } }
+
         public virtual void Open()
         {
             gameObject.Activate();
