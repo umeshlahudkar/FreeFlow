@@ -21799,6 +21799,7 @@ MonoBehaviour:
   topPanel: {fileID: 1309928354}
   currentStreakText: {fileID: 672640667}
   bestStreakText: {fileID: 1535628740}
+  streakAnimSeconds: 0.35
   weekTallyText: {fileID: 1575058954}
   dayCircles:
   - {fileID: 345282783}
@@ -29632,12 +29633,12 @@ MonoBehaviour:
     volume: 1
     pitch: 1
   - type: 2
-    clip: {fileID: 8300000, guid: ffb34ee9797fd214cbb335698fc0ddf3, type: 3}
+    clip: {fileID: 8300000, guid: a8dc417811d98084f99d25022757161b, type: 3}
     channel: 0
     volume: 1
     pitch: 1
   - type: 3
-    clip: {fileID: 0}
+    clip: {fileID: 8300000, guid: ffb34ee9797fd214cbb335698fc0ddf3, type: 3}
     channel: 0
     volume: 1
     pitch: 1
