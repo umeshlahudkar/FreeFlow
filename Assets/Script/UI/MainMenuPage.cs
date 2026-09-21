@@ -115,28 +115,6 @@ namespace FreeFlow.UI
 
                 revealTweens[i] = reveal;
             }
-
-            // Refresh() already started both mode cards' number counting the instant OnEnable
-            // fired, above, before any of this reveal setup ran -- invisible and wasted, since the
-            // card carrying the number was still at alpha 0 at that point. Re-triggering here,
-            // now that each card's own reveal delay is known, replaces that wasted tween (killed
-            // before it ever ticks, same frame) with one the player actually sees start once its
-            // card has finished popping in.
-            UIController ui = UIController.Instance;
-            if (ui != null)
-            {
-                SaveData data = SavingSystem.Instance.Load();
-                AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic, CardRevealSeconds(0));
-                AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced, CardRevealSeconds(1));
-            }
-        }
-
-        /// <summary>How long <see cref="revealCards"/>[cardIndex] takes to finish popping in --
-        /// its stagger delay plus its own pop duration -- used as the progress-count tween's own
-        /// start delay so the number only starts moving once its card is fully visible.</summary>
-        private float CardRevealSeconds(int cardIndex)
-        {
-            return (cardIndex * revealStaggerSeconds) + revealCardSeconds;
         }
 
         private void OnEnable()
@@ -164,13 +142,8 @@ namespace FreeFlow.UI
                 levelChipText.text = "Level " + nextLevel;
             }
 
-            // No delay here: Open() re-triggers both of these once the card reveal is set up,
-            // timed to each card's own reveal -- see there. This call still has to exist because
-            // OnEnable (and so Refresh) fires on the starting page's own scene-load activation too,
-            // which never goes through Open() at all (see PageManager.Awake), and on DeveloperPage's
-            // debug refresh, neither of which has a reveal running to wait for.
-            AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic, 0f);
-            AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced, 0f);
+            AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic);
+            AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced);
             SetDailyChallengeCard(data, ui);
         }
 
@@ -228,10 +201,10 @@ namespace FreeFlow.UI
         /// displayed last visit. An earlier version animated from the last-shown count instead, so
         /// two visits in a row with no level finished in between produced a correct but invisible
         /// zero-distance "animation", which read as broken. Matching PackCard's own reveal treatment
-        /// is simpler and always visibly plays. <paramref name="delaySeconds"/> holds the count-up
-        /// off the start line -- see Open()'s own re-trigger, which uses this to line the count up
-        /// with its card's reveal.</summary>
-        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, SaveData data, UIController ui, GameMode mode, float delaySeconds)
+        /// is simpler and always visibly plays. Starts immediately, with no delay tying it to the
+        /// card reveal above -- an earlier version waited for that reveal to finish first, which
+        /// was pulled per explicit request.</summary>
+        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, SaveData data, UIController ui, GameMode mode)
         {
             if (text == null) { return; }
 
@@ -245,19 +218,15 @@ namespace FreeFlow.UI
             }
 
             if (readout.routine != null) { StopCoroutine(readout.routine); }
-            readout.routine = StartCoroutine(CountProgress(text, readout, completed, total, delaySeconds));
+            readout.routine = StartCoroutine(CountProgress(text, readout, completed, total));
         }
 
-        /// <summary>Waits <paramref name="delaySeconds"/> (unscaled -- the daily-challenge card's
-        /// own numbers are unaffected by anything gameplay does to Time.timeScale, and this should
-        /// behave the same), then eases <paramref name="readout"/>'s displayed count from zero up to
+        /// <summary>Eases <paramref name="readout"/>'s displayed count from zero up to
         /// <paramref name="completed"/> over <see cref="progressAnimSeconds"/>.</summary>
-        private IEnumerator CountProgress(TextMeshProUGUI text, ProgressReadout readout, int completed, int total, float delaySeconds)
+        private IEnumerator CountProgress(TextMeshProUGUI text, ProgressReadout readout, int completed, int total)
         {
             readout.displayed = 0f;
             SetProgressLabel(text, 0f, total);
-
-            if (delaySeconds > 0f) { yield return new WaitForSecondsRealtime(delaySeconds); }
 
             // One frame set aside before timing anything: this coroutine is started synchronously
             // from the middle of a page transition (Instantiate/Destroy, layout rebuilds), and

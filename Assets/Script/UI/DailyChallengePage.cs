@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -31,6 +32,15 @@ namespace FreeFlow.UI
         [Header("Streak cards")]
         [SerializeField] private TextMeshProUGUI currentStreakText;
         [SerializeField] private TextMeshProUGUI bestStreakText;
+
+        // How long each streak number counts up over, from zero, every time this screen refreshes
+        // -- the same "always reveal from zero" treatment MainMenuPage's mode cards and PackCard's
+        // progress use, and for the same reason: counting from whatever was last shown produces a
+        // correct but invisible zero-distance "animation" on a screen revisited without either
+        // streak having changed, which reads as broken rather than as nothing having moved.
+        [SerializeField] private float streakAnimSeconds = 0.35f;
+        private Coroutine currentStreakRoutine;
+        private Coroutine bestStreakRoutine;
 
         [Header("This week")]
         [SerializeField] private TextMeshProUGUI weekTallyText;
@@ -85,11 +95,8 @@ namespace FreeFlow.UI
 
             // Live rather than stored, for the reason spelled out on LiveDailyChallengeStreak:
             // a broken run still carries its old count in the save until the next credited day.
-            if (currentStreakText != null)
-            {
-                currentStreakText.text = data.LiveDailyChallengeStreak(shownDayIndex).ToString();
-            }
-            if (bestStreakText != null) { bestStreakText.text = data.bestDailyChallengeStreak.ToString(); }
+            AnimateStreakCount(currentStreakText, data.LiveDailyChallengeStreak(shownDayIndex), ref currentStreakRoutine);
+            AnimateStreakCount(bestStreakText, data.bestDailyChallengeStreak, ref bestStreakRoutine);
 
             RefreshWeekChain(data);
             RefreshTodayLevelButtons();
@@ -100,6 +107,49 @@ namespace FreeFlow.UI
             // RefreshTodayLevelButtons, since that is what selects and persists the day, and this
             // writes on top of it.
             UIController.Instance.MarkDailyChallengeSeen();
+        }
+
+        /// <summary>Starts (or restarts) <paramref name="text"/> counting up from zero to
+        /// <paramref name="target"/> -- see <see cref="streakAnimSeconds"/>'s own field comment for
+        /// why always from zero rather than from whatever was last shown.</summary>
+        private void AnimateStreakCount(TextMeshProUGUI text, int target, ref Coroutine routine)
+        {
+            if (text == null) { return; }
+
+            if (routine != null) { StopCoroutine(routine); }
+            routine = StartCoroutine(CountStreak(text, target));
+        }
+
+        /// <summary>Hand-rolled rather than a DOTween tween: the pattern MainMenuPage's own mode-
+        /// card counters ended up needing, after a DOTween tween on this project's build registered
+        /// correctly but never actually advanced past its start value.</summary>
+        private IEnumerator CountStreak(TextMeshProUGUI text, int target)
+        {
+            text.text = "0";
+
+            // One frame set aside before timing anything: this coroutine starts synchronously from
+            // OnEnable, mid page-transition, and Time.unscaledDeltaTime on that same frame reflects
+            // however long the transition itself took rather than an ordinary frame -- timing the
+            // count from that sample let one hitch account for the whole animation in a single
+            // invisible jump, the number already at its final value before anyone saw it move.
+            yield return null;
+
+            float elapsed = 0f;
+
+            while (elapsed < streakAnimSeconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+
+                // Ease-out quad: quick off the start, settling into the final count rather than
+                // arriving at a constant rate.
+                float t = Mathf.Clamp01(elapsed / streakAnimSeconds);
+                float eased = 1f - ((1f - t) * (1f - t));
+
+                text.text = Mathf.RoundToInt(Mathf.LerpUnclamped(0, target, eased)).ToString();
+                yield return null;
+            }
+
+            text.text = target.ToString();
         }
 
         /// <summary>Ticks the countdown once a second, and rebuilds the whole screen when the day
