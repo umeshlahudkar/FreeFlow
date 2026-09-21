@@ -1,5 +1,7 @@
+using System.Collections;
 using UnityEngine;
 using TMPro;
+using DG.Tweening;
 using FreeFlow.Enums;
 using FreeFlow.Input;
 
@@ -24,6 +26,23 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI classicProgressText;
         [SerializeField] private TextMeshProUGUI advancedProgressText;
 
+        // How long each card's number counts up over, from zero to the real count, every time the
+        // card is shown -- see AnimateProgressText.
+        [SerializeField] private float progressAnimSeconds = 0.35f;
+        private readonly ProgressReadout classicProgress = new ProgressReadout();
+        private readonly ProgressReadout advancedProgress = new ProgressReadout();
+
+        /// <summary>One mode card's animation state -- the count currently on screen (mid-tween or
+        /// not) and the coroutine driving it, kept per card since both animate independently. A
+        /// hand-rolled coroutine rather than DOTween.To here: the same pattern LevelCompletePage's
+        /// sheet slide ended up needing, after a DOTween tween on this project's build registered
+        /// correctly but never actually advanced past its start value.</summary>
+        private class ProgressReadout
+        {
+            public float displayed;
+            public Coroutine routine;
+        }
+
         [Header("Daily challenge card")]
         // Today's state in one line, plus the current and best streaks as a tail. Used to be
         // a separate streak pill next to the card; folded in here when that pill was removed.
@@ -33,6 +52,92 @@ namespace FreeFlow.UI
         // content, so it clears on a visit even if nothing is solved. See
         // SaveData.dailyChallengeLastSeenDay.
         [SerializeField] private GameObject newBadge;
+
+        [Header("Card reveal")]
+        // Tab_Classic, Tab_Advanced, Button_dailyChallenge -- in the order they should pop in.
+        // Exactly the page's three cards, authored in the Inspector rather than found by name so
+        // the reveal order is an explicit choice, not whatever GetComponentsInChildren happens to
+        // return.
+        [SerializeField] private RectTransform[] revealCards;
+        [SerializeField] private float revealStaggerSeconds = 0.08f;
+        [SerializeField] private float revealCardSeconds = 0.3f;
+
+        // Parallel to revealCards. Resting scale is read once at Awake (almost certainly (1,1,1),
+        // but not assumed) rather than hard-coded, and the CanvasGroup is added lazily the same
+        // way Page.FadeGroup is -- these cards never needed one before this.
+        private Vector3[] revealRestingScale;
+        private CanvasGroup[] revealGroups;
+        private Tween[] revealTweens;
+
+        private void Awake()
+        {
+            if (revealCards == null) { return; }
+
+            revealRestingScale = new Vector3[revealCards.Length];
+            revealGroups = new CanvasGroup[revealCards.Length];
+            revealTweens = new Tween[revealCards.Length];
+
+            for (int i = 0; i < revealCards.Length; i++)
+            {
+                if (revealCards[i] == null) { continue; }
+
+                revealRestingScale[i] = revealCards[i].localScale;
+
+                CanvasGroup group = revealCards[i].GetComponent<CanvasGroup>();
+                if (group == null) { group = revealCards[i].gameObject.AddComponent<CanvasGroup>(); }
+                revealGroups[i] = group;
+            }
+        }
+
+        /// <summary>Pops the three cards in one after another rather than all at once with the
+        /// page's own base fade -- runs after base.Open() activates the page, since a card has to
+        /// be active for its own tween to actually move it.</summary>
+        public override void Open()
+        {
+            base.Open();
+
+            if (revealCards == null) { return; }
+
+            for (int i = 0; i < revealCards.Length; i++)
+            {
+                RectTransform card = revealCards[i];
+                if (card == null) { continue; }
+
+                revealTweens[i]?.Kill();
+
+                card.localScale = revealRestingScale[i] * 0.85f;
+                CanvasGroup group = revealGroups[i];
+                if (group != null) { group.alpha = 0f; }
+
+                Sequence reveal = DOTween.Sequence().SetUpdate(true).SetDelay(i * revealStaggerSeconds);
+                reveal.Join(card.DOScale(revealRestingScale[i], revealCardSeconds).SetEase(Ease.OutBack));
+                if (group != null) { reveal.Join(group.DOFade(1f, revealCardSeconds)); }
+
+                revealTweens[i] = reveal;
+            }
+
+            // Refresh() already started both mode cards' number counting the instant OnEnable
+            // fired, above, before any of this reveal setup ran -- invisible and wasted, since the
+            // card carrying the number was still at alpha 0 at that point. Re-triggering here,
+            // now that each card's own reveal delay is known, replaces that wasted tween (killed
+            // before it ever ticks, same frame) with one the player actually sees start once its
+            // card has finished popping in.
+            UIController ui = UIController.Instance;
+            if (ui != null)
+            {
+                SaveData data = SavingSystem.Instance.Load();
+                AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic, CardRevealSeconds(0));
+                AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced, CardRevealSeconds(1));
+            }
+        }
+
+        /// <summary>How long <see cref="revealCards"/>[cardIndex] takes to finish popping in --
+        /// its stagger delay plus its own pop duration -- used as the progress-count tween's own
+        /// start delay so the number only starts moving once its card is fully visible.</summary>
+        private float CardRevealSeconds(int cardIndex)
+        {
+            return (cardIndex * revealStaggerSeconds) + revealCardSeconds;
+        }
 
         private void OnEnable()
         {
@@ -59,8 +164,13 @@ namespace FreeFlow.UI
                 levelChipText.text = "Level " + nextLevel;
             }
 
-            SetProgressText(classicProgressText, data, ui, GameMode.Classic);
-            SetProgressText(advancedProgressText, data, ui, GameMode.Advanced);
+            // No delay here: Open() re-triggers both of these once the card reveal is set up,
+            // timed to each card's own reveal -- see there. This call still has to exist because
+            // OnEnable (and so Refresh) fires on the starting page's own scene-load activation too,
+            // which never goes through Open() at all (see PageManager.Awake), and on DeveloperPage's
+            // debug refresh, neither of which has a reveal running to wait for.
+            AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic, 0f);
+            AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced, 0f);
             SetDailyChallengeCard(data, ui);
         }
 
@@ -112,8 +222,16 @@ namespace FreeFlow.UI
 
         /// <summary>Summed across every pack size in the mode (e.g. Classic's 5x5 + 6x6 + 7x7 +
         /// ...), not just one representative size -- this is the mode's true overall progress,
-        /// which is what the card is actually claiming to show.</summary>
-        private static void SetProgressText(TextMeshProUGUI text, SaveData data, UIController ui, GameMode mode)
+        /// which is what the card is actually claiming to show.
+        ///
+        /// Always counts up FROM ZERO, every time the card is shown -- not from whatever was
+        /// displayed last visit. An earlier version animated from the last-shown count instead, so
+        /// two visits in a row with no level finished in between produced a correct but invisible
+        /// zero-distance "animation", which read as broken. Matching PackCard's own reveal treatment
+        /// is simpler and always visibly plays. <paramref name="delaySeconds"/> holds the count-up
+        /// off the start line -- see Open()'s own re-trigger, which uses this to line the count up
+        /// with its card's reveal.</summary>
+        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, SaveData data, UIController ui, GameMode mode, float delaySeconds)
         {
             if (text == null) { return; }
 
@@ -126,7 +244,54 @@ namespace FreeFlow.UI
                 total += ui.PackLevelCountFor(sizes[i]);
             }
 
-            text.text = "<color=#0F9E88>" + completed + "</color> / " + total + " levels";
+            if (readout.routine != null) { StopCoroutine(readout.routine); }
+            readout.routine = StartCoroutine(CountProgress(text, readout, completed, total, delaySeconds));
+        }
+
+        /// <summary>Waits <paramref name="delaySeconds"/> (unscaled -- the daily-challenge card's
+        /// own numbers are unaffected by anything gameplay does to Time.timeScale, and this should
+        /// behave the same), then eases <paramref name="readout"/>'s displayed count from zero up to
+        /// <paramref name="completed"/> over <see cref="progressAnimSeconds"/>.</summary>
+        private IEnumerator CountProgress(TextMeshProUGUI text, ProgressReadout readout, int completed, int total, float delaySeconds)
+        {
+            readout.displayed = 0f;
+            SetProgressLabel(text, 0f, total);
+
+            if (delaySeconds > 0f) { yield return new WaitForSecondsRealtime(delaySeconds); }
+
+            // One frame set aside before timing anything: this coroutine is started synchronously
+            // from the middle of a page transition (Instantiate/Destroy, layout rebuilds), and
+            // Time.unscaledDeltaTime on that same frame reflects however long the transition took,
+            // not an ordinary frame. Counting elapsed time from THAT sample let one hitch account
+            // for the whole animation in a single invisible jump -- the number would already read
+            // its final value before anyone saw it move.
+            yield return null;
+
+            float from = 0f;
+            float elapsed = 0f;
+
+            while (elapsed < progressAnimSeconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+
+                // Ease-out quad: quick off the start, settling into the final count rather than
+                // arriving at a constant rate.
+                float t = Mathf.Clamp01(elapsed / progressAnimSeconds);
+                float eased = 1f - ((1f - t) * (1f - t));
+
+                readout.displayed = Mathf.LerpUnclamped(from, completed, eased);
+                SetProgressLabel(text, readout.displayed, total);
+                yield return null;
+            }
+
+            readout.displayed = completed;
+            SetProgressLabel(text, completed, total);
+            readout.routine = null;
+        }
+
+        private static void SetProgressLabel(TextMeshProUGUI text, float completed, int total)
+        {
+            text.text = "<color=#0F9E88>" + Mathf.RoundToInt(completed) + "</color> / " + total + " levels";
         }
 
         /// <summary>The pack-progress key for a mode's first/default pack size -- each card shows

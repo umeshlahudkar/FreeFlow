@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using TMPro;
+using DG.Tweening;
 using FreeFlow.Enums;
 
 namespace FreeFlow.UI
@@ -24,10 +25,21 @@ namespace FreeFlow.UI
         // player has finished deciding what to do instead.
         [SerializeField] private float visibleSeconds = 1.5f;
 
+        // The pop: scaled from nothing up to its own resting scale on Open, back down on Close.
+        // Read at Awake -- almost certainly (1, 1, 1) -- rather than assumed, so this still works
+        // if this notifier is ever reused somewhere already scaled down in its prefab.
+        [SerializeField] private float popSeconds = 0.25f;
+        private Vector3 restingScale;
+
         // Held so a second warning arriving while this one is still up restarts the countdown
         // rather than inheriting what was left of it -- otherwise a message shown a moment before
         // the old timer expired would flash and vanish.
         private Coroutine hideRoutine;
+
+        private void Awake()
+        {
+            restingScale = transform.localScale;
+        }
 
         /// <summary>The message this notifier shows when it is next opened. Set before opening it,
         /// not instead of opening it: only PageManager puts a page on screen.</summary>
@@ -40,6 +52,10 @@ namespace FreeFlow.UI
         {
             base.Open();
 
+            transform.DOKill();
+            transform.localScale = Vector3.zero;
+            transform.DOScale(restingScale, popSeconds).SetEase(Ease.OutBack).SetUpdate(true);
+
             // After base.Open(), which is what activates the GameObject -- StartCoroutine on an
             // inactive one throws, and silently would have left the notice on screen forever.
             if (hideRoutine != null) { StopCoroutine(hideRoutine); }
@@ -49,6 +65,10 @@ namespace FreeFlow.UI
         public override void Close()
         {
             hideRoutine = null;
+
+            transform.DOKill();
+            transform.DOScale(Vector3.zero, popSeconds).SetEase(Ease.InBack).SetUpdate(true);
+
             base.Close();
         }
 

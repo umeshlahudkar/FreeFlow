@@ -3946,11 +3946,11 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 562033764}
         m_TargetAssemblyTypeName: FreeFlow.UI.MainMenuPage, Assembly-CSharp
-        m_MethodName: OnPlayAdvancedButtonClick
-        m_Mode: 0
+        m_MethodName: OnDailyChallengeButtonClick
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
           m_IntArgument: 0
           m_FloatArgument: 0
           m_StringArgument: 
@@ -10856,7 +10856,7 @@ Camera:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519420028}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 2
   m_ClearFlags: 2
   m_BackGroundColor: {r: 0.20245641, g: 0.20443615, b: 0.20754719, a: 0}
@@ -12275,12 +12275,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.MenuScreenController
   pageType: 0
+  fadeSeconds: 0.2
   topPanel: {fileID: 1240086783}
   levelChipText: {fileID: 0}
   classicProgressText: {fileID: 1267524987}
   advancedProgressText: {fileID: 1310190054}
+  progressAnimSeconds: 0.35
   dailySubtitleText: {fileID: 272241327}
   newBadge: {fileID: 1431507812}
+  revealCards:
+  - {fileID: 1966729930}
+  - {fileID: 268270489}
+  - {fileID: 1423531831}
+  revealStaggerSeconds: 0.08
+  revealCardSeconds: 0.3
 --- !u!1 &563063457
 GameObject:
   m_ObjectHideFlags: 0
@@ -16009,6 +16017,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.MechanicIntroPage
   pageType: 9
+  fadeSeconds: 0.2
   titleText: {fileID: 1053512217}
   ruleText: {fileID: 1786016959}
   catalog: {fileID: 11400000, guid: 3f2ad980aff2b334a8e0a7ec9e7be84c, type: 2}
@@ -16795,6 +16804,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.LevelCompletePage
   pageType: 6
+  fadeSeconds: 0.2
+  sheet: {fileID: 653578071}
+  slideSeconds: 0.3
   titleText: {fileID: 1347308843}
   subtitleText: {fileID: 453546292}
   nextLevelTitleText: {fileID: 535920517}
@@ -19360,8 +19372,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.WarningNotifier
   pageType: 7
+  fadeSeconds: 0.2
   messageText: {fileID: 2106673884}
   visibleSeconds: 1.5
+  popSeconds: 0.25
 --- !u!1 &979397264
 GameObject:
   m_ObjectHideFlags: 0
@@ -21781,6 +21795,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.DailyChallengeScreenController
   pageType: 3
+  fadeSeconds: 0.2
   topPanel: {fileID: 1309928354}
   currentStreakText: {fileID: 672640667}
   bestStreakText: {fileID: 1535628740}
@@ -22667,6 +22682,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.DeveloperPage
   pageType: 8
+  fadeSeconds: 0.2
   topPanel: {fileID: 1333358824}
   dailyResetSecondsInput: {fileID: 1944887749}
   dailyResetStatusText: {fileID: 1944171310}
@@ -24215,6 +24231,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   pageType: 5
+  fadeSeconds: 0.2
   topPanel: {fileID: 1752136321}
   musicVolumeSlider: {fileID: 1199483547}
   musicVolumeLabel: {fileID: 1081906210}
@@ -25469,6 +25486,7 @@ MonoBehaviour:
   progressSlider: {fileID: 674871578}
   actionIconPlay: {fileID: 1784378790}
   actionIconDone: {fileID: 2098775982}
+  progressAnimSeconds: 0.35
   thumbSprites:
   - {fileID: 21300000, guid: 4a4ade28f11620a478a4215648f2beb5, type: 3}
   - {fileID: 21300000, guid: ae359c72bb82f8341ab057b870746d91, type: 3}
@@ -26941,6 +26959,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   pageType: 2
+  fadeSeconds: 0.2
   levelButtonPrefab: {fileID: 1053313372}
   levelsScroll: {fileID: 1831215586}
   topPanel: {fileID: 182833403}
@@ -27744,6 +27763,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.PackSelectScreenController
   pageType: 1
+  fadeSeconds: 0.2
   packCardPrefab: {fileID: 1318140361}
   packCardParent: {fileID: 1834592381}
   topPanel: {fileID: 1045680360}
@@ -35175,6 +35195,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.MechanicGuidePage
   pageType: 10
+  fadeSeconds: 0.2
   catalog: {fileID: 11400000, guid: 3f2ad980aff2b334a8e0a7ec9e7be84c, type: 2}
   rowPrefab: {fileID: 571826587934266269, guid: 12b979c75563b9243895848d52109fca, type: 3}
   rowsParent: {fileID: 1176543853}
@@ -39882,10 +39903,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.GameplayPage
   pageType: 4
+  fadeSeconds: 0.2
   topPanel: {fileID: 1864768458}
   cellsText: {fileID: 859829429}
   percentText: {fileID: 1078077088}
   progressSlider: {fileID: 571894349}
+  progressAnimSeconds: 0.35
   hintButton: {fileID: 1969944645}
   hintCountText: {fileID: 762551328}
   countPill: {fileID: 1899871586}

@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using DG.Tweening;
 using FreeFlow.Enums;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
@@ -23,6 +24,19 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI cellsText;
         [SerializeField] private TextMeshProUGUI percentText;
         [SerializeField] private Slider progressSlider;
+
+        // How long a change in filled-cell count takes to travel across the cells readout, the
+        // percent readout and the slider together -- one duration for all three, since they are
+        // one number shown three ways rather than three independent widgets.
+        [SerializeField] private float progressAnimSeconds = 0.35f;
+
+        // The count currently ON SCREEN, which may still be animating toward the board's real
+        // filled count. Read back as the next animation's start so a second path completing before
+        // the first finishes animating continues from where the eye actually is, not from the real
+        // (already-ahead) count -- and reset to the target outright on a fresh board (see Refresh),
+        // where there is nothing to animate FROM.
+        private float displayedFilledCells;
+        private Tween progressTween;
 
         [Header("Hint")]
         // Left interactable with an empty balance on purpose -- see OnHintButtonClick.
@@ -118,7 +132,11 @@ namespace FreeFlow.UI
                 ui.HasNextLevel, ui.NextStepTitle, ui.NextStepSubtitle);
 
             RefreshHintButton();
-            UpdateFilledCells();
+
+            // Snapped, not animated: a fresh board has no prior count on screen to travel from,
+            // and animating up from whatever the LAST board left on screen would read as counting
+            // down first if this one started further along.
+            UpdateFilledCells(animate: false);
 
             // A fresh board has nothing to warn about yet, and this is also what puts the card
             // into a known state: it is an ordinary GameObject that can be left active in the
@@ -189,8 +207,13 @@ namespace FreeFlow.UI
         /// announcing the level is done -- while the level refuses to end. Players hit exactly
         /// that and reported it as the game being broken. Cells are the real win condition, so
         /// showing them means the readout can never claim completion the game will not honour.
+        ///
+        /// Animated by default: a path completing (or a hint stepping through one) counts the
+        /// cells/percent readout up and eases the slider across the gain rather than snapping,
+        /// so the three widgets read as one number changing rather than a jump-cut. Pass false
+        /// only for a fresh board (see Refresh), which has no prior on-screen count to travel from.
         /// </summary>
-        public void UpdateFilledCells()
+        public void UpdateFilledCells(bool animate = true)
         {
             GamePlayController controller = GamePlayController.Instance;
             if (controller == null) { return; }
@@ -198,15 +221,39 @@ namespace FreeFlow.UI
             int filled = controller.FilledCellCount;
             int usable = controller.UsableCellCount;
 
-            if (cellsText != null) { cellsText.text = filled + "/" + usable + " CELLS"; }
+            progressTween?.Kill();
+
+            if (!animate)
+            {
+                displayedFilledCells = filled;
+                SetProgressDisplay(filled, usable);
+                return;
+            }
+
+            progressTween = DOTween.To(() => displayedFilledCells, x => displayedFilledCells = x, filled, progressAnimSeconds)
+                .SetEase(Ease.OutQuad)
+                .SetUpdate(true)
+                .OnUpdate(() => SetProgressDisplay(displayedFilledCells, usable))
+                .OnComplete(() => SetProgressDisplay(filled, usable));
+        }
+
+        /// <summary>Draws one filled-cell count across all three widgets. Takes the raw
+        /// (possibly fractional, mid-animation) count rather than an int: the slider fills
+        /// continuously off it, while the cells/percent text round it themselves, so the numbers
+        /// stay whole and legible while the bar underneath them still moves smoothly.</summary>
+        private void SetProgressDisplay(float filled, int usable)
+        {
+            int roundedFilled = Mathf.RoundToInt(filled);
+
+            if (cellsText != null) { cellsText.text = roundedFilled + "/" + usable + " CELLS"; }
             if (percentText != null)
             {
-                int percent = usable > 0 ? Mathf.RoundToInt(100f * filled / usable) : 0;
+                int percent = usable > 0 ? Mathf.RoundToInt(100f * roundedFilled / usable) : 0;
                 percentText.text = percent + "%";
             }
             if (progressSlider != null)
             {
-                progressSlider.value = usable > 0 ? (float)filled / usable : 0f;
+                progressSlider.value = usable > 0 ? filled / usable : 0f;
             }
         }
 

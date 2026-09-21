@@ -506,6 +506,38 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
+        /// Kills every tween this cell might still be running on a child Image before Unity tears
+        /// it down. GamePlayController.ResetBlocks destroys the whole board with a straight
+        /// Destroy() per cell and no per-cell cleanup pass -- a level changed fast enough to catch
+        /// a dot's spawn-in or highlight pulse (both DOScale), or an invalid-move/invalid-wall
+        /// flash (DOFade/DOColor, looping) mid-flight otherwise leaves DOTween holding a tween on
+        /// an Image whose GameObject no longer exists, which it reports as a destroyed-object
+        /// error every frame it tries to apply the tween rather than failing silently.
+        /// </summary>
+        private void OnDestroy()
+        {
+            if (pairDotImage != null) { pairDotImage.transform.DOKill(); }
+
+            if (sharedDotImages != null)
+            {
+                for (int i = 0; i < sharedDotImages.Length; i++)
+                {
+                    if (sharedDotImages[i] != null) { sharedDotImages[i].transform.DOKill(); }
+                }
+            }
+
+            if (invalidMoveFlashImage != null) { invalidMoveFlashImage.DOKill(); }
+
+            if (wallImages != null)
+            {
+                for (int i = 0; i < wallImages.Length; i++)
+                {
+                    if (wallImages[i] != null) { wallImages[i].DOKill(); }
+                }
+            }
+        }
+
+        /// <summary>
         /// Sets the properties of the block, including its position, pair color type,
         /// </summary>
         /// <param name="type">The pair color type of the block.</param>

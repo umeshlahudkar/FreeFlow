@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -19,6 +20,105 @@ namespace FreeFlow.UI
     /// and still offers the same neighbours the HUD offered a moment ago.</summary>
     public class LevelCompletePage : Page
     {
+        [Header("Entrance")]
+        // The card itself, bottom-anchored -- the backdrop behind it just fades with the rest of
+        // the page (see base Page); this is the one piece that also slides, the way a bottom sheet
+        // arrives on top of a dimming background rather than just fading in place.
+        [SerializeField] private RectTransform sheet;
+        [SerializeField] private float slideSeconds = 0.3f;
+
+        // Wherever the sheet is authored to sit once on screen -- read once at Awake, which runs
+        // regardless of the page's active state, unlike the sheet's own rect.height (see Open/
+        // Close: an inactive RectTransform has no size to measure, so the off-screen start has to
+        // be computed after the page is active).
+        private Vector2 sheetRestingPosition;
+
+        // Hand-rolled rather than a DOTween shortcut on this RectTransform (DOAnchorPos): the
+        // same pattern GamePlayController's hint trace and MechanicDemoView already animate cell
+        // bars with, and the one confirmed to actually reach its target here -- DOAnchorPos on
+        // this object registered a tween that never advanced past its start value.
+        private Coroutine slideRoutine;
+
+        private void Awake()
+        {
+            if (sheet != null) { sheetRestingPosition = sheet.anchoredPosition; }
+        }
+
+        /// <summary>Slides the sheet up from below the screen into its resting position while the
+        /// base Page fade brings the backdrop in behind it.</summary>
+        public override void Open()
+        {
+            base.Open();
+
+            if (sheet == null) { return; }
+
+            if (slideRoutine != null) { StopCoroutine(slideRoutine); }
+            sheet.anchoredPosition = sheetRestingPosition + (Vector2.down * OffScreenTravel());
+            slideRoutine = StartCoroutine(SlideSheet(sheet.anchoredPosition, sheetRestingPosition));
+        }
+
+        /// <summary>Slides the sheet back down off the bottom of the screen over the same
+        /// <see cref="slideSeconds"/> the base Page fade takes to hide the backdrop, so the two
+        /// finish together.</summary>
+        public override void Close()
+        {
+            // CloseOverlay is called defensively from several places just to be sure an overlay
+            // is not left open -- PageManager's own doc comment promises it is "safe to call even
+            // if it is already closed". On an already-inactive page there is nothing on screen to
+            // slide down, and StartCoroutine throws on an inactive GameObject, unlike Open() (see
+            // above), which always activates first.
+            if (sheet != null && gameObject.activeInHierarchy)
+            {
+                if (slideRoutine != null) { StopCoroutine(slideRoutine); }
+                Vector2 offScreen = sheetRestingPosition + (Vector2.down * OffScreenTravel());
+                slideRoutine = StartCoroutine(SlideSheet(sheet.anchoredPosition, offScreen));
+            }
+
+            base.Close();
+        }
+
+        /// <summary>Eases <see cref="sheet"/>'s anchored position from <paramref name="from"/> to
+        /// <paramref name="to"/> over <see cref="slideSeconds"/>, unscaled -- the board behind this
+        /// overlay may already be stopped (<see cref="FreeFlow.GamePlay.GameState.Ending"/>), and a
+        /// slide that froze with it would leave the sheet stuck partway.</summary>
+        private IEnumerator SlideSheet(Vector2 from, Vector2 to)
+        {
+            float elapsed = 0f;
+
+            while (elapsed < slideSeconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+
+                // Ease-out cubic: fast off the start, settling into the end rather than arriving
+                // at a constant speed, the same easing DOAnchorPos was asked for either way.
+                float t = Mathf.Clamp01(elapsed / slideSeconds);
+                float eased = 1f - Mathf.Pow(1f - t, 3f);
+
+                sheet.anchoredPosition = Vector2.LerpUnclamped(from, to, eased);
+                yield return null;
+            }
+
+            sheet.anchoredPosition = to;
+            slideRoutine = null;
+        }
+
+        /// <summary>How far below the sheet's resting spot counts as off-screen -- the full height
+        /// of this page's own root, which spans the screen regardless of the sheet's own size. Only
+        /// valid once the page is active (see the field comment on <see cref="sheetRestingPosition"/>),
+        /// which Open/Close both guarantee: Open activates before calling this, and Close runs while
+        /// the page is still active -- Page.Close only deactivates once its own fade finishes.
+        ///
+        /// Forces a rebuild first: on the very first Open() of a freshly loaded scene this rect has
+        /// not been through a layout pass yet and reads 0, which would leave the sheet starting (and
+        /// ending, on that one call) already at its resting spot instead of off-screen -- the same
+        /// reason MechanicDemoView.LayoutBoard rebuilds before reading its own area's rect.</summary>
+        private float OffScreenTravel()
+        {
+            RectTransform pageRect = (RectTransform)transform;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(pageRect);
+            return pageRect.rect.height;
+        }
+
         [SerializeField] private TextMeshProUGUI titleText;
         [SerializeField] private TextMeshProUGUI subtitleText;
         // The big button's own two lines. Its title is worded per run -- the thing after a daily

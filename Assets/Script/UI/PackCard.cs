@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using DG.Tweening;
 using FreeFlow.Input;
 using FreeFlow.Enums;
 
@@ -25,6 +26,13 @@ namespace FreeFlow.UI
         [SerializeField] private GameObject actionIconPlay;
         [SerializeField] private GameObject actionIconDone;
 
+        // How long the fraction/percent readout and the slider take to count up from zero --
+        // matches GameplayPage's own progress card treatment (see its UpdateFilledCells), the
+        // same "one number shown three ways" animated together rather than three independent
+        // widgets snapping into place.
+        [SerializeField] private float progressAnimSeconds = 0.35f;
+        private Tween progressTween;
+
         // Indexed by packSize - MinThumbSize (5x5 .. 9x9, matching the pack_thumb_*.png set --
         // there is no thumbnail art for any other board size, so ThumbSpriteFor clamps into range
         // rather than indexing out of bounds if a size outside 5-9 is ever added).
@@ -46,6 +54,15 @@ namespace FreeFlow.UI
 
         private int packSize;
 
+        // PackSelectPage.Refresh destroys every card outright (no fade-out) to rebuild the list --
+        // a screen revisited fast enough to catch a still-animating card mid-reveal would otherwise
+        // leave this tween running past its own GameObject, harmlessly (its target is a plain float,
+        // not a Unity object, and SetProgressDisplay already null-checks) but pointlessly.
+        private void OnDestroy()
+        {
+            progressTween?.Kill();
+        }
+
         public void SetDetails(GameMode mode, int packSize, int completed, int total)
         {
             this.packSize = packSize;
@@ -57,15 +74,13 @@ namespace FreeFlow.UI
             // authored entry as the tier, so both are set in one place or neither is.
             ApplyDifficultyTag(mode, packSize);
 
-            if (fractionText != null) { fractionText.text = completed + "/" + total; }
-            int percent = total > 0 ? Mathf.RoundToInt(100f * completed / total) : 0;
-            if (percentText != null) { percentText.text = percent + "%"; }
-            SetProgress(total > 0 ? (float)completed / total : 0f);
+            // PLAY shown throughout the reveal regardless of the pack's real state -- a fully
+            // solved pack only switches to the checkmark once AnimateProgress's count-up actually
+            // finishes (see OnProgressRevealComplete), not the instant the card appears.
+            if (actionIconPlay != null) { actionIconPlay.SetActive(true); }
+            if (actionIconDone != null) { actionIconDone.SetActive(false); }
 
-            bool isDone = completed >= total;
-
-            if (actionIconPlay != null) { actionIconPlay.SetActive(!isDone); }
-            if (actionIconDone != null) { actionIconDone.SetActive(isDone); }
+            AnimateProgress(completed, total);
         }
 
         /// <summary>
@@ -132,10 +147,57 @@ namespace FreeFlow.UI
             return thumbSprites[index];
         }
 
-        private void SetProgress(float fraction)
+        /// <summary>Counts the fraction/percent readout and the slider up from zero to
+        /// <paramref name="completed"/> together. Always FROM zero, never from whatever the last
+        /// card showed: this component is freshly instantiated every time the pack-select screen
+        /// opens (see PackSelectPage.Refresh), so there is no prior on-screen value to animate
+        /// from -- the reveal itself is the point, not catching up to a change.</summary>
+        private void AnimateProgress(int completed, int total)
         {
-            if (progressSlider == null) { return; }
-            progressSlider.value = Mathf.Clamp01(fraction);
+            progressTween?.Kill();
+
+            float displayed = 0f;
+            SetProgressDisplay(0f, total);
+
+            progressTween = DOTween.To(() => displayed, x => displayed = x, completed, progressAnimSeconds)
+                .SetEase(Ease.OutQuad)
+                .SetUpdate(true)
+                .OnUpdate(() => SetProgressDisplay(displayed, total))
+                .OnComplete(() => OnProgressRevealComplete(completed, total));
+        }
+
+        /// <summary>Only once the count-up has actually finished does a fully solved pack switch
+        /// its action icon from PLAY to the checkmark -- flipping it the instant the card appeared
+        /// would claim "done" before the number on the card had finished claiming it itself.</summary>
+        private void OnProgressRevealComplete(int completed, int total)
+        {
+            SetProgressDisplay(completed, total);
+
+            if (completed < total) { return; }
+
+            if (actionIconPlay != null) { actionIconPlay.SetActive(false); }
+            if (actionIconDone != null) { actionIconDone.SetActive(true); }
+        }
+
+        /// <summary>Draws one completed-level count across the fraction text, the percent text and
+        /// the slider. Takes the raw (possibly fractional, mid-animation) count rather than an int
+        /// -- the slider fills continuously off it, while the fraction/percent text round it
+        /// themselves, so the numbers stay whole while the bar underneath them still moves
+        /// smoothly.</summary>
+        private void SetProgressDisplay(float completed, int total)
+        {
+            int rounded = Mathf.RoundToInt(completed);
+
+            if (fractionText != null) { fractionText.text = rounded + "/" + total; }
+            if (percentText != null)
+            {
+                int percent = total > 0 ? Mathf.RoundToInt(100f * rounded / total) : 0;
+                percentText.text = percent + "%";
+            }
+            if (progressSlider != null)
+            {
+                progressSlider.value = total > 0 ? Mathf.Clamp01(completed / total) : 0f;
+            }
         }
 
         public void OnCardClick()
