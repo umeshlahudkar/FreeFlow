@@ -12,7 +12,7 @@ namespace FreeFlow.GamePlay
     /// generation is an offline Editor pipeline (4.3, 5.1) expensive enough to need its own
     /// tuning passes per configuration, not something a phone can do in a frame. "Generation" here
     /// means picking an index into a pack that is already on disk, which is arithmetic, not search
-    /// -- the "cache" half (see SaveData.dailyChallengeCachedDay) is what actually matters: once
+    /// -- the "cache" half (see DailyChallengeData.dailyChallengeCachedDay) is what actually matters: once
     /// picked for a day, the same levels keep showing for the rest of that day even if the
     /// player's skill changes mid-session from playing other levels.
     ///
@@ -104,8 +104,9 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>Whole calendar days (UTC) since <see cref="Epoch"/>. The stable identity of
-        /// "today" everything else here keys off -- SaveData stores this directly rather than a
-        /// date string, so streak comparisons are integer arithmetic, not calendar-aware parsing.
+        /// "today" everything else here keys off -- DailyChallengeData stores this directly
+        /// rather than a date string, so streak comparisons are integer arithmetic, not
+        /// calendar-aware parsing.
         ///
         /// Outside a FINAL_BUILD a developer can compress a "day" to a handful of seconds (see
         /// <see cref="DebugDayLengthSeconds"/>); the index then counts those periods instead. It
@@ -177,19 +178,22 @@ namespace FreeFlow.GamePlay
         /// One day's pick. <paramref name="packSizesForMode"/> is whichever pack sizes exist for
         /// <paramref name="mode"/> (rotated through by day, so a week of play sees every size --
         /// this rotation is deliberately NOT salted, so that guarantee holds for every install, not
-        /// just on average); <paramref name="skillRating"/> is <c>SaveData.OverallSkillRating()</c>,
-        /// 0-100; <paramref name="playerSalt"/> is <c>SaveData.playerSalt</c> -- a value generated
-        /// once per install (see UIController.EnsureTodayDailyPicks) so two players in the same
-        /// skill band on the same day get DIFFERENT levels, not the identical puzzle. Only the
-        /// LEVEL choice is salted, not the pack-size rotation above -- salting that too would trade
-        /// the "every size in a week" guarantee for cross-player variety nobody asked for.
+        /// just on average); <paramref name="skillRatingFor"/> gives the 0-100 band signal for a
+        /// SPECIFIC (mode, pack size) -- callers pass <c>SaveData.CompletedLevelForKey</c> as a
+        /// percentage of that pack, so a day drawing from several pack sizes bands each one by
+        /// progress in THAT pack rather than one number applied everywhere; <paramref
+        /// name="playerSalt"/> is <c>DailyChallengeData.playerSalt</c> -- a value generated once per install
+        /// (see UIController.EnsureTodayDailyPicks) so two players in the same skill band on the
+        /// same day get DIFFERENT levels, not the identical puzzle. Only the LEVEL choice is
+        /// salted, not the pack-size rotation above -- salting that too would trade the "every
+        /// size in a week" guarantee for cross-player variety nobody asked for.
         ///
         /// Equivalent to <see cref="SelectDay"/> with a count of 1, and kept as its own entry point
         /// because "the day's level" is still the shape most callers want.
         /// </summary>
-        public static Pick Select(int dayIndex, GameMode mode, int[] packSizesForMode, int packLevelCount, float skillRating, int playerSalt)
+        public static Pick Select(int dayIndex, GameMode mode, int[] packSizesForMode, int packLevelCount, System.Func<GameMode, int, float> skillRatingFor, int playerSalt)
         {
-            return SelectSlot(dayIndex, 0, mode, packSizesForMode, packLevelCount, skillRating, playerSalt);
+            return SelectSlot(dayIndex, 0, mode, packSizesForMode, packLevelCount, skillRatingFor, playerSalt);
         }
 
         /// <summary>
@@ -206,11 +210,11 @@ namespace FreeFlow.GamePlay
         /// <paramref name="count"/> is clamped to what the skill band can actually supply distinct
         /// levels for; asking for more would otherwise repeat a board inside one day.
         /// </summary>
-        public static Pick[] SelectDay(int dayIndex, GameMode mode, int[] packSizesForMode, int packLevelCount, float skillRating, int playerSalt, int count)
+        public static Pick[] SelectDay(int dayIndex, GameMode mode, int[] packSizesForMode, int packLevelCount, System.Func<GameMode, int, float> skillRatingFor, int playerSalt, int count)
         {
             return SelectDay(dayIndex,
                 new[] { new Pool { mode = mode, packSizes = packSizesForMode } },
-                packLevelCount, skillRating, playerSalt, count);
+                packLevelCount, skillRatingFor, playerSalt, count);
         }
 
         /// <summary>
@@ -225,22 +229,27 @@ namespace FreeFlow.GamePlay
         /// Changing the mix is a matter of the order the pools are handed over, not of a rule in
         /// here.
         /// </summary>
-        public static Pick[] SelectDay(int dayIndex, Pool[] pools, int packLevelCount, float skillRating, int playerSalt, int count)
+        public static Pick[] SelectDay(int dayIndex, Pool[] pools, int packLevelCount, System.Func<GameMode, int, float> skillRatingFor, int playerSalt, int count)
         {
             Entry[] entries = Flatten(pools);
             if (entries.Length == 0) { return new Pick[0]; }
 
-            BandRange(skillRating, packLevelCount, out int bandStart, out int bandEnd);
-            int bandWidth = bandEnd - bandStart + 1;
+            // Every band is at least this wide regardless of which third a given (mode, pack
+            // size) lands in -- see BandRange -- so it is a safe (if slightly conservative for the
+            // top band, which absorbs the truncation remainder) width to clamp the day's count by.
+            int minBandWidth = System.Math.Max(1, packLevelCount / 3);
 
             if (count < 1) { count = 1; }
-            int distinctAvailable = bandWidth * entries.Length;
+            int distinctAvailable = minBandWidth * entries.Length;
             if (count > distinctAvailable) { count = distinctAvailable; }
 
             Pick[] picks = new Pick[count];
             for (int i = 0; i < count; i++)
             {
-                Pick pick = SelectSlot(dayIndex, i, entries, packLevelCount, skillRating, playerSalt);
+                Pick pick = SelectSlot(dayIndex, i, entries, packLevelCount, skillRatingFor, playerSalt);
+
+                BandRange(skillRatingFor(pick.mode, pick.packSize), packLevelCount, out int bandStart, out int bandEnd);
+                int bandWidth = bandEnd - bandStart + 1;
 
                 // Two slots landing on the same (pack size, level) would show the SAME board twice
                 // in one day. Step forward inside the band -- wrapping at its end -- until the pair
@@ -259,12 +268,12 @@ namespace FreeFlow.GamePlay
             return picks;
         }
 
-        private static Pick SelectSlot(int dayIndex, int slot, GameMode mode, int[] packSizesForMode, int packLevelCount, float skillRating, int playerSalt)
+        private static Pick SelectSlot(int dayIndex, int slot, GameMode mode, int[] packSizesForMode, int packLevelCount, System.Func<GameMode, int, float> skillRatingFor, int playerSalt)
         {
             int packIndex = Mod(dayIndex + slot, packSizesForMode.Length);
             int packSize = packSizesForMode[packIndex];
 
-            BandRange(skillRating, packLevelCount, out int bandStart, out int bandEnd);
+            BandRange(skillRatingFor(mode, packSize), packLevelCount, out int bandStart, out int bandEnd);
 
             int hash = Hash(dayIndex + slot * SlotStride, SeedVersion, LevelSeed(mode, packSize), playerSalt);
             int levelNumber = bandStart + Mod(hash, bandEnd - bandStart + 1);
@@ -272,10 +281,10 @@ namespace FreeFlow.GamePlay
             return new Pick { mode = mode, packSize = packSize, levelNumber = levelNumber };
         }
 
-        private static Pick SelectSlot(int dayIndex, int slot, Entry[] entries, int packLevelCount, float skillRating, int playerSalt)
+        private static Pick SelectSlot(int dayIndex, int slot, Entry[] entries, int packLevelCount, System.Func<GameMode, int, float> skillRatingFor, int playerSalt)
         {
             Entry entry = entries[Mod(dayIndex + slot, entries.Length)];
-            return SelectSlot(dayIndex, slot, entry.mode, new[] { entry.packSize }, packLevelCount, skillRating, playerSalt);
+            return SelectSlot(dayIndex, slot, entry.mode, new[] { entry.packSize }, packLevelCount, skillRatingFor, playerSalt);
         }
 
         /// <summary>The pack-size axis of the hash, with the mode folded in -- see

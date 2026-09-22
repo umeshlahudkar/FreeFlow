@@ -100,11 +100,10 @@ namespace FreeFlow.GamePlay
         /// <summary>Unscaled time the current attempt began; see <see cref="BeginAttempt"/>.</summary>
         private float attemptStartTime;
 
-        /// <summary>Lifetime hint count for this level when the current attempt began. There is no
-        /// separate "hints this attempt" counter in the save file -- <see cref="RecordHintUsed"/>
-        /// only ever writes the lifetime total -- so <see cref="SaveLevelData"/> diffs against this
-        /// snapshot instead of persisting a second counter that would need its own migration.</summary>
-        private int hintsAtAttemptStart;
+        /// <summary>Hints taken since <see cref="BeginAttempt"/> reset it, incremented by
+        /// <see cref="RecordHintUsed"/>. Runtime-only -- only needs to survive for the length of
+        /// one attempt, so nothing about it is persisted.</summary>
+        private int hintsUsedThisAttempt;
 
         // The numbers ActivateLevelCompleteScreen needs beyond moves (already a field) -- set by
         // SaveLevelData, read immediately after by CheckForLevelComplete. Fields rather than a
@@ -120,10 +119,8 @@ namespace FreeFlow.GamePlay
         // and redrawing can complete the board a second time within the SAME attempt.
         //
         // Without this, that second completion would re-run every write below: it would overwrite
-        // the completion time with a longer one (the clock never stopped), and -- worse -- record
-        // a second RecordMechanicCompletion for one play, inflating the skill rating that
-        // DailyChallengeSelector picks difficulty from. Reset per attempt in BeginAttempt, so a
-        // genuine retry or a new level records normally.
+        // the completion time with a longer one (the clock never stopped). Reset per attempt in
+        // BeginAttempt, so a genuine retry or a new level records normally.
         private bool completionRecordedThisAttempt;
 
         // Whether the board was already solved last time completion was checked. Distinguishes
@@ -886,6 +883,7 @@ namespace FreeFlow.GamePlay
         private void BeginAttempt()
         {
             attemptStartTime = Time.unscaledTime;
+            hintsUsedThisAttempt = 0;
 
             // Cleared before the early returns below, so a new attempt can always bank a
             // completion even on a board this method bails out of recording an attempt for.
@@ -895,18 +893,6 @@ namespace FreeFlow.GamePlay
             int currentLevel = UIController.Instance.CurrentLevel;
             int totalLevelCount = UIController.Instance.TotalLevelCount;
             if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
-
-            string key = UIController.Instance.ProgressKey;
-            SaveData data = SavingSystem.Instance.Load();
-
-            int[] attempts = EnsureLength(data.AttemptsForKey(key), totalLevelCount);
-            attempts[currentLevel - 1]++;
-            data.SetAttemptsForKey(key, attempts);
-
-            int[] hintsSoFar = EnsureLength(data.HintsForKey(key), totalLevelCount);
-            hintsAtAttemptStart = hintsSoFar[currentLevel - 1];
-
-            SavingSystem.Instance.Save(data);
 
             AnalyticsManager.LogLevelStart(currentLevel, AnalyticsModeLabel());
         }
@@ -923,22 +909,6 @@ namespace FreeFlow.GamePlay
                 : UIController.Instance.CurrentMode.ToString();
         }
 
-        private static int[] EnsureLength(int[] source, int length)
-        {
-            if (source != null && source.Length >= length) { return source; }
-            int[] resized = new int[length];
-            if (source != null) { System.Array.Copy(source, resized, source.Length); }
-            return resized;
-        }
-
-        private static float[] EnsureLength(float[] source, int length)
-        {
-            if (source != null && source.Length >= length) { return source; }
-            float[] resized = new float[length];
-            if (source != null) { System.Array.Copy(source, resized, source.Length); }
-            return resized;
-        }
-
         private void SaveLevelData()
         {
             // Already banked this attempt -- the player dismissed the overlay and finished the
@@ -949,58 +919,24 @@ namespace FreeFlow.GamePlay
 
             SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
-            int totalLevelCount = UIController.Instance.TotalLevelCount;
 
             // Progress is kept per PACK, not per mode: Classic 5x5 level 20 and Classic 7x7 level 20
             // are different boards, so one shared array would have each pack overwriting the other's
-            // record. The legacy linear campaigns keep their own key and their original fields.
+            // record.
             string key = UIController.Instance.ProgressKey;
 
-            // Time on the attempt that actually finished. Pelánek's entire Sudoku evaluation
-            // regresses difficulty metrics against exactly this number, so it is what any future
-            // fitting of DifficultyModel's weights will need.
-            float[] packSeconds = EnsureLength(data.SecondsForKey(key), totalLevelCount);
             lastCompletionSeconds = Time.unscaledTime - attemptStartTime;
-            packSeconds[currentLevel - 1] = lastCompletionSeconds;
-            data.SetSecondsForKey(key, packSeconds);
-
             lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
 
             // The frontier is an unlock GATE, not a tally, and a daily challenge is drawn from
             // anywhere inside a pack -- see SaveData.PackFrontierAdvances for the full rule.
-            // Everything else this method records (seconds, hints, best moves, mechanic skill) is
-            // per-level telemetry rather than a gate, so a daily challenge writes all of it
-            // exactly as an ordinary play of that level would.
             if (SaveData.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel,
                     UIController.Instance.IsDailyChallenge))
             {
                 data.SetCompletedLevelForKey(key, currentLevel);
             }
 
-            int[] hintsNow = EnsureLength(data.HintsForKey(key), totalLevelCount);
-            lastCompletionHintsUsed = Mathf.Max(0, hintsNow[currentLevel - 1] - hintsAtAttemptStart);
-
-            // Fewest-ever-moves record for this level, kept for whenever a future screen wants it
-            // (not shown on the Level Complete screen itself, which shows time-to-complete instead --
-            // see lastCompletionSeconds). 0 means no record yet (see PackProgress.bestMoves).
-            int[] bestMoves = EnsureLength(data.BestMovesForKey(key), totalLevelCount);
-            if (bestMoves[currentLevel - 1] == 0 || moves < bestMoves[currentLevel - 1])
-            {
-                bestMoves[currentLevel - 1] = moves;
-            }
-            data.SetBestMovesForKey(key, bestMoves);
-
-            // Same mechanic set RecordMechanicAttempts credited when this attempt began --
-            // currentMechanics is only ever set by SetSolution, once per attempt, so it still
-            // describes the level that was just finished. SkillKeys rather than Keys: on a
-            // mechanic-free Classic board this folds in the pack's board size, since that -- not
-            // mechanic count -- is what actually makes a Classic level harder (see LevelMechanics).
-            string[] mechanicKeys = LevelMechanics.SkillKeys(
-                currentMechanics, UIController.Instance.CurrentMode, UIController.Instance.CurrentPackSize);
-            for (int i = 0; i < mechanicKeys.Length; i++)
-            {
-                data.RecordMechanicCompletion(mechanicKeys[i]);
-            }
+            lastCompletionHintsUsed = hintsUsedThisAttempt;
 
             // A day of daily challenges is credited to the day they were PICKED for
             // (dailyChallengeCachedDay), not to whatever "now" is -- a session that happens to
@@ -1017,16 +953,20 @@ namespace FreeFlow.GamePlay
             // opened, or another challenge was loaded), this level belongs to a day whose
             // challenges are gone, and DailyIndex would be an offset into a different day's list
             // -- marking a slot the player never played.
-            bool belongsToTheCachedDay = UIController.Instance.IsDailyChallenge
-                && data.dailyChallengeCachedDay == UIController.Instance.DailyDayIndex;
-
-            if (belongsToTheCachedDay)
+            if (UIController.Instance.IsDailyChallenge)
             {
-                data.MarkDailyChallengeSolved(UIController.Instance.DailyIndex);
-                if (data.AllDailyChallengesSolved())
+                DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
+                bool belongsToTheCachedDay = dailyData.dailyChallengeCachedDay == UIController.Instance.DailyDayIndex;
+
+                if (belongsToTheCachedDay)
                 {
-                    data.RecordDailyChallengeCompletion(data.dailyChallengeCachedDay);
-                    AnalyticsManager.LogDailyStreakComplete(data.dailyChallengeStreak);
+                    dailyData.MarkDailyChallengeSolved(UIController.Instance.DailyIndex);
+                    if (dailyData.AllDailyChallengesSolved())
+                    {
+                        dailyData.RecordDailyChallengeCompletion(dailyData.dailyChallengeCachedDay);
+                        AnalyticsManager.LogDailyStreakComplete(dailyData.dailyChallengeStreak);
+                    }
+                    DailyChallengeSystem.Instance.Save(dailyData);
                 }
             }
 
@@ -2104,12 +2044,12 @@ namespace FreeFlow.GamePlay
                 : PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
             if (card == null) { return null; }
 
-            SaveData data = SavingSystem.Instance.Load();
+            SettingsData settings = SettingsSystem.Instance.Load();
             string[] keys = LevelMechanics.Keys(currentMechanics);
 
             for (int i = 0; i < keys.Length; i++)
             {
-                if (onlyUnseen && data.HasMetMechanic(keys[i])) { continue; }
+                if (onlyUnseen && settings.HasMetMechanic(keys[i])) { continue; }
 
                 // A mechanic with no card authored yet is passed over rather than stopping the
                 // player with an empty one -- and, because nothing here writes, it stays unseen
@@ -2121,24 +2061,16 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Credits this attempt to every mechanic the level being loaded actually contains (or, on
-        /// a mechanic-free Classic board, to that pack's board-size bucket -- see
-        /// LevelMechanics.SkillKeys for why size and not a flat label). Runs once per attempt,
-        /// exactly when SetSolution does -- which is also once per attempt, the same as
-        /// BeginAttempt's per-level count, so the two can never drift apart.
+        /// Marks every mechanic the level being loaded actually contains as met (see
+        /// SettingsData.metMechanics). Runs once per attempt, exactly when SetSolution does --
+        /// which is also once per attempt, the same as BeginAttempt's per-level count, so the two
+        /// can never drift apart.
         /// </summary>
         private void RecordMechanicAttempts()
         {
-            if (UIController.Instance == null) { return; }
-
-            string[] mechanicKeys = LevelMechanics.SkillKeys(
-                currentMechanics, UIController.Instance.CurrentMode, UIController.Instance.CurrentPackSize);
-            SaveData data = SavingSystem.Instance.Load();
-            for (int i = 0; i < mechanicKeys.Length; i++)
-            {
-                data.RecordMechanicAttempt(mechanicKeys[i]);
-            }
-            SavingSystem.Instance.Save(data);
+            SettingsData settings = SettingsSystem.Instance.Load();
+            settings.metMechanics |= currentMechanics;
+            SettingsSystem.Instance.Save(settings);
         }
 
         // What builds the board this controller then plays: the cells, their walls and dots,
@@ -2217,19 +2149,14 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Spends one hint and credits the tap to the level currently playing -- the balance the
-        /// hint button counts down (SaveData.hintsRemaining, one for the whole game) and the
-        /// per-level tally the difficulty telemetry reads, in one save write.
+        /// Spends one hint -- the balance the hint button counts down (SaveData.hintsRemaining,
+        /// one for the whole game) -- and counts it toward this attempt's <see
+        /// cref="hintsUsedThisAttempt"/> tally.
         ///
         /// Both happen the moment the hint commits to a pair -- not when the coroutine finishes
         /// drawing it -- since a player who tears down the board mid-trace (ResetGameplay stops
         /// the routine, see its own doc comment) still asked for the hint and still got the move
         /// it cost.
-        ///
-        /// The balance is spent even when the tally cannot be attributed to a level, so a hint can
-        /// never be taken for free: the per-level column is the same per-pack shape
-        /// <see cref="BeginAttempt"/> uses for attempts and is only meaningful for a level inside
-        /// the current pack, while the balance belongs to the player, not to any level.
         /// </summary>
         private void RecordHintUsed()
         {
@@ -2244,11 +2171,7 @@ namespace FreeFlow.GamePlay
 
                 if (currentLevel >= 1 && currentLevel <= totalLevelCount)
                 {
-                    string key = UIController.Instance.ProgressKey;
-                    int[] hints = EnsureLength(data.HintsForKey(key), totalLevelCount);
-                    hints[currentLevel - 1]++;
-                    data.SetHintsForKey(key, hints);
-
+                    hintsUsedThisAttempt++;
                     AnalyticsManager.LogHintUsed(currentLevel);
                 }
             }

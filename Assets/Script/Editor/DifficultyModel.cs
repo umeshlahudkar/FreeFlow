@@ -26,7 +26,7 @@ namespace FreeFlow.GamePlay
     /// <b>The weights are NOT fitted, and this matters.</b> Pelánek fitted his linear model on
     /// thousands of hours of recorded solving times. We have none, so the weights below are simply
     /// the reported correlations, normalised -- a defensible prior and nothing more. Fitting them
-    /// needs the play telemetry that <c>SaveData.completedLevelAttempts</c> now records; until enough of
+    /// needs play telemetry we do not yet record; until enough of
     /// that exists, treat this score as a RANKING within one board size rather than an absolute
     /// difficulty, and do not compare a 5x5's score against a 8x8's.
     ///

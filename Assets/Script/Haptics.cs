@@ -17,7 +17,7 @@ using FreeFlow.Enums;
 public static class Haptics
 {
     // The player's setting, cached. Read once and then kept in step by SettingPage, because the
-    // alternative is SavingSystem.Load() -- a file read and a JSON parse -- on every dot picked up.
+    // alternative is SettingsSystem.Load() -- a file read and a JSON parse -- on every dot picked up.
     private static bool? enabled;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -40,7 +40,7 @@ public static class Haptics
         {
             if (!enabled.HasValue)
             {
-                enabled = SavingSystem.Instance != null && SavingSystem.Instance.Load().vibrationEnabled;
+                enabled = SettingsSystem.Instance != null && SettingsSystem.Instance.Load().vibrationEnabled;
             }
             return enabled.Value;
         }

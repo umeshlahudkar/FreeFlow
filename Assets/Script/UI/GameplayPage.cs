@@ -279,12 +279,14 @@ namespace FreeFlow.UI
 
             if (hintButton == null) { return; }
 
-            // Show/hide is the player's own Settings-screen preference. Interactable is only about
-            // whether the board can be hinted at all (GamePlayController.HintAvailable -- a level
-            // with no stored answer has nothing to show); an empty balance deliberately leaves the
-            // button live, because a tap on it is what raises the "No More Hints" notice. A dead
-            // button would answer the same tap with nothing at all.
-            hintButton.gameObject.SetActive(data.showHintButton);
+            // Show/hide is the player's own Settings-screen preference, kept in Settings.json
+            // rather than the save (see SettingsData) since it is a device preference, not
+            // progress. Interactable is only about whether the board can be hinted at all
+            // (GamePlayController.HintAvailable -- a level with no stored answer has nothing to
+            // show); an empty balance deliberately leaves the button live, because a tap on it is
+            // what raises the "No More Hints" notice. A dead button would answer the same tap with
+            // nothing at all.
+            hintButton.gameObject.SetActive(SettingsSystem.Instance.Load().showHintButton);
             hintButton.interactable = GamePlayController.Instance != null
                 && GamePlayController.Instance.HintAvailable;
         }

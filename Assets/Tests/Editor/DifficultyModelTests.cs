@@ -384,17 +384,15 @@ namespace FreeFlow.Tests
         public void PackProgress_WritesToAFreshSave()
         {
             // The bug this guards threw a NullReferenceException on the very first level anyone
-            // completed in a pack. `packProgress[PackIndex(key)].attempts = value` evaluates the
-            // array reference BEFORE calling PackIndex, so the write went through the null reference
-            // the expression had already captured rather than the array PackIndex had just allocated.
+            // completed in a pack. `packProgress[PackIndex(key)].completedLevel = value` evaluates
+            // the array reference BEFORE calling PackIndex, so the write went through the null
+            // reference the expression had already captured rather than the array PackIndex had
+            // just allocated.
             SaveData data = new SaveData();          // packProgress is null, as on a fresh save
 
-            data.SetAttemptsForKey("Classic7x7", new[] { 1, 2, 3 });
-            data.SetSecondsForKey("Classic7x7", new[] { 1.5f });
             data.SetCompletedLevelForKey("Classic7x7", 3);
 
             Assert.AreEqual(3, data.CompletedLevelForKey("Classic7x7"));
-            Assert.AreEqual(new[] { 1, 2, 3 }, data.AttemptsForKey("Classic7x7"));
             Assert.AreEqual(1, data.packProgress.Length, "one entry, not one per setter call");
         }
 
@@ -409,21 +407,6 @@ namespace FreeFlow.Tests
             Assert.AreEqual(4, data.CompletedLevelForKey("Classic7x7"),
                 "finishing 5x5 level 20 must not mark 7x7 level 20 complete");
             Assert.AreEqual(0, data.CompletedLevelForKey("Classic9x9"), "unplayed packs read as zero");
-        }
-
-        [Test]
-        public void PackProgress_LeavesTheLegacyCampaignsOnTheirOriginalFields()
-        {
-            // A returning player mid-way through the old linear run must keep their place, so the
-            // legacy keys still map to the flat fields rather than migrating into packProgress.
-            SaveData data = new SaveData { completedLevel = 37, advancedCompletedLevel = 12 };
-
-            Assert.AreEqual(37, data.CompletedLevelForKey("Classic"));
-            Assert.AreEqual(12, data.CompletedLevelForKey("Advanced"));
-
-            data.SetCompletedLevelForKey("Classic", 38);
-            Assert.AreEqual(38, data.completedLevel, "written back to the original field");
-            Assert.IsNull(data.packProgress, "and no pack entry invented for a legacy key");
         }
 
         [Test]

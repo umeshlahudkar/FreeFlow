@@ -6,10 +6,10 @@ namespace FreeFlow.GamePlay
     /// Which of the nine mechanics a level's cells actually use, read straight off its
     /// <see cref="LevelData"/> rather than authored per level. This is the single source of
     /// truth for "what does this board contain" -- both the gameplay HUD label
-    /// (<c>UIController.DescribeMechanics</c>) and the per-mechanic skill tracker
-    /// (<c>SaveData.RecordMechanicAttempt</c>/<c>RecordMechanicCompletion</c>) read it, rather
-    /// than each re-deriving the same nine booleans and risking the two disagreeing -- the same
-    /// class of bug Forbidden's missing pairId caused once already (GAME_EXPANSION_PLAN §6.5).
+    /// (<c>UIController.DescribeMechanics</c>) and the mechanic-teaching gate
+    /// (<c>SettingsData.metMechanics</c>/<c>HasMetMechanic</c>) read it, rather than each
+    /// re-deriving the same nine booleans and risking the two disagreeing -- the same class of
+    /// bug Forbidden's missing pairId caused once already (GAME_EXPANSION_PLAN §6.5).
     /// </summary>
     [System.Flags]
     public enum MechanicFlags
@@ -125,25 +125,26 @@ namespace FreeFlow.GamePlay
             return keys.ToArray();
         }
 
-        /// <summary>
-        /// Skill-tracking keys for a board actually being played -- <see cref="Keys"/> plus one
-        /// correction for Classic's mechanic-free case. Classic carries no mechanic at all
-        /// (<paramref name="flags"/> is always <see cref="MechanicFlags.None"/> there), so pooling
-        /// every one of its packs under one flat <see cref="BasicFlowKey"/> would rate a 5x5 win
-        /// and a 9x9 win as the same skill -- backwards, since board size/shape is Classic's own
-        /// difficulty lever (GAME_EXPANSION_PLAN §6.25, §6.31), not mechanic count. Folded in here
-        /// rather than left to each caller, for the same one-source-of-truth reason <see cref="Identify"/>
-        /// exists at all. Advanced varies mechanics, not board size (today, one pack: 6x6), so its
-        /// mechanic-free case -- should one ever ship -- keeps the flat key.
-        /// </summary>
-        public static string[] SkillKeys(MechanicFlags flags, GameMode mode, int packSize)
+        /// <summary>The single flag <see cref="Keys"/> would render as <paramref name="key"/>, or
+        /// <see cref="MechanicFlags.None"/> for a key with no corresponding flag (e.g.
+        /// <see cref="BasicFlowKey"/>, which names a mechanic-free board rather than a mechanic).
+        /// The reverse of <see cref="Keys"/>, for callers that only have the string back (saved
+        /// data, authored content) and need the flag to test against a bitmask.</summary>
+        public static MechanicFlags FlagFor(string key)
         {
-            if (flags != MechanicFlags.None) { return Keys(flags); }
-            if (mode == GameMode.Classic && packSize > 0)
+            switch (key)
             {
-                return new[] { BasicFlowKey + packSize + "x" + packSize };
+                case "Blocked": return MechanicFlags.Blocked;
+                case "Wall": return MechanicFlags.Wall;
+                case "OneWay": return MechanicFlags.OneWay;
+                case "Arrow": return MechanicFlags.Arrow;
+                case "Forbidden": return MechanicFlags.Forbidden;
+                case "Permitted": return MechanicFlags.Permitted;
+                case "Bridge": return MechanicFlags.Bridge;
+                case "Checkpoint": return MechanicFlags.Checkpoint;
+                case "SharedDestination": return MechanicFlags.SharedDestination;
+                default: return MechanicFlags.None;
             }
-            return Keys(MechanicFlags.None);
         }
     }
 }

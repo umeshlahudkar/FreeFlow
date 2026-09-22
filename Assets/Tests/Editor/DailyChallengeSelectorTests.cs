@@ -17,6 +17,14 @@ namespace FreeFlow.Tests
         private const int TestSalt = 424242;
         private const int OtherSalt = 13;
 
+        // Production callers pass a per-(mode, pack size) rating (see UIController.PackSkillRating);
+        // these tests exercise the band arithmetic itself, which does not care which pack is asking,
+        // so a constant rating for every pack is the simplest stand-in.
+        private static System.Func<GameMode, int, float> Const(float rating)
+        {
+            return (mode, packSize) => rating;
+        }
+
 #if !FINAL_BUILD
         // DayIndex has a developer override (Settings > DEVELOPER TOOLS) that compresses a "day"
         // into a few seconds, and it persists in PlayerPrefs -- so a developer who left it on would
@@ -42,8 +50,8 @@ namespace FreeFlow.Tests
         [Test]
         public void SamedayAndSkillAndSalt_AlwaysPicksTheSameLevel()
         {
-            var a = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt);
-            var b = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt);
+            var a = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt);
+            var b = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt);
 
             Assert.AreEqual(a.packSize, b.packSize);
             Assert.AreEqual(a.levelNumber, b.levelNumber);
@@ -55,7 +63,7 @@ namespace FreeFlow.Tests
             var picks = new System.Collections.Generic.HashSet<int>();
             for (int day = 0; day < ClassicPackSizes.Length; day++)
             {
-                picks.Add(DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt).packSize);
+                picks.Add(DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt).packSize);
             }
 
             CollectionAssert.AreEquivalent(ClassicPackSizes, picks);
@@ -64,8 +72,8 @@ namespace FreeFlow.Tests
         [Test]
         public void PackSize_RepeatsAfterOneFullRotation()
         {
-            var first = DailyChallengeSelector.Select(0, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt);
-            var wrapped = DailyChallengeSelector.Select(ClassicPackSizes.Length, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt);
+            var first = DailyChallengeSelector.Select(0, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt);
+            var wrapped = DailyChallengeSelector.Select(ClassicPackSizes.Length, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt);
 
             Assert.AreEqual(first.packSize, wrapped.packSize);
         }
@@ -75,8 +83,8 @@ namespace FreeFlow.Tests
         {
             // The pack-size rotation is deliberately NOT salted -- see Select's own doc comment --
             // so the "every board size within a week" guarantee holds per install, not on average.
-            var a = DailyChallengeSelector.Select(3, GameMode.Classic, ClassicPackSizes, 100, 50f, TestSalt);
-            var b = DailyChallengeSelector.Select(3, GameMode.Classic, ClassicPackSizes, 100, 50f, OtherSalt);
+            var a = DailyChallengeSelector.Select(3, GameMode.Classic, ClassicPackSizes, 100, Const(50f), TestSalt);
+            var b = DailyChallengeSelector.Select(3, GameMode.Classic, ClassicPackSizes, 100, Const(50f), OtherSalt);
 
             Assert.AreEqual(a.packSize, b.packSize);
         }
@@ -86,7 +94,7 @@ namespace FreeFlow.Tests
         {
             for (int day = 0; day < 30; day++)
             {
-                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, 0f, TestSalt);
+                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, Const(0f), TestSalt);
                 Assert.LessOrEqual(pick.levelNumber, 33, "day " + day);
                 Assert.GreaterOrEqual(pick.levelNumber, 1, "day " + day);
             }
@@ -97,7 +105,7 @@ namespace FreeFlow.Tests
         {
             for (int day = 0; day < 30; day++)
             {
-                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, 50f, TestSalt);
+                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, Const(50f), TestSalt);
                 Assert.GreaterOrEqual(pick.levelNumber, 34, "day " + day);
                 Assert.LessOrEqual(pick.levelNumber, 66, "day " + day);
             }
@@ -109,7 +117,7 @@ namespace FreeFlow.Tests
             bool reachedLast = false;
             for (int day = 0; day < 200; day++)
             {
-                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, 100f, TestSalt);
+                var pick = DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, Const(100f), TestSalt);
                 Assert.GreaterOrEqual(pick.levelNumber, 67, "day " + day);
                 Assert.LessOrEqual(pick.levelNumber, 99, "day " + day);
                 if (pick.levelNumber == 99) { reachedLast = true; }
@@ -123,9 +131,9 @@ namespace FreeFlow.Tests
         [Test]
         public void SkillBandBoundaries_30And70_AreExclusiveOnTheLowerBand()
         {
-            var at30 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, 30f, TestSalt);
-            var at70 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, 70f, TestSalt);
-            var justBelow30 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, 29.999f, TestSalt);
+            var at30 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, Const(30f), TestSalt);
+            var at70 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, Const(70f), TestSalt);
+            var justBelow30 = DailyChallengeSelector.Select(5, GameMode.Classic, ClassicPackSizes, 99, Const(29.999f), TestSalt);
 
             Assert.GreaterOrEqual(at30.levelNumber, 34);   // 30 itself is already the middle band
             Assert.GreaterOrEqual(at70.levelNumber, 67);   // 70 itself is already the top band
@@ -141,7 +149,7 @@ namespace FreeFlow.Tests
             var levels = new System.Collections.Generic.HashSet<int>();
             for (int day = 0; day < 30; day++)
             {
-                levels.Add(DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, 50f, TestSalt).levelNumber);
+                levels.Add(DailyChallengeSelector.Select(day, GameMode.Classic, ClassicPackSizes, 99, Const(50f), TestSalt).levelNumber);
             }
 
             Assert.Greater(levels.Count, 1);
@@ -156,7 +164,7 @@ namespace FreeFlow.Tests
             var levels = new System.Collections.Generic.HashSet<int>();
             for (int salt = 1; salt <= 20; salt++)
             {
-                levels.Add(DailyChallengeSelector.Select(7, GameMode.Classic, ClassicPackSizes, 99, 50f, salt).levelNumber);
+                levels.Add(DailyChallengeSelector.Select(7, GameMode.Classic, ClassicPackSizes, 99, Const(50f), salt).levelNumber);
             }
 
             Assert.Greater(levels.Count, 1);
@@ -169,7 +177,7 @@ namespace FreeFlow.Tests
             // governs difficulty regardless of which install is asking.
             for (int salt = 1; salt <= 20; salt++)
             {
-                var pick = DailyChallengeSelector.Select(7, GameMode.Classic, ClassicPackSizes, 99, 0f, salt);
+                var pick = DailyChallengeSelector.Select(7, GameMode.Classic, ClassicPackSizes, 99, Const(0f), salt);
                 Assert.LessOrEqual(pick.levelNumber, 33, "salt " + salt);
             }
         }
@@ -226,74 +234,69 @@ namespace FreeFlow.Tests
         }
     }
 
-    /// <summary>SaveData.RecordDailyChallengeCompletion's streak arithmetic: consecutive days
+    /// <summary>DailyChallengeData.RecordDailyChallengeCompletion's streak arithmetic: consecutive days
     /// extend it, a gap resets it, and the same day twice is a no-op.</summary>
     public class DailyChallengeStreakTests
     {
         [Test]
         public void FirstEverCompletion_StartsAStreakOfOne()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.RecordDailyChallengeCompletion(100);
 
             Assert.AreEqual(1, data.dailyChallengeStreak);
             Assert.AreEqual(100, data.dailyChallengeLastCompletedDay);
-            Assert.AreEqual(1, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
         public void ConsecutiveDays_ExtendTheStreak()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.RecordDailyChallengeCompletion(100);
             data.RecordDailyChallengeCompletion(101);
             data.RecordDailyChallengeCompletion(102);
 
             Assert.AreEqual(3, data.dailyChallengeStreak);
-            Assert.AreEqual(3, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
-        public void AGap_ResetsTheStreakToOne_ButNotTheLifetimeTotal()
+        public void AGap_ResetsTheStreakToOne()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.RecordDailyChallengeCompletion(100);
             data.RecordDailyChallengeCompletion(101);
             data.RecordDailyChallengeCompletion(105); // skipped several days
 
             Assert.AreEqual(1, data.dailyChallengeStreak);
-            Assert.AreEqual(3, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
-        public void TheSameDayTwice_DoesNotInflateTheStreakOrTheTotal()
+        public void TheSameDayTwice_DoesNotInflateTheStreak()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.RecordDailyChallengeCompletion(100);
             data.RecordDailyChallengeCompletion(100); // e.g. retried after already completing today
             data.RecordDailyChallengeCompletion(100);
 
             Assert.AreEqual(1, data.dailyChallengeStreak);
-            Assert.AreEqual(1, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
         public void NeverCompleted_ReadsAsZero()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             Assert.AreEqual(0, data.dailyChallengeStreak);
             Assert.AreEqual(0, data.dailyChallengeLastCompletedDay);
-            Assert.AreEqual(0, data.dailyChallengesCompletedTotal);
         }
     }
 
-    /// <summary>SaveData.EnsurePlayerSalt: assigned once, ever, and never overwritten.</summary>
+    /// <summary>DailyChallengeData.EnsurePlayerSalt: assigned once, ever, and never overwritten.</summary>
     public class PlayerSaltTests
     {
         [Test]
         public void UnsetSalt_AdoptsTheCandidate()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.EnsurePlayerSalt(777);
 
             Assert.AreEqual(777, data.playerSalt);
@@ -302,7 +305,7 @@ namespace FreeFlow.Tests
         [Test]
         public void AlreadySetSalt_IgnoresANewCandidate()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.EnsurePlayerSalt(777);
             data.EnsurePlayerSalt(999); // e.g. a second call across app launches
 
@@ -312,7 +315,7 @@ namespace FreeFlow.Tests
         [Test]
         public void NeverAssigned_ReadsAsZero()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             Assert.AreEqual(0, data.playerSalt);
         }
     }

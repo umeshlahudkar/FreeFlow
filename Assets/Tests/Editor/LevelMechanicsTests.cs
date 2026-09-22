@@ -6,7 +6,7 @@ namespace FreeFlow.Tests
 {
     /// <summary>
     /// LevelMechanics.Identify is the single source of truth UIController's HUD label and the
-    /// per-mechanic skill tracker both read (see the class's own doc comment) -- these tests pin
+    /// mechanic-teaching gate both read (see the class's own doc comment) -- these tests pin
     /// down exactly which LevelData shapes set which flag, so a future edit to one consumer can't
     /// silently stop matching the other.
     /// </summary>
@@ -113,52 +113,26 @@ namespace FreeFlow.Tests
             CollectionAssert.AreEqual(new[] { LevelMechanics.BasicFlowKey }, LevelMechanics.Keys(MechanicFlags.None));
         }
 
-        // -- SkillKeys: Classic's board-size correction -----------------------------------------
+        // -- FlagFor: the reverse of Keys --------------------------------------------------------
 
         [Test]
-        public void SkillKeys_ClassicWithNoMechanic_FoldsInBoardSize()
+        public void FlagFor_RoundTripsEveryKeyKeysCanProduce()
         {
-            string[] keys = LevelMechanics.SkillKeys(MechanicFlags.None, GameMode.Classic, 6);
-            CollectionAssert.AreEqual(new[] { "BasicFlow6x6" }, keys);
+            MechanicFlags all = MechanicFlags.Blocked | MechanicFlags.Wall | MechanicFlags.OneWay
+                | MechanicFlags.Arrow | MechanicFlags.Forbidden | MechanicFlags.Permitted
+                | MechanicFlags.Bridge | MechanicFlags.Checkpoint | MechanicFlags.SharedDestination;
+
+            foreach (string key in LevelMechanics.Keys(all))
+            {
+                Assert.AreNotEqual(MechanicFlags.None, LevelMechanics.FlagFor(key), key);
+            }
         }
 
         [Test]
-        public void SkillKeys_ClassicAtDifferentSizes_AreDifferentBuckets()
+        public void FlagFor_OnBasicFlow_IsNone()
         {
-            string[] small = LevelMechanics.SkillKeys(MechanicFlags.None, GameMode.Classic, 5);
-            string[] large = LevelMechanics.SkillKeys(MechanicFlags.None, GameMode.Classic, 9);
-
-            Assert.AreNotEqual(small[0], large[0]);
-        }
-
-        [Test]
-        public void SkillKeys_AdvancedWithNoMechanic_UsesTheFlatKey()
-        {
-            // Advanced varies mechanics, not board size (today, one pack: 6x6) -- its mechanic-free
-            // case, should one ever ship, is not split by size the way Classic's is.
-            string[] keys = LevelMechanics.SkillKeys(MechanicFlags.None, GameMode.Advanced, 6);
-            CollectionAssert.AreEqual(new[] { LevelMechanics.BasicFlowKey }, keys);
-        }
-
-        [Test]
-        public void SkillKeys_ClassicWithNoPackSize_FallsBackToTheFlatKey()
-        {
-            // packSize 0 is the (now dead, but still handled) legacy linear campaign -- no board
-            // size to key by, so there is nothing to fold in.
-            string[] keys = LevelMechanics.SkillKeys(MechanicFlags.None, GameMode.Classic, 0);
-            CollectionAssert.AreEqual(new[] { LevelMechanics.BasicFlowKey }, keys);
-        }
-
-        [Test]
-        public void SkillKeys_WithAMechanicPresent_IgnoresModeAndSize()
-        {
-            // A real mechanic always wins -- board size never matters once a level has one, since
-            // Advanced (the only mode that carries mechanics today) does not vary size.
-            string[] classic = LevelMechanics.SkillKeys(MechanicFlags.Bridge, GameMode.Classic, 6);
-            string[] advanced = LevelMechanics.SkillKeys(MechanicFlags.Bridge, GameMode.Advanced, 9);
-
-            CollectionAssert.AreEqual(new[] { "Bridge" }, classic);
-            CollectionAssert.AreEqual(new[] { "Bridge" }, advanced);
+            // BasicFlowKey names a mechanic-free board, not a mechanic -- there is no flag for it.
+            Assert.AreEqual(MechanicFlags.None, LevelMechanics.FlagFor(LevelMechanics.BasicFlowKey));
         }
     }
 }

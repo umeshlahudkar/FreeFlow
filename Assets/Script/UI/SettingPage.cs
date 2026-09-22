@@ -67,16 +67,16 @@ public class SettingPage : Page
         UpdateVolumeLabel(musicVolumeLabel, musicVolumeSlider.value);
         UpdateVolumeLabel(soundVolumeLabel, soundVolumeSlider.value);
 
-        SaveData data = SavingSystem.Instance.Load();
+        SettingsData settings = SettingsSystem.Instance.Load();
         if (vibrationToggle != null)
         {
-            vibrationToggle.SetIsOnWithoutNotify(data.vibrationEnabled);
-            SetToggleVisual(vibrationTrackImage, vibrationKnob, data.vibrationEnabled);
+            vibrationToggle.SetIsOnWithoutNotify(settings.vibrationEnabled);
+            SetToggleVisual(vibrationTrackImage, vibrationKnob, settings.vibrationEnabled);
         }
         if (showHintButtonToggle != null)
         {
-            showHintButtonToggle.SetIsOnWithoutNotify(data.showHintButton);
-            SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, data.showHintButton);
+            showHintButtonToggle.SetIsOnWithoutNotify(settings.showHintButton);
+            SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, settings.showHintButton);
         }
 
         if (versionText != null)
@@ -156,14 +156,13 @@ public class SettingPage : Page
         label.text = Mathf.RoundToInt(value * 100f) + "%";
     }
 
-    // Persisted through SavingSystem (like audioData) rather than PlayerPrefs, so every player
-    // preference lives in one save file. Nothing triggers an actual vibration anywhere in the
-    // codebase yet -- this only stores the preference for whenever that lands.
+    // Persisted through SettingsSystem (like audioData) rather than PlayerPrefs, so every local
+    // device preference lives in one file, separate from progress (see SaveData).
     public void OnVibrationToggleChanged(bool isOn)
     {
-        SaveData data = SavingSystem.Instance.Load();
-        data.vibrationEnabled = isOn;
-        SavingSystem.Instance.Save(data);
+        SettingsData settings = SettingsSystem.Instance.Load();
+        settings.vibrationEnabled = isOn;
+        SettingsSystem.Instance.Save(settings);
         SetToggleVisual(vibrationTrackImage, vibrationKnob, isOn);
 
         // Haptics keep the preference cached rather than re-reading the save on every dot picked
@@ -177,9 +176,9 @@ public class SettingPage : Page
 
     public void OnShowHintButtonToggleChanged(bool isOn)
     {
-        SaveData data = SavingSystem.Instance.Load();
-        data.showHintButton = isOn;
-        SavingSystem.Instance.Save(data);
+        SettingsData settings = SettingsSystem.Instance.Load();
+        settings.showHintButton = isOn;
+        SettingsSystem.Instance.Save(settings);
         SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, isOn);
 
         // Tell the gameplay HUD now. It reads this flag when it refreshes, and refreshing means a
@@ -219,10 +218,14 @@ public class SettingPage : Page
     }
 
     /// <summary>
-    /// Deletes the entire save file -- every pack's progress, the daily-challenge streaks and
-    /// history, and the audio/vibration/hint preferences -- then reloads the scene so the whole
-    /// game rebuilds from the defaults SavingSystem.Awake writes for a first run. Nothing here is
-    /// recoverable afterwards.
+    /// Deletes SaveData.json -- every pack's progress, the daily-challenge streaks and history --
+    /// then reloads the scene so the whole game rebuilds from the defaults SavingSystem.Awake
+    /// writes for a first run. Nothing here is recoverable afterwards.
+    ///
+    /// Deliberately leaves Settings.json untouched: audio/vibration/hint-button are local device
+    /// preferences the player set up on this screen, not progress, and "reset progress" resetting
+    /// them too would be a surprise -- the player would have to re-lower their volume right after
+    /// wiping a save, for something that was never part of what they asked to reset.
     ///
     /// Which is why it takes two taps within <see cref="ResetConfirmWindow"/>: the first arms it
     /// and changes the label to say so, and the window lapses on its own if the player thinks

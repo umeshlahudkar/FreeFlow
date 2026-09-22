@@ -127,14 +127,11 @@ namespace FreeFlow.UI
             int count;
             if (hintCountInput == null || !int.TryParse(hintCountInput.text, out count) || count < 0) { count = 0; }
 
+            // count is clamped non-negative above, so this alone also counts as "granted" (see
+            // SaveData.hintsRemaining's -1 sentinel) -- a typed 0 is a real, spendable balance,
+            // not "never granted" waiting to be refilled by UIController.EnsureHintBalance.
             SaveData data = SavingSystem.Instance.Load();
             data.hintsRemaining = count;
-
-            // A balance written here counts as granted. Without this, a save that had not yet
-            // reached UIController.EnsureHintBalance would be handed the opening hints on the next
-            // run and silently overwrite whatever was typed -- and a deliberate 0 would look like
-            // "never granted" and be refilled, which is the one value most worth testing.
-            data.hintsInitialized = true;
             SavingSystem.Instance.Save(data);
 
             SetHintStatus();

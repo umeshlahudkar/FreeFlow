@@ -22,8 +22,8 @@ namespace FreeFlow.UI
     /// Current/Done show) into <see cref="levelsParent"/>.
     ///
     /// The day counts toward the streak only when EVERY one of its challenges is solved -- see
-    /// SaveData.AllDailyChallengesSolved -- which is why the week chain and the "solved" tallies
-    /// here all key off that rather than off any single completion.
+    /// DailyChallengeData.AllDailyChallengesSolved -- which is why the week chain and the "solved"
+    /// tallies here all key off that rather than off any single completion.
     /// </summary>
     public class DailyChallengePage : Page
     {
@@ -83,7 +83,7 @@ namespace FreeFlow.UI
         public void Refresh()
         {
             shownDayIndex = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            SaveData data = SavingSystem.Instance.Load();
+            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
 
             if (topPanel != null)
             {
@@ -102,11 +102,6 @@ namespace FreeFlow.UI
             RefreshTodayLevelButtons();
             countdownTimer = 0f;
             RefreshCountdown();
-
-            // Opening this screen is what "seeing" today's challenges means -- after
-            // RefreshTodayLevelButtons, since that is what selects and persists the day, and this
-            // writes on top of it.
-            UIController.Instance.MarkDailyChallengeSeen();
         }
 
         /// <summary>Starts (or restarts) <paramref name="text"/> counting up from zero to
@@ -177,9 +172,9 @@ namespace FreeFlow.UI
             RefreshCountdown();
         }
 
-        // Everything here keys off UTC calendar days, same as DailyChallengeSelector/SaveData's
-        // streak fields -- mixing in local-time day boundaries would let this chain disagree with
-        // the streak count it is illustrating right at midnight.
+        // Everything here keys off UTC calendar days, same as DailyChallengeSelector/
+        // DailyChallengeData's streak fields -- mixing in local-time day boundaries would let this
+        // chain disagree with the streak count it is illustrating right at midnight.
         //
         // Every column's day index is worked out by ARITHMETIC from today's, never by asking
         // DailyChallengeSelector.DayIndex for the index of a calendar date. The two are the same
@@ -189,7 +184,7 @@ namespace FreeFlow.UI
         // frozen while the challenges, tallies and countdown beside it reset every few seconds.
         // In a normal build the arithmetic is exactly equivalent (consecutive dates differ by one
         // index), so nothing about a real week changes.
-        private void RefreshWeekChain(SaveData data)
+        private void RefreshWeekChain(DailyChallengeData data)
         {
             System.DateTime todayUtc = System.DateTime.UtcNow.Date;
             int todayIndex = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
@@ -280,10 +275,10 @@ namespace FreeFlow.UI
 
             if (todayTallyText != null) { todayTallyText.text = solved + " / " + picks.Length + " solved"; }
 
-            // Mirrors SaveData.UnlockedDailyChallengeThrough, computed from the picks already in
-            // hand rather than a second save read. The day is solved strictly in order, so the
-            // solved COUNT is also the index of the first unsolved one; a fully solved day leaves
-            // every challenge open to replay.
+            // Mirrors DailyChallengeData.UnlockedDailyChallengeThrough, computed from the picks
+            // already in hand rather than a second save read. The day is solved strictly in
+            // order, so the solved COUNT is also the index of the first unsolved one; a fully
+            // solved day leaves every challenge open to replay.
             int unlockedThrough = solved < picks.Length ? solved : picks.Length - 1;
 
             for (int i = 0; i < picks.Length; i++)

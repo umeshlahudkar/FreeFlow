@@ -93,7 +93,7 @@ public class AudioManager : Singleton<AudioManager>
         BuildTable();
         BuildVoices();
 
-        AudioData data = SavingSystem.Instance.Load().audioData;
+        AudioData data = SettingsSystem.Instance.Load().audioData;
 
         isBgMute = data.isMusicMute;
         isSfxMute = data.isSoundMute;
@@ -358,13 +358,13 @@ public class AudioManager : Singleton<AudioManager>
 
     private void SaveAudioData()
     {
-        SaveData saveData = SavingSystem.Instance.Load();
+        SettingsData settings = SettingsSystem.Instance.Load();
 
-        saveData.audioData.isMusicMute = isBgMute;
-        saveData.audioData.isSoundMute = isSfxMute;
-        saveData.audioData.musicVolume = bgVolume;
-        saveData.audioData.soundVolume = sfxVolume;
+        settings.audioData.isMusicMute = isBgMute;
+        settings.audioData.isSoundMute = isSfxMute;
+        settings.audioData.musicVolume = bgVolume;
+        settings.audioData.soundVolume = sfxVolume;
 
-        SavingSystem.Instance.Save(saveData);
+        SettingsSystem.Instance.Save(settings);
     }
 }

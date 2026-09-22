@@ -18,7 +18,7 @@ namespace FreeFlow.Tests
         private static DailyChallengeSelector.Pick[] Day(int dayIndex, int count, float skill = 50f, int packLevelCount = 99)
         {
             return DailyChallengeSelector.SelectDay(dayIndex, GameMode.Classic, ClassicPackSizes,
-                packLevelCount, skill, TestSalt, count);
+                packLevelCount, (mode, packSize) => skill, TestSalt, count);
         }
 
         [Test]
@@ -41,7 +41,7 @@ namespace FreeFlow.Tests
         {
             // Load-bearing: a save written when a day held exactly one challenge must keep pointing
             // at the same board after the count is raised (see SelectDay's own doc comment).
-            var single = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 99, 50f, TestSalt);
+            var single = DailyChallengeSelector.Select(2000, GameMode.Classic, ClassicPackSizes, 99, (mode, packSize) => 50f, TestSalt);
             var day = Day(2000, 1);
 
             Assert.AreEqual(single.packSize, day[0].packSize);
@@ -112,7 +112,7 @@ namespace FreeFlow.Tests
             for (int day = 0; day < 40; day++)
             {
                 foreach (var pick in DailyChallengeSelector.SelectDay(day, GameMode.Classic,
-                    ClassicPackSizes, 99, 0f, TestSalt, 5))
+                    ClassicPackSizes, 99, (mode, packSize) => 0f, TestSalt, 5))
                 {
                     Assert.LessOrEqual(pick.levelNumber, 33, "day " + day);
                     Assert.GreaterOrEqual(pick.levelNumber, 1, "day " + day);
@@ -126,7 +126,7 @@ namespace FreeFlow.Tests
             // A 3-level pack gives a one-level-wide band, so the 5 pack sizes can only supply 5
             // distinct boards no matter how many slots are asked for.
             var picks = DailyChallengeSelector.SelectDay(2000, GameMode.Classic, ClassicPackSizes,
-                3, 0f, TestSalt, 7);
+                3, (mode, packSize) => 0f, TestSalt, 7);
 
             Assert.AreEqual(5, picks.Length);
 
@@ -140,16 +140,16 @@ namespace FreeFlow.Tests
         [Test]
         public void NoPackSizesAtAll_YieldsAnEmptyDayRatherThanThrowing()
         {
-            Assert.AreEqual(0, DailyChallengeSelector.SelectDay(2000, GameMode.Classic, new int[0], 99, 50f, TestSalt, 5).Length);
-            Assert.AreEqual(0, DailyChallengeSelector.SelectDay(2000, GameMode.Classic, null, 99, 50f, TestSalt, 5).Length);
+            Assert.AreEqual(0, DailyChallengeSelector.SelectDay(2000, GameMode.Classic, new int[0], 99, (mode, packSize) => 50f, TestSalt, 5).Length);
+            Assert.AreEqual(0, DailyChallengeSelector.SelectDay(2000, GameMode.Classic, null, 99, (mode, packSize) => 50f, TestSalt, 5).Length);
         }
     }
 
     /// <summary>
-    /// SaveData's side of a multi-challenge day: per-slot solved flags, and the rule that a day
-    /// only counts toward the streak once EVERY one of its challenges is finished.
+    /// DailyChallengeData's side of a multi-challenge day: per-slot solved flags, and the rule
+    /// that a day only counts toward the streak once EVERY one of its challenges is finished.
     /// </summary>
-    public class DailyChallengeDaySaveDataTests
+    public class DailyChallengeDayDataTests
     {
         private static DailyPick[] ThreePicks()
         {
@@ -162,21 +162,19 @@ namespace FreeFlow.Tests
         }
 
         [Test]
-        public void SettingADay_StoresThePicksAndTheDay_AndMirrorsSlotZeroIntoTheLegacyFields()
+        public void SettingADay_StoresThePicksAndTheDay()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             Assert.AreEqual(900, data.dailyChallengeCachedDay);
             Assert.AreEqual(3, data.DailyChallengeCount);
-            Assert.AreEqual(5, data.dailyChallengePackSize);
-            Assert.AreEqual(10, data.dailyChallengeLevel);
         }
 
         [Test]
         public void SettingANewDay_ClearsTheSolvedFlagsOfThePreviousOne()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
             data.MarkDailyChallengeSolved(0);
             data.MarkDailyChallengeSolved(1);
@@ -190,7 +188,7 @@ namespace FreeFlow.Tests
         [Test]
         public void SolvingOne_DoesNotCompleteTheDay()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
             data.MarkDailyChallengeSolved(1);
 
@@ -203,7 +201,7 @@ namespace FreeFlow.Tests
         [Test]
         public void SolvingEveryOne_CompletesTheDay()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
             for (int i = 0; i < 3; i++) { data.MarkDailyChallengeSolved(i); }
 
@@ -213,7 +211,7 @@ namespace FreeFlow.Tests
         [Test]
         public void ADayWithNoPicks_IsNotComplete()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             Assert.IsFalse(data.AllDailyChallengesSolved());
             Assert.AreEqual(-1, data.FirstUnsolvedDailyChallenge());
         }
@@ -221,7 +219,7 @@ namespace FreeFlow.Tests
         [Test]
         public void FirstUnsolved_SkipsWhatIsAlreadyDone_AndReadsMinusOneWhenTheDayIsOver()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             Assert.AreEqual(0, data.FirstUnsolvedDailyChallenge());
@@ -237,7 +235,7 @@ namespace FreeFlow.Tests
         [Test]
         public void AFreshDay_UnlocksOnlyItsFirstChallenge()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             Assert.AreEqual(0, data.UnlockedDailyChallengeThrough());
@@ -246,7 +244,7 @@ namespace FreeFlow.Tests
         [Test]
         public void SolvingOne_UnlocksExactlyTheNextOne()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             data.MarkDailyChallengeSolved(0);
@@ -259,7 +257,7 @@ namespace FreeFlow.Tests
         [Test]
         public void AFullySolvedDay_LeavesEveryChallengeOpenToReplay()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
             for (int i = 0; i < 3; i++) { data.MarkDailyChallengeSolved(i); }
 
@@ -269,7 +267,7 @@ namespace FreeFlow.Tests
         [Test]
         public void NoDayCached_UnlocksNothing()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             Assert.AreEqual(-1, data.UnlockedDailyChallengeThrough());
         }
 
@@ -278,7 +276,7 @@ namespace FreeFlow.Tests
         {
             // The day can roll over between a level being opened and being completed, which
             // re-picks a list the in-flight slot index no longer indexes into.
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             Assert.DoesNotThrow(() => data.MarkDailyChallengeSolved(9));
@@ -288,7 +286,7 @@ namespace FreeFlow.Tests
 
         /// <summary>Replays GamePlayController.SaveLevelData's daily block verbatim -- mark the
         /// slot, then credit the day only if every slot is now solved.</summary>
-        private static void CompleteChallenge(ref SaveData data, int slot)
+        private static void CompleteChallenge(ref DailyChallengeData data, int slot)
         {
             data.MarkDailyChallengeSolved(slot);
             if (data.AllDailyChallengesSolved())
@@ -300,7 +298,7 @@ namespace FreeFlow.Tests
         [Test]
         public void TheStreakOnlyMoves_OnceTheWholeDayIsSolved()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
 
             CompleteChallenge(ref data, 0);
@@ -313,13 +311,12 @@ namespace FreeFlow.Tests
             CompleteChallenge(ref data, 2);
             Assert.AreEqual(1, data.dailyChallengeStreak);
             Assert.AreEqual(900, data.dailyChallengeLastCompletedDay);
-            Assert.AreEqual(1, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
         public void ReplayingChallengesAfterTheDayIsDone_DoesNotInflateTheStreak()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
             data.SetDailyChallenges(900, ThreePicks());
             for (int i = 0; i < 3; i++) { CompleteChallenge(ref data, i); }
 
@@ -328,13 +325,12 @@ namespace FreeFlow.Tests
             for (int i = 0; i < 3; i++) { CompleteChallenge(ref data, i); }
 
             Assert.AreEqual(1, data.dailyChallengeStreak);
-            Assert.AreEqual(1, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
         public void AStreakAcrossDays_NeedsEveryDayFullySolved()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
 
             data.SetDailyChallenges(900, ThreePicks());
             for (int i = 0; i < 3; i++) { CompleteChallenge(ref data, i); }
@@ -351,13 +347,12 @@ namespace FreeFlow.Tests
             data.SetDailyChallenges(902, ThreePicks());
             for (int i = 0; i < 3; i++) { CompleteChallenge(ref data, i); }
             Assert.AreEqual(1, data.dailyChallengeStreak, "the gap at 901 broke the run");
-            Assert.AreEqual(2, data.dailyChallengesCompletedTotal);
         }
 
         [Test]
         public void ConsecutiveFullySolvedDays_ExtendTheStreak()
         {
-            SaveData data = new SaveData();
+            DailyChallengeData data = new DailyChallengeData();
 
             for (int day = 900; day <= 902; day++)
             {
@@ -366,7 +361,6 @@ namespace FreeFlow.Tests
             }
 
             Assert.AreEqual(3, data.dailyChallengeStreak);
-            Assert.AreEqual(3, data.dailyChallengesCompletedTotal);
             Assert.AreEqual(3, data.bestDailyChallengeStreak);
         }
     }
@@ -411,57 +405,4 @@ namespace FreeFlow.Tests
         }
     }
 
-    /// <summary>The schema 3 -> 4 migration: a save whose day held exactly one challenge keeps
-    /// that challenge, and its solved state, instead of having the board swapped under it.</summary>
-    public class DailyChallengeMigrationTests
-    {
-        private static SaveData Version3Save(int cachedDay, int lastCompletedDay)
-        {
-            return new SaveData
-            {
-                schemaVersion = 3,
-                dailyChallengeCachedDay = cachedDay,
-                dailyChallengeMode = GameMode.Classic,
-                dailyChallengePackSize = 7,
-                dailyChallengeLevel = 42,
-                dailyChallengeLastCompletedDay = lastCompletedDay,
-            };
-        }
-
-        [Test]
-        public void AnUnfinishedSingleChallengeDay_BecomesAOneEntryUnsolvedDay()
-        {
-            SaveData data = Version3Save(900, 899);
-            SaveData.Migrate(ref data);
-
-            Assert.AreEqual(SaveData.CurrentSchemaVersion, data.schemaVersion);
-            Assert.AreEqual(1, data.DailyChallengeCount);
-            Assert.AreEqual(7, data.dailyChallengePicks[0].packSize);
-            Assert.AreEqual(42, data.dailyChallengePicks[0].levelNumber);
-            Assert.IsFalse(data.dailyChallengePicks[0].solved);
-            Assert.IsFalse(data.AllDailyChallengesSolved());
-        }
-
-        [Test]
-        public void AFinishedSingleChallengeDay_CarriesItsSolvedStateAcross()
-        {
-            // Back when a day held one level, "the day is complete" and "that level is solved"
-            // were the same statement -- so the flag is recoverable rather than lost.
-            SaveData data = Version3Save(900, 900);
-            SaveData.Migrate(ref data);
-
-            Assert.AreEqual(1, data.DailyChallengeCount);
-            Assert.IsTrue(data.dailyChallengePicks[0].solved);
-            Assert.IsTrue(data.AllDailyChallengesSolved());
-        }
-
-        [Test]
-        public void ASaveThatNeverOpenedTheDailyChallenge_GetsNoPicks()
-        {
-            SaveData data = Version3Save(0, 0);
-            SaveData.Migrate(ref data);
-
-            Assert.AreEqual(0, data.DailyChallengeCount);
-        }
-    }
 }

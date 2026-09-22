@@ -49,8 +49,11 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI dailySubtitleText;
 
         // Shown from a daily reset until the player opens the hub -- unseen content, not unplayed
-        // content, so it clears on a visit even if nothing is solved. See
-        // SaveData.dailyChallengeLastSeenDay.
+        // content, so it clears on a visit even if nothing is solved. Reads
+        // DailyChallengeData.dailyChallengeCachedDay rather than a dedicated "seen" flag: the hub
+        // is the only thing that ever advances that field to a new day (see
+        // DailyChallengePage.Refresh), so "today's picks are cached" and "the player has opened
+        // the hub today" are the same fact in this codebase.
         [SerializeField] private GameObject newBadge;
 
         [Header("Card reveal")]
@@ -130,6 +133,7 @@ namespace FreeFlow.UI
             UIController ui = UIController.Instance;
             if (ui == null) { return; }
             SaveData data = SavingSystem.Instance.Load();
+            DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
 
             // MainMenu is the root page (nothing to go back to) and already has its own
             // branding (GameNameLabel/Wordmark) plus the level chip below -- only the Setting
@@ -144,7 +148,7 @@ namespace FreeFlow.UI
 
             AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic);
             AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced);
-            SetDailyChallengeCard(data, ui);
+            SetDailyChallengeCard(dailyData, ui);
         }
 
         /// <summary>
@@ -157,7 +161,7 @@ namespace FreeFlow.UI
         /// day from the configured length instead -- which is what the player will get -- and
         /// leaves selecting it to the moment they actually open the hub.
         /// </summary>
-        private void SetDailyChallengeCard(SaveData data, UIController ui)
+        private void SetDailyChallengeCard(DailyChallengeData data, UIController ui)
         {
             int today = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
             bool selectedToday = data.dailyChallengeCachedDay == today;
@@ -167,7 +171,7 @@ namespace FreeFlow.UI
 
             if (newBadge != null)
             {
-                newBadge.SetActive(data.dailyChallengeLastSeenDay != today);
+                newBadge.SetActive(!selectedToday);
             }
 
             if (dailySubtitleText != null)

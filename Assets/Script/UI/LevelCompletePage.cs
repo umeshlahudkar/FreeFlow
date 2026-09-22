@@ -220,8 +220,8 @@ namespace FreeFlow.UI
 
         /// <summary>Shown only on a daily challenge, and worded for whether the DAY is finished --
         /// the streak only moves when every one of the day's challenges is done (see
-        /// SaveData.RecordDailyChallengeCompletion), so claiming a streak after the first of five
-        /// would be claiming something that has not happened yet.</summary>
+        /// DailyChallengeData.RecordDailyChallengeCompletion), so claiming a streak after the
+        /// first of five would be claiming something that has not happened yet.</summary>
         private void SetStreakBanner(UIController ui)
         {
             if (streakBanner == null) { return; }
@@ -229,7 +229,7 @@ namespace FreeFlow.UI
             streakBanner.SetActive(ui.IsDailyChallenge);
             if (!ui.IsDailyChallenge || streakText == null) { return; }
 
-            SaveData data = SavingSystem.Instance.Load();
+            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
 
             if (data.AllDailyChallengesSolved())
             {
@@ -280,7 +280,7 @@ namespace FreeFlow.UI
                 // Read fresh: SaveLevelData has already marked this challenge solved by the time
                 // this screen is filled in (see ActivateLevelCompleteScreen), and UIController's
                 // cached picks still say otherwise.
-                SaveData data = SavingSystem.Instance.Load();
+                DailyChallengeData data = DailyChallengeSystem.Instance.Load();
                 caption = "TODAY'S CHALLENGES";
                 done = data.SolvedDailyChallengeCount();
                 total = data.DailyChallengeCount;

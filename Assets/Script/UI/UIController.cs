@@ -93,8 +93,8 @@ namespace FreeFlow.UI
         public int DailyCount { get { return dailyPicks.Length; } }
 
         /// <summary>The calendar day the daily challenge in play was drawn for. Compared against
-        /// SaveData.dailyChallengeCachedDay before any daily bookkeeping is written, so a level
-        /// belonging to a day that has since been replaced cannot credit the new day's slots.</summary>
+        /// DailyChallengeData.dailyChallengeCachedDay before any daily bookkeeping is written, so a
+        /// level belonging to a day that has since been replaced cannot credit the new day's slots.</summary>
         public int DailyDayIndex { get { return dailyPicksDay; } }
 
         /// <summary>Whether the daily run in play belongs to a day that has since ended -- true
@@ -151,6 +151,19 @@ namespace FreeFlow.UI
         public string KeyFor(GameMode mode, int packSize)
         {
             return packSize > 0 ? mode.ToString() + packSize + "x" + packSize : mode.ToString();
+        }
+
+        /// <summary>0-100 band signal for <see cref="DailyChallengeSelector.SelectDay"/>: how far
+        /// into THIS specific pack <paramref name="data"/> has progressed, as a percentage of its
+        /// length. Per-pack rather than one pooled number across every mechanic ever attempted, so
+        /// a day that draws from several pack sizes bands each one by progress in that pack -- a
+        /// player deep into Classic5x5 but who has never opened Advanced9x9 gets an easy pick
+        /// there, not whatever their Classic5x5 skill happens to be. An untouched pack reads as
+        /// completedLevel 0, which is exactly the intended "easy intro" band.</summary>
+        private float PackSkillRating(SaveData data, GameMode mode, int packSize)
+        {
+            string key = KeyFor(mode, packSize);
+            return 100f * data.CompletedLevelForKey(key) / packLevelCount;
         }
 
         /// <summary>Levels in the run currently on screen. Every run is a pack, and every pack
@@ -275,16 +288,15 @@ namespace FreeFlow.UI
         }
 
         /// <summary>Grants <see cref="startingHintCount"/> hints to a save that has never been
-        /// granted any, and does nothing to one that has. Keyed on SaveData.hintsInitialized
-        /// rather than on the balance being 0, so a player who has spent every hint is not handed
-        /// a fresh set on the next level load.</summary>
+        /// granted any, and does nothing to one that has. Keyed on the balance still sitting at
+        /// -1 (see SaveData.hintsRemaining) rather than on it being 0, so a player who has spent
+        /// every hint is not handed a fresh set on the next level load.</summary>
         private void EnsureHintBalance()
         {
             SaveData data = SavingSystem.Instance.Load();
-            if (data.hintsInitialized) { return; }
+            if (data.hintsRemaining >= 0) { return; }
 
             data.hintsRemaining = Mathf.Max(0, startingHintCount);
-            data.hintsInitialized = true;
             SavingSystem.Instance.Save(data);
         }
 
@@ -570,7 +582,7 @@ namespace FreeFlow.UI
                 if (currentSource == LevelSource.Daily)
                 {
                     if (dailyIndex >= DailyCount - 1) { return false; }
-                    return dailyIndex + 1 <= SavingSystem.Instance.Load().UnlockedDailyChallengeThrough();
+                    return dailyIndex + 1 <= DailyChallengeSystem.Instance.Load().UnlockedDailyChallengeThrough();
                 }
 
                 if (currentLevel >= TotalLevelCount) { return false; }
@@ -693,8 +705,8 @@ namespace FreeFlow.UI
         /// <summary>
         /// Today's daily challenges, selecting and caching them if that has not happened yet, and
         /// mirroring the result into <see cref="dailyPicks"/>. Every caller goes through here
-        /// rather than reading SaveData directly, so the hub can never show a day the gameplay
-        /// screen would then load something different for.
+        /// rather than reading DailyChallengeData directly, so the hub can never show a day the
+        /// gameplay screen would then load something different for.
         ///
         /// The picks are real levels from existing packs, picked once per calendar day and cached
         /// so they do not change under the player mid-session (see DailyChallengeSelector).
@@ -708,12 +720,13 @@ namespace FreeFlow.UI
         /// </summary>
         public DailyPick[] EnsureTodayDailyPicks()
         {
-            SaveData data = SavingSystem.Instance.Load();
+            SaveData progress = SavingSystem.Instance.Load();
+            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
             bool dataChanged = false;
 
             // Assigned once, ever, on whichever device first opens the daily challenge -- see
-            // SaveData.playerSalt and EnsurePlayerSalt. Range's upper bound is exclusive, so this
-            // can never generate the 0 that means "unset".
+            // DailyChallengeData.playerSalt and EnsurePlayerSalt. Range's upper bound is
+            // exclusive, so this can never generate the 0 that means "unset".
             if (data.playerSalt == 0)
             {
                 data.EnsurePlayerSalt(Random.Range(1, int.MaxValue));
@@ -753,7 +766,7 @@ namespace FreeFlow.UI
 
                 DailyChallengeSelector.Pick[] picks = DailyChallengeSelector.SelectDay(
                     today, pools, packLevelCount,
-                    data.OverallSkillRating(), data.playerSalt, wanted);
+                    (mode, packSize) => PackSkillRating(progress, mode, packSize), data.playerSalt, wanted);
 
                 DailyPick[] stored = new DailyPick[picks.Length];
                 for (int i = 0; i < picks.Length; i++)
@@ -771,7 +784,7 @@ namespace FreeFlow.UI
                 dataChanged = true;
             }
 
-            if (dataChanged) { SavingSystem.Instance.Save(data); }
+            if (dataChanged) { DailyChallengeSystem.Instance.Save(data); }
 
             dailyPicks = data.dailyChallengePicks ?? new DailyPick[0];
             // Either branch above leaves the cache on today, so the picks now in hand are today's.
@@ -779,30 +792,14 @@ namespace FreeFlow.UI
             return dailyPicks;
         }
 
-        /// <summary>Records that the player has now seen today's challenges, clearing the main
-        /// menu's "NEW" badge until the next daily reset. Does its own load/save rather than
-        /// taking a SaveData: its caller (DailyChallengePage.Refresh) runs
-        /// <see cref="EnsureTodayDailyPicks"/> first, which may itself write, and saving a copy
-        /// read before that would put the day's freshly selected picks straight back.</summary>
-        public void MarkDailyChallengeSeen()
-        {
-            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-
-            SaveData data = SavingSystem.Instance.Load();
-            if (data.dailyChallengeLastSeenDay == today) { return; }
-
-            data.dailyChallengeLastSeenDay = today;
-            SavingSystem.Instance.Save(data);
-        }
-
         /// <summary>Opens one of today's daily challenges by its position in the day (0-based).
         /// Switches mode/pack to wherever that level actually lives, since the day's challenges
         /// are drawn from different packs.
         ///
-        /// Clamped to the day's unlock frontier (see SaveData.UnlockedDailyChallengeThrough), so a
-        /// slot the player has not reached opens the frontier challenge instead of the locked one.
-        /// The hub's locked tiles and the disabled Next button already prevent asking for one --
-        /// this is the backstop that keeps the rule true regardless of the caller.</summary>
+        /// Clamped to the day's unlock frontier (see DailyChallengeData.UnlockedDailyChallengeThrough),
+        /// so a slot the player has not reached opens the frontier challenge instead of the locked
+        /// one. The hub's locked tiles and the disabled Next button already prevent asking for
+        /// one -- this is the backstop that keeps the rule true regardless of the caller.</summary>
         public void LoadDailyChallenge(int slot)
         {
             DailyPick[] picks = EnsureTodayDailyPicks();
@@ -813,7 +810,7 @@ namespace FreeFlow.UI
                 return;
             }
 
-            int unlockedThrough = SavingSystem.Instance.Load().UnlockedDailyChallengeThrough();
+            int unlockedThrough = DailyChallengeSystem.Instance.Load().UnlockedDailyChallengeThrough();
             slot = Mathf.Clamp(slot, 0, Mathf.Min(picks.Length - 1, unlockedThrough));
 
             currentSource = LevelSource.Daily;
@@ -838,8 +835,8 @@ namespace FreeFlow.UI
         /// completion.
         /// </summary>
         /// <param name="movesCount">Moves made this attempt.</param>
-        /// <param name="hintsUsedThisAttempt">Hints used since this attempt began (a diff against
-        /// the lifetime hint total -- see GamePlayController.hintsAtAttemptStart).</param>
+        /// <param name="hintsUsedThisAttempt">Hints used since this attempt began -- see
+        /// GamePlayController.hintsUsedThisAttempt.</param>
         /// <param name="secondsTaken">Wall-clock time this attempt took to solve the level (see
         /// GamePlayController.lastCompletionSeconds).</param>
         /// <param name="oldCompletedLevel">CompletedLevelForKey for this pack BEFORE this
