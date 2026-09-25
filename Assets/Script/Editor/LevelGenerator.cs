@@ -42,7 +42,7 @@ namespace FreeFlow.GamePlay
     /// not an invented ramp -- the same "calibrate to the real ceiling, not a hoped-for spread"
     /// lesson already learned once generating the (now superseded) 50-level World 1 batch.
     /// </summary>
-    public static class LevelGenerator
+    public static partial class LevelGenerator
     {
         /// <summary>
         /// Clears any progress bar left behind by a run that a domain reload killed mid-flight --
