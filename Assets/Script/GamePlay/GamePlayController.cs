@@ -945,12 +945,11 @@ namespace FreeFlow.GamePlay
             // that day finished -- credited to the day it was OPENED for (DailyDayIndex), not to
             // whatever "now" is, so a session that happens to cross midnight still counts for the
             // day it was opened on. MarkDayCompleted is idempotent per day, so replaying an
-            // already-finished day cannot inflate the streak or the lifetime count.
+            // already-finished day changes nothing.
             if (UIController.Instance.IsDailyChallenge)
             {
                 DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
                 dailyData.MarkDayCompleted(UIController.Instance.DailyDayIndex);
-                AnalyticsManager.LogDailyStreakComplete(dailyData.dailyChallengeStreak);
                 DailyChallengeSystem.Instance.Save(dailyData);
             }
 

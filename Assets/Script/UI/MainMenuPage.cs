@@ -44,16 +44,12 @@ namespace FreeFlow.UI
         }
 
         [Header("Daily challenge card")]
-        // Today's state in one line, plus the current and best streaks as a tail. Used to be
-        // a separate streak pill next to the card; folded in here when that pill was removed.
+        // Today's solved/waiting state in one line. Streak tracking was removed entirely (no
+        // longer maintained), so this is just the day's own status now.
         [SerializeField] private TextMeshProUGUI dailySubtitleText;
 
-        // Shown from a daily reset until the player opens the hub -- unseen content, not unplayed
-        // content, so it clears on a visit even if nothing is solved. Reads
-        // DailyChallengeData.dailyChallengeCachedDay rather than a dedicated "seen" flag: the hub
-        // is the only thing that ever advances that field to a new day (see
-        // DailyChallengePage.Refresh), so "today's picks are cached" and "the player has opened
-        // the hub today" are the same fact in this codebase.
+        // Shown until today's challenge is solved, then cleared -- unseen content, not unplayed
+        // content, so it clears the moment the day is done even if the player never opens the hub.
         [SerializeField] private GameObject newBadge;
 
         [Header("Card reveal")]
@@ -153,9 +149,9 @@ namespace FreeFlow.UI
 
         /// <summary>
         /// Fills the daily-challenge card from the save: whether today's one calendar level has
-        /// been solved yet, and the streaks. There is nothing to "select" any more (see
-        /// DailyChallengeCalendar) -- every player's today is the same fixed level, so this is a
-        /// pure readout of the save file, nothing committed just by the main menu being shown.
+        /// been solved yet. There is nothing to "select" any more (see DailyChallengeCalendar) --
+        /// every player's today is the same fixed level, so this is a pure readout of the save
+        /// file, nothing committed just by the main menu being shown.
         /// </summary>
         private void SetDailyChallengeCard(DailyChallengeData data, UIController ui)
         {
@@ -166,22 +162,7 @@ namespace FreeFlow.UI
 
             if (dailySubtitleText != null)
             {
-                string progress = completedToday ? "today's puzzle solved" : "today's puzzle waiting";
-
-                // The LIVE streak, not the stored one -- a lapsed run keeps its last count in
-                // the save until another day is credited, and a line boasting "3-day streak"
-                // days after the streak actually died is worse than not mentioning it at all.
-                // Only earns its space once there is one, same as best below.
-                int streak = data.LiveDailyChallengeStreak(today);
-                string current = streak > 0 ? "  ·  " + streak + "-day streak" : "";
-
-                // The best streak only earns its space once there is one; on a fresh save the
-                // line stays about today rather than trailing a hollow "best 0".
-                string best = data.bestDailyChallengeStreak > 0
-                    ? "  ·  best " + data.bestDailyChallengeStreak
-                    : "";
-
-                dailySubtitleText.text = progress + current + best;
+                dailySubtitleText.text = completedToday ? "today's puzzle solved" : "today's puzzle waiting";
             }
         }
 

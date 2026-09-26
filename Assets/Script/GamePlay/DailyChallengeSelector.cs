@@ -12,9 +12,10 @@ namespace FreeFlow.GamePlay
     /// generation is an offline Editor pipeline (4.3, 5.1) expensive enough to need its own
     /// tuning passes per configuration, not something a phone can do in a frame. "Generation" here
     /// means picking an index into a pack that is already on disk, which is arithmetic, not search
-    /// -- the "cache" half (see DailyChallengeData.dailyChallengeCachedDay) is what actually matters: once
-    /// picked for a day, the same levels keep showing for the rest of that day even if the
-    /// player's skill changes mid-session from playing other levels.
+    /// -- the "cache" half (this class's own deterministic-per-day arithmetic, formerly cached
+    /// separately on DailyChallengeData before that field was removed as dead code) is what
+    /// actually matters: once picked for a day, the same levels keep showing for the rest of that
+    /// day even if the player's skill changes mid-session from playing other levels.
     ///
     /// Pool selection: each pack already ships "ramped from the easiest board that size can
     /// produce to the hardest" (GAME_EXPANSION_PLAN 7), so a level NUMBER within a pack is
@@ -187,9 +188,10 @@ namespace FreeFlow.GamePlay
         /// SPECIFIC (mode, pack size) -- callers pass <c>SaveData.CompletedLevelForKey</c> as a
         /// percentage of that pack, so a day drawing from several pack sizes bands each one by
         /// progress in THAT pack rather than one number applied everywhere; <paramref
-        /// name="playerSalt"/> is <c>DailyChallengeData.playerSalt</c> -- a value generated once per install
-        /// (see UIController.EnsureTodayDailyPicks) so two players in the same skill band on the
-        /// same day get DIFFERENT levels, not the identical puzzle. Only the LEVEL choice is
+        /// name="playerSalt"/> is a value generated once per install (formerly cached as
+        /// DailyChallengeData.playerSalt, since removed as dead code along with the rest of the
+        /// old per-install caching flow this class predates) so two players in the same skill band
+        /// on the same day get DIFFERENT levels, not the identical puzzle. Only the LEVEL choice is
         /// salted, not the pack-size rotation above -- salting that too would trade the "every
         /// size in a week" guarantee for cross-player variety nobody asked for.
         ///

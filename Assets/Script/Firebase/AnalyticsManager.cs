@@ -37,13 +37,4 @@ public class AnalyticsManager
             new Parameter("level", level)
         );
     }
-
-    public static void LogDailyStreakComplete(int streak)
-    {
-        Debug.Log("[Analytics] daily_streak_complete (streak=" + streak + ")");
-        FirebaseAnalytics.LogEvent(
-            "daily_streak_complete",
-            new Parameter("streak", streak)
-        );
-    }
 }
