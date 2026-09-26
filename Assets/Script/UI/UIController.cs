@@ -38,16 +38,6 @@ namespace FreeFlow.UI
         // reads in play as "the mechanics are missing" when they are simply in the other folder.
         [SerializeField] private GameMode startingMode = GameMode.Classic;
 
-        [Header("Daily Challenge")]
-        // How many levels one calendar day of daily challenges holds. Serialised rather than a
-        // constant so the day's length is a design dial, not a code change -- the hub's reference
-        // art shows five, which is the default here.
-        //
-        // Changing this DOES re-pick the current day (see EnsureTodayDailyPicks): the cache exists
-        // so the boards cannot move under a player mid-session, not so a deliberate config change
-        // is ignored until tomorrow.
-        [SerializeField, Range(1, 7)] private int dailyChallengeCount = 5;
-
         private LevelData currentLevelData;
         private SingleLevelDataSO currentLevelDataAsset;
         private int currentLevel;
@@ -59,19 +49,18 @@ namespace FreeFlow.UI
         // challenge to a pack level the way the bool this replaced once did.
         private LevelSource currentSource = LevelSource.Pack;
 
-        // Today's daily challenges and which of them is in play, mirrored from SaveData whenever
-        // EnsureTodayDailyPicks runs. Cached here only so the pages can ask for the day's shape
-        // (how many, which one, what the next one is) without each doing its own file read; the
-        // SOLVED flags in it go stale the moment one is completed, so anything that needs those
-        // re-reads SaveData -- see IsTodayDailyChallengeSolved.
-        private DailyPick[] dailyPicks = new DailyPick[0];
-        private int dailyIndex;
+        // The board size of the daily level currently open, alongside dailyPicksDay below --
+        // needed for header/subtitle text since a daily run deliberately does NOT touch
+        // currentPackSize/CurrentMode any more (see LoadDailyChallengeForDay's own comment on
+        // why: those drive real pack progress, and a daily level must never write to one).
+        private int dailyPackSize;
 
-        // Which calendar day dailyPicks belongs to. A daily run belongs to a DAY, and the day can
-        // end while a level from it is still on screen -- a player who starts a challenge at
-        // 23:59 finishes it on the next day. Without this, dailyIndex is just an offset with no
-        // day attached, and once anything re-selects for the new day it silently indexes into a
-        // different day's challenges. -1 until a daily run has been opened.
+        // Which calendar day (DailyChallengeSelector.DayIndex/EpochUtc numbering) the daily level
+        // currently open belongs to. -1 until a daily run has been opened. A daily run belongs to
+        // a DAY, and the day can end while a level from it is still on screen -- a player who
+        // starts a challenge at 23:59 finishes it after midnight; nothing here needs to notice
+        // that any more (see GamePlayController.SaveLevelData, which credits whatever day this
+        // actually is, not "today").
         private int dailyPicksDay = -1;
 
         public int CurrentLevel { get { return currentLevel; } }
@@ -85,40 +74,9 @@ namespace FreeFlow.UI
         /// the streak banner.</summary>
         public bool IsDailyChallenge { get { return currentSource == LevelSource.Daily; } }
 
-        /// <summary>Which of today's daily challenges is in play (0-based). Meaningless unless
-        /// <see cref="IsDailyChallenge"/>.</summary>
-        public int DailyIndex { get { return dailyIndex; } }
-
-        /// <summary>How many daily challenges today holds, as last read from the save.</summary>
-        public int DailyCount { get { return dailyPicks.Length; } }
-
-        /// <summary>The calendar day the daily challenge in play was drawn for. Compared against
-        /// DailyChallengeData.dailyChallengeCachedDay before any daily bookkeeping is written, so a
-        /// level belonging to a day that has since been replaced cannot credit the new day's slots.</summary>
+        /// <summary>The calendar day (absolute day index) the daily level in play was drawn for.
+        /// -1 unless <see cref="IsDailyChallenge"/>.</summary>
         public int DailyDayIndex { get { return dailyPicksDay; } }
-
-        /// <summary>Whether the daily run in play belongs to a day that has since ended -- true
-        /// only in the narrow window where the player was mid-challenge as the reset passed.
-        /// Today's challenges are a different set, so stepping to "the next one" is meaningless
-        /// and the player is sent to the hub to see the new day instead.</summary>
-        public bool DailyDayHasEnded
-        {
-            get
-            {
-                return currentSource == LevelSource.Daily
-                    && dailyPicksDay >= 0
-                    && dailyPicksDay != DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            }
-        }
-
-        /// <summary>How many challenges a day is configured to hold. Unlike <see cref="DailyCount"/>
-        /// this needs no day to have been selected yet, so a screen can describe today's challenges
-        /// without committing a pick just by being looked at -- what the main menu's daily card
-        /// needs before the player has ever opened the hub.</summary>
-        public int ConfiguredDailyChallengeCount
-        {
-            get { return Mathf.Max(1, dailyChallengeCount); }
-        }
 
         /// <summary>Which campaign is being played. Classic is the default and the front door;
         /// see <see cref="GameMode"/> for why the two are separate level sets rather than a
@@ -151,19 +109,6 @@ namespace FreeFlow.UI
         public string KeyFor(GameMode mode, int packSize)
         {
             return packSize > 0 ? mode.ToString() + packSize + "x" + packSize : mode.ToString();
-        }
-
-        /// <summary>0-100 band signal for <see cref="DailyChallengeSelector.SelectDay"/>: how far
-        /// into THIS specific pack <paramref name="data"/> has progressed, as a percentage of its
-        /// length. Per-pack rather than one pooled number across every mechanic ever attempted, so
-        /// a day that draws from several pack sizes bands each one by progress in that pack -- a
-        /// player deep into Classic5x5 but who has never opened Advanced9x9 gets an easy pick
-        /// there, not whatever their Classic5x5 skill happens to be. An untouched pack reads as
-        /// completedLevel 0, which is exactly the intended "easy intro" band.</summary>
-        private float PackSkillRating(SaveData data, GameMode mode, int packSize)
-        {
-            string key = KeyFor(mode, packSize);
-            return 100f * data.CompletedLevelForKey(key) / packLevelCount;
         }
 
         /// <summary>Levels in the run currently on screen. Every run is a pack, and every pack
@@ -394,25 +339,32 @@ namespace FreeFlow.UI
         }
 
         /// <summary>The small line under it: for a pack level the campaign and board size
-        /// ("CLASSIC 6 x 6"), for a daily challenge where in the day it sits ("2 OF 5 - 6 x 6").
-        /// A day holding exactly one challenge drops the position, which would only ever read
-        /// "1 OF 1".</summary>
+        /// ("CLASSIC 6 x 6"), for a daily challenge the calendar date and board size
+        /// ("SEP 18  ·  7 x 7") -- there is only ever one challenge a day now, so there is no
+        /// position within a list left to report.</summary>
         public string LevelHeaderSubtitle
         {
             get
             {
-                string size = currentPackSize > 0 ? currentPackSize + " × " + currentPackSize : "";
-
                 if (currentSource == LevelSource.Daily)
                 {
-                    if (DailyCount <= 1) { return size; }
-                    string position = (dailyIndex + 1) + " OF " + DailyCount;
-                    return size.Length == 0 ? position : position + "  ·  " + size;
+                    string date = DailyDateLabel(dailyPicksDay);
+                    return dailyPackSize > 0 ? date + "  ·  " + dailyPackSize + " × " + dailyPackSize : date;
                 }
 
+                string size = currentPackSize > 0 ? currentPackSize + " × " + currentPackSize : "";
                 string mode = CurrentMode.ToString().ToUpperInvariant();
                 return size.Length == 0 ? mode : mode + " " + size;
             }
+        }
+
+        /// <summary>"SEP 18" for the calendar day <paramref name="absoluteDayIndex"/> days after
+        /// DailyChallengeSelector.EpochUtc -- the short date form every daily header/step label
+        /// uses in place of the old "N OF total" position, now that a day holds one challenge.</summary>
+        private static string DailyDateLabel(int absoluteDayIndex)
+        {
+            return DailyChallengeSelector.EpochUtc.AddDays(absoluteDayIndex)
+                .ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture).ToUpperInvariant();
         }
 
         /// <summary>What the level-complete overlay's NEXT button is offering, or an empty string
@@ -435,9 +387,9 @@ namespace FreeFlow.UI
 
                 if (currentSource == LevelSource.Daily)
                 {
-                    DailyPick prev = dailyPicks[dailyIndex - 1];
-                    return "DAILY " + dailyIndex + " OF " + DailyCount
-                         + "  ·  " + prev.packSize + "×" + prev.packSize;
+                    DailyChallengeCalendar.DailyLevelPick prev =
+                        DailyChallengeCalendar.LevelForAbsoluteDay(dailyPicksDay - 1);
+                    return DailyDateLabel(dailyPicksDay - 1) + "  ·  " + prev.packSize + "×" + prev.packSize;
                 }
 
                 return "LEVEL " + (currentLevel - 1)
@@ -481,8 +433,7 @@ namespace FreeFlow.UI
             {
                 if (currentSource == LevelSource.Daily)
                 {
-                    if (dailyIndex <= 0) { return ""; }
-                    return "DAILY " + dailyIndex + " OF " + DailyCount;
+                    return HasPrevLevel ? DailyDateLabel(dailyPicksDay - 1) : "";
                 }
 
                 if (currentLevel <= 1) { return ""; }
@@ -497,8 +448,7 @@ namespace FreeFlow.UI
             {
                 if (currentSource == LevelSource.Daily)
                 {
-                    if (dailyIndex >= DailyCount - 1) { return ""; }
-                    return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount;
+                    return HasNextLevel ? DailyDateLabel(dailyPicksDay + 1) : "";
                 }
 
                 if (currentLevel >= TotalLevelCount) { return ""; }
@@ -536,19 +486,16 @@ namespace FreeFlow.UI
                 {
                     if (currentSource == LevelSource.Daily)
                     {
-                        DailyPick next = dailyPicks[dailyIndex + 1];
-                        return "DAILY " + (dailyIndex + 2) + " OF " + DailyCount
-                             + "  ·  " + next.packSize + "×" + next.packSize;
+                        DailyChallengeCalendar.DailyLevelPick next =
+                            DailyChallengeCalendar.LevelForAbsoluteDay(dailyPicksDay + 1);
+                        return DailyDateLabel(dailyPicksDay + 1) + "  ·  " + next.packSize + "×" + next.packSize;
                     }
 
                     return "LEVEL " + (currentLevel + 1)
                          + (currentPackSize > 0 ? "  ·  " + currentPackSize + "×" + currentPackSize : "");
                 }
 
-                if (currentSource == LevelSource.Daily)
-                {
-                    return dailyIndex >= DailyCount - 1 ? "DAY COMPLETE" : "";
-                }
+                if (currentSource == LevelSource.Daily) { return "DAY COMPLETE"; }
 
                 return currentLevel >= TotalLevelCount ? "PACK COMPLETE" : "";
             }
@@ -566,7 +513,16 @@ namespace FreeFlow.UI
         {
             get
             {
-                if (currentSource == LevelSource.Daily) { return dailyIndex > 0; }
+                // Any earlier calendar day can always be revisited -- a daily run is never
+                // "played in order" the way a pack is, so there is no frontier to check here. But a
+                // day already completed is a closed record (same rule the calendar screen itself
+                // enforces), so it is never offered as somewhere Prev can step to -- Pack/Advanced
+                // levels are untouched by this, they keep working exactly as before.
+                if (currentSource == LevelSource.Daily)
+                {
+                    if (dailyPicksDay <= 0) { return false; }
+                    return !DailyChallengeSystem.Instance.Load().IsDayCompleted(dailyPicksDay - 1);
+                }
                 return currentLevel > 1;
             }
         }
@@ -575,14 +531,14 @@ namespace FreeFlow.UI
         {
             get
             {
-                // A day is played in order, same as a pack: the next challenge opens only once
-                // this one is solved. Read from the save rather than the cached dailyPicks --
-                // those solved flags are stale the moment a level is completed, which is exactly
-                // when this is asked (the level-complete overlay).
+                // Stepping forward through the calendar only ever reaches as far as TODAY -- a
+                // future day's board is not unlocked yet, whether or not the day currently on
+                // screen has been solved. A day already completed is likewise never offered, same
+                // rule as HasPrevLevel above.
                 if (currentSource == LevelSource.Daily)
                 {
-                    if (dailyIndex >= DailyCount - 1) { return false; }
-                    return dailyIndex + 1 <= DailyChallengeSystem.Instance.Load().UnlockedDailyChallengeThrough();
+                    if (dailyPicksDay < 0 || dailyPicksDay >= DailyChallengeSelector.DayIndex(System.DateTime.UtcNow)) { return false; }
+                    return !DailyChallengeSystem.Instance.Load().IsDayCompleted(dailyPicksDay + 1);
                 }
 
                 if (currentLevel >= TotalLevelCount) { return false; }
@@ -600,8 +556,7 @@ namespace FreeFlow.UI
 
             if (currentSource == LevelSource.Daily)
             {
-                if (DailyDayHasEnded) { ExitToRunHome(); return; }
-                LoadDailyChallenge(dailyIndex - 1);
+                LoadDailyChallengeForDay(dailyPicksDay - 1);
                 return;
             }
 
@@ -619,13 +574,7 @@ namespace FreeFlow.UI
 
             if (currentSource == LevelSource.Daily)
             {
-                // The reset passed while this challenge was being played. "The next one" belongs
-                // to a day that no longer exists -- LoadDailyChallenge would re-select for today
-                // and drop the player on its FIRST challenge, while the button said something
-                // like "DAILY 4 OF 5". Show them the new day instead of quietly substituting it.
-                if (DailyDayHasEnded) { ExitToRunHome(); return; }
-
-                LoadDailyChallenge(dailyIndex + 1);
+                LoadDailyChallengeForDay(dailyPicksDay + 1);
                 return;
             }
 
@@ -701,124 +650,76 @@ namespace FreeFlow.UI
         }
 
         // ---- daily challenge ---------------------------------------------------------------
+        //
+        // A curated calendar (see DailyChallengeCalendar), not a pick drawn from the Classic
+        // packs: every player sees the same board on the same date, and there is nothing left to
+        // "cache" per day the way the older per-install/skill-banded design needed to (see
+        // EnsureTodayDailyPicks/LoadDailyChallenge(slot) in an earlier revision of this file).
 
-        /// <summary>
-        /// Today's daily challenges, selecting and caching them if that has not happened yet, and
-        /// mirroring the result into <see cref="dailyPicks"/>. Every caller goes through here
-        /// rather than reading DailyChallengeData directly, so the hub can never show a day the
-        /// gameplay screen would then load something different for.
-        ///
-        /// The picks are real levels from existing packs, picked once per calendar day and cached
-        /// so they do not change under the player mid-session (see DailyChallengeSelector).
-        /// Classic only for now: it is the default mode and the one whose packs vary by board
-        /// size, which is what the selector rotates through slot to slot; Advanced ships one pack
-        /// size so far, which would make that rotation a no-op for it.
-        ///
-        /// Deliberately reuses each pack's own LevelData rather than daily-only assets --
-        /// completing one also completes that pack level, which is correct (it IS that level), and
-        /// avoids a second content pipeline for a handful of levels a day.
-        /// </summary>
-        public DailyPick[] EnsureTodayDailyPicks()
+        /// <summary>Opens today's daily challenge -- the main menu's Daily Challenge button, and
+        /// the calendar hub's default selection when it first opens.</summary>
+        public void LoadTodaysDailyChallenge()
         {
-            SaveData progress = SavingSystem.Instance.Load();
-            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
-            bool dataChanged = false;
-
-            // Assigned once, ever, on whichever device first opens the daily challenge -- see
-            // DailyChallengeData.playerSalt and EnsurePlayerSalt. Range's upper bound is
-            // exclusive, so this can never generate the 0 that means "unset".
-            if (data.playerSalt == 0)
-            {
-                data.EnsurePlayerSalt(Random.Range(1, int.MaxValue));
-                dataChanged = true;
-            }
-
-            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            int wanted = Mathf.Max(1, dailyChallengeCount);
-
-            // A day whose streak credit has already been banked is finished, and re-picking it
-            // would leave the hub reading "0 of 5 solved" next to a week chain and streak card
-            // that already counted the day -- which reads as the streak having moved without the
-            // day being completed, the one thing the all-solved rule exists to prevent. A longer
-            // day starts tomorrow instead. This is what a save written before a day could hold
-            // several challenges hits on its first launch, and what a mid-day count change hits
-            // once the day is done.
-            bool dayAlreadyCredited = data.dailyChallengeCachedDay == today
-                && data.dailyChallengeLastCompletedDay == today;
-
-            // Re-pick on a new day, or when dailyChallengeCount has been changed since the cache
-            // was written. The second case is a deliberate config change, not drift -- see the
-            // field's own comment.
-            bool wrongLength = data.DailyChallengeCount != wanted && !dayAlreadyCredited;
-
-            if (data.dailyChallengeCachedDay != today || wrongLength)
-            {
-                // BOTH campaigns, not just Classic. A day's slots rotate through the pools in
-                // the order given here, so Classic first keeps the easiest sizes at the front of
-                // the rotation while Advanced boards -- and the mechanics they carry -- appear in
-                // most days' picks. Every pack is 100 levels in both modes, so the one
-                // packLevelCount still describes them all.
-                DailyChallengeSelector.Pool[] pools =
-                {
-                    new DailyChallengeSelector.Pool { mode = GameMode.Classic, packSizes = PackSizesFor(GameMode.Classic) },
-                    new DailyChallengeSelector.Pool { mode = GameMode.Advanced, packSizes = PackSizesFor(GameMode.Advanced) },
-                };
-
-                DailyChallengeSelector.Pick[] picks = DailyChallengeSelector.SelectDay(
-                    today, pools, packLevelCount,
-                    (mode, packSize) => PackSkillRating(progress, mode, packSize), data.playerSalt, wanted);
-
-                DailyPick[] stored = new DailyPick[picks.Length];
-                for (int i = 0; i < picks.Length; i++)
-                {
-                    stored[i] = new DailyPick
-                    {
-                        mode = picks[i].mode,
-                        packSize = picks[i].packSize,
-                        levelNumber = picks[i].levelNumber,
-                        solved = false,
-                    };
-                }
-
-                data.SetDailyChallenges(today, stored);
-                dataChanged = true;
-            }
-
-            if (dataChanged) { DailyChallengeSystem.Instance.Save(data); }
-
-            dailyPicks = data.dailyChallengePicks ?? new DailyPick[0];
-            // Either branch above leaves the cache on today, so the picks now in hand are today's.
-            dailyPicksDay = today;
-            return dailyPicks;
+            LoadDailyChallengeForDay(DailyChallengeSelector.DayIndex(System.DateTime.UtcNow));
         }
 
-        /// <summary>Opens one of today's daily challenges by its position in the day (0-based).
-        /// Switches mode/pack to wherever that level actually lives, since the day's challenges
-        /// are drawn from different packs.
+        /// <summary>Opens the single Classic level the calendar assigns to
+        /// <paramref name="absoluteDayIndex"/> (days since DailyChallengeSelector.EpochUtc) --
+        /// see DailyChallengeCalendar.LevelForAbsoluteDay for how a day maps to a board.
         ///
-        /// Clamped to the day's unlock frontier (see DailyChallengeData.UnlockedDailyChallengeThrough),
-        /// so a slot the player has not reached opens the frontier challenge instead of the locked
-        /// one. The hub's locked tiles and the disabled Next button already prevent asking for
-        /// one -- this is the backstop that keeps the rule true regardless of the caller.</summary>
-        public void LoadDailyChallenge(int slot)
+        /// Deliberately does NOT call SetMode/SetPack: those exist to switch which PACK the level
+        /// grid/pack progress point at, and a daily level is never a pack level -- it lives in its
+        /// own Resources/Levels/Daily folder, under a level NUMBER that may collide with an
+        /// unrelated Classic pack level of the same size (see LoadDailyLevelAsset). Touching
+        /// currentPackSize/ProgressKey here would risk writing a daily's level number into the
+        /// wrong pack's progress the next time a level completes.</summary>
+        public void LoadDailyChallengeForDay(int absoluteDayIndex)
         {
-            DailyPick[] picks = EnsureTodayDailyPicks();
-            if (picks.Length == 0)
+            DailyChallengeCalendar.DailyLevelPick pick = DailyChallengeCalendar.LevelForAbsoluteDay(absoluteDayIndex);
+
+            currentSource = LevelSource.Daily;
+            dailyPicksDay = absoluteDayIndex;
+            dailyPackSize = pick.packSize;
+
+            // GameplayPage reads CurrentMode to decide whether to show the mechanics-info button
+            // (Advanced only) -- every daily level is Classic (see DailyChallengeCalendar), so
+            // this has to say so even though SetMode itself is not called. Bypasses SetMode's own
+            // pack-grid rebuild/validation, which a daily run has no use for.
+            CurrentMode = GameMode.Classic;
+
+            LoadDailyLevelAsset(pick.packSize, pick.levelNumber);
+        }
+
+        /// <summary>The daily-challenge counterpart to LoadCurrentModeLevel: loads a level from
+        /// Resources/Levels/Daily/{packSize}x{packSize}/Level_{levelNumber} instead of the current
+        /// pack's own folder, and -- unlike LoadCurrentModeLevel -- never touches currentLevel's
+        /// meaning as a pack position, since a daily level is not one.</summary>
+        private void LoadDailyLevelAsset(int packSize, int levelNumber)
+        {
+            currentLevel = levelNumber;
+
+            GamePlayController.Instance.ResetGameplay();
+
+            if (currentLevelDataAsset != null) { Resources.UnloadAsset(currentLevelDataAsset); }
+
+            string path = "Levels/Daily/" + packSize + "x" + packSize + "/Level_" + levelNumber;
+            currentLevelDataAsset = Resources.Load<SingleLevelDataSO>(path);
+
+            if (currentLevelDataAsset == null)
             {
-                Debug.LogError("UIController: no daily challenge could be selected for today -- "
-                    + "check that at least one campaign has a pack size configured.");
+                Debug.LogError("UIController: No daily level asset at Resources/" + path + ".");
                 return;
             }
 
-            int unlockedThrough = DailyChallengeSystem.Instance.Load().UnlockedDailyChallengeThrough();
-            slot = Mathf.Clamp(slot, 0, Mathf.Min(picks.Length - 1, unlockedThrough));
+            currentLevelData = currentLevelDataAsset.levelData;
 
-            currentSource = LevelSource.Daily;
-            dailyIndex = slot;
+            PageManager.Instance.CloseOverlay(PageType.LevelComplete);
+            PageManager.Instance.OpenPage(PageType.Gameplay);
 
-            SetMode(picks[slot].mode);
-            SetPack(picks[slot].packSize);
-            LoadCurrentModeLevel(picks[slot].levelNumber);
+            GamePlayController.Instance.GenerateBoard(currentLevelData);
+
+            GameplayPage page = GameplayScreen;
+            if (page != null) { page.Refresh(); }
         }
 
         /// <summary>

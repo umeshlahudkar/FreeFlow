@@ -928,46 +928,30 @@ namespace FreeFlow.GamePlay
             lastCompletionSeconds = Time.unscaledTime - attemptStartTime;
             lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
 
-            // The frontier is an unlock GATE, not a tally, and a daily challenge is drawn from
-            // anywhere inside a pack -- see SaveData.PackFrontierAdvances for the full rule.
-            if (SaveData.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel,
-                    UIController.Instance.IsDailyChallenge))
+            // The frontier is an unlock GATE, not a tally -- and a daily level is not a pack level
+            // at all any more (it lives in its own Resources/Levels/Daily folder, under a level
+            // number that may collide with an unrelated Classic pack level of the same size), so
+            // a daily completion must never move a pack's frontier. See
+            // UIController.LoadDailyChallengeForDay's own comment on the same risk.
+            if (!UIController.Instance.IsDailyChallenge
+                && SaveData.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel, false))
             {
                 data.SetCompletedLevelForKey(key, currentLevel);
             }
 
             lastCompletionHintsUsed = hintsUsedThisAttempt;
 
-            // A day of daily challenges is credited to the day they were PICKED for
-            // (dailyChallengeCachedDay), not to whatever "now" is -- a session that happens to
-            // cross midnight should still count for the day it was opened on.
-            //
-            // The day counts only once EVERY one of its challenges is solved, so finishing one of
-            // several marks just that slot and leaves the streak alone. RecordDailyChallengeCompletion
-            // is itself idempotent per day on top of that, so replaying an already-finished day
-            // cannot inflate the streak or the lifetime count.
-            // Only when the day this challenge was drawn for is still the day the save holds
-            // challenges for. Finishing at 00:00:05 a challenge opened at 23:59 is fine and still
-            // credits the day it was opened on -- nothing has re-selected, so the cached day is
-            // still that day. But once something HAS re-selected for the new day (the hub was
-            // opened, or another challenge was loaded), this level belongs to a day whose
-            // challenges are gone, and DailyIndex would be an offset into a different day's list
-            // -- marking a slot the player never played.
+            // A day now holds exactly one challenge, so reaching here as a daily completion IS
+            // that day finished -- credited to the day it was OPENED for (DailyDayIndex), not to
+            // whatever "now" is, so a session that happens to cross midnight still counts for the
+            // day it was opened on. MarkDayCompleted is idempotent per day, so replaying an
+            // already-finished day cannot inflate the streak or the lifetime count.
             if (UIController.Instance.IsDailyChallenge)
             {
                 DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
-                bool belongsToTheCachedDay = dailyData.dailyChallengeCachedDay == UIController.Instance.DailyDayIndex;
-
-                if (belongsToTheCachedDay)
-                {
-                    dailyData.MarkDailyChallengeSolved(UIController.Instance.DailyIndex);
-                    if (dailyData.AllDailyChallengesSolved())
-                    {
-                        dailyData.RecordDailyChallengeCompletion(dailyData.dailyChallengeCachedDay);
-                        AnalyticsManager.LogDailyStreakComplete(dailyData.dailyChallengeStreak);
-                    }
-                    DailyChallengeSystem.Instance.Save(dailyData);
-                }
+                dailyData.MarkDayCompleted(UIController.Instance.DailyDayIndex);
+                AnalyticsManager.LogDailyStreakComplete(dailyData.dailyChallengeStreak);
+                DailyChallengeSystem.Instance.Save(dailyData);
             }
 
             SavingSystem.Instance.Save(data);

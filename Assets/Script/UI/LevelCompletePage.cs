@@ -218,10 +218,9 @@ namespace FreeFlow.UI
             };
         }
 
-        /// <summary>Shown only on a daily challenge, and worded for whether the DAY is finished --
-        /// the streak only moves when every one of the day's challenges is done (see
-        /// DailyChallengeData.RecordDailyChallengeCompletion), so claiming a streak after the
-        /// first of five would be claiming something that has not happened yet.</summary>
+        /// <summary>Shown only on a daily challenge. A day now holds exactly one challenge, so
+        /// reaching this screen for one always means the day is done -- SaveLevelData has already
+        /// credited it (see GamePlayController.SaveLevelData) by the time this fills in.</summary>
         private void SetStreakBanner(UIController ui)
         {
             if (streakBanner == null) { return; }
@@ -230,15 +229,7 @@ namespace FreeFlow.UI
             if (!ui.IsDailyChallenge || streakText == null) { return; }
 
             DailyChallengeData data = DailyChallengeSystem.Instance.Load();
-
-            if (data.AllDailyChallengesSolved())
-            {
-                streakText.text = data.dailyChallengeStreak + "-day streak!";
-                return;
-            }
-
-            int remaining = data.DailyChallengeCount - data.SolvedDailyChallengeCount();
-            streakText.text = remaining + (remaining == 1 ? " more to keep the streak" : " more today to keep the streak");
+            streakText.text = data.dailyChallengeStreak + "-day streak!";
         }
 
         private void SetNavigation(UIController ui)
@@ -261,10 +252,9 @@ namespace FreeFlow.UI
 
         /// <summary>Fills the progress card for the run the player is in.
         ///
-        /// A daily challenge reports the DAY (2/5 of today's challenges), not the pack its level
-        /// happened to be drawn from. Pack progress is meaningless there and was actively
-        /// misleading: a daily drawn at level 59 of a pack the player has barely started would
-        /// report "59/100" as if fifty-eight levels behind it had been finished.
+        /// A daily challenge reports the STREAK (how many days running), not the pack its level
+        /// happened to be drawn from -- a daily is a dedicated calendar level now, not a pack
+        /// level, so pack progress is meaningless there and would be actively misleading.
         /// </summary>
         /// <param name="oldCompletedLevel">Pack frontier before this completion. Unused on a daily
         /// challenge, which does not move a pack frontier at all -- see
@@ -277,13 +267,12 @@ namespace FreeFlow.UI
 
             if (ui.CurrentSource == LevelSource.Daily)
             {
-                // Read fresh: SaveLevelData has already marked this challenge solved by the time
-                // this screen is filled in (see ActivateLevelCompleteScreen), and UIController's
-                // cached picks still say otherwise.
+                // Read fresh: SaveLevelData has already credited this day by the time this screen
+                // is filled in (see ActivateLevelCompleteScreen).
                 DailyChallengeData data = DailyChallengeSystem.Instance.Load();
-                caption = "TODAY'S CHALLENGES";
-                done = data.SolvedDailyChallengeCount();
-                total = data.DailyChallengeCount;
+                caption = "DAILY STREAK";
+                done = data.dailyChallengeStreak;
+                total = Mathf.Max(data.bestDailyChallengeStreak, data.dailyChallengeStreak, 1);
             }
             else
             {

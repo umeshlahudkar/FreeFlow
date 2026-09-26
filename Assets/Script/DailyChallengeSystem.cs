@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using System.IO;
 using FreeFlow.Util;
 
@@ -70,6 +71,37 @@ public struct DailyChallengeData
     public int dailyChallengeLastCompletedDay;
     public int dailyChallengeStreak;
     public int bestDailyChallengeStreak;
+
+    // ---- calendar daily challenge (one curated level per calendar day) --------------------
+    //
+    // Supersedes dailyChallengePicks/dailyChallengeCachedDay above for the new flow: a day now
+    // has exactly one level, the same for every player (see DailyChallengeCalendar), so there is
+    // nothing left to "cache" -- only whether that one day's level has been solved. The old
+    // fields stay put, unwritten by anything any more, purely so an existing save file still
+    // deserialises cleanly rather than losing unrelated data on load.
+    //
+    // Absolute day indices (DailyChallengeSelector.DayIndex/EpochUtc), same numbering the streak
+    // fields above already use -- a List rather than a Dictionary because JsonUtility cannot
+    // serialise the latter at all, and this only ever needs "was day N completed", never a value
+    // per day.
+    public List<int> completedDayIndices;
+
+    public bool IsDayCompleted(int dayIndex)
+    {
+        return completedDayIndices != null && completedDayIndices.Contains(dayIndex);
+    }
+
+    /// <summary>Marks one calendar day's single challenge solved and credits the streak.
+    /// Idempotent -- replaying an already-completed day changes nothing (RecordDailyChallengeCompletion
+    /// is itself idempotent per day on top of the guard here, so this is safe to call more than
+    /// once for the same day from more than one place).</summary>
+    public void MarkDayCompleted(int dayIndex)
+    {
+        if (IsDayCompleted(dayIndex)) { return; }
+        if (completedDayIndices == null) { completedDayIndices = new List<int>(); }
+        completedDayIndices.Add(dayIndex);
+        RecordDailyChallengeCompletion(dayIndex);
+    }
 
     /// <summary>Adopts <paramref name="candidateSalt"/> as this save's permanent per-install salt
     /// if none is set yet, otherwise does nothing -- the salt is assigned once, ever, not

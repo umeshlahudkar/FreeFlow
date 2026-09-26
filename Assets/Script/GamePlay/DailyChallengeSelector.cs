@@ -47,6 +47,11 @@ namespace FreeFlow.GamePlay
         // them. It does not need to mean anything; it only needs to never change.
         private static readonly System.DateTime Epoch = new System.DateTime(2020, 1, 1, 0, 0, 0, System.DateTimeKind.Utc);
 
+        /// <summary>Public accessor for <see cref="Epoch"/> -- needed by DailyChallengeCalendar's
+        /// date math and by any UI that displays the calendar date a given absolute day index
+        /// refers to. Read-only; the constant itself never changes (see Epoch's own comment).</summary>
+        public static System.DateTime EpochUtc { get { return Epoch; } }
+
 #if !FINAL_BUILD
         /// <summary>
         /// Developer-only override for how long a "day" lasts, in seconds. 0 means off -- real

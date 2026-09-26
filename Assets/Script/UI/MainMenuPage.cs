@@ -152,33 +152,21 @@ namespace FreeFlow.UI
         }
 
         /// <summary>
-        /// Fills the daily-challenge card from the save: how far today has got, whether it has
-        /// been looked at yet, and the streaks.
-        ///
-        /// Deliberately does NOT call UIController.EnsureTodayDailyPicks. That would commit (and
-        /// persist) the day's picks merely because the main menu was displayed; a card is a
-        /// readout, not a decision. So when today has not been selected yet, this describes the
-        /// day from the configured length instead -- which is what the player will get -- and
-        /// leaves selecting it to the moment they actually open the hub.
+        /// Fills the daily-challenge card from the save: whether today's one calendar level has
+        /// been solved yet, and the streaks. There is nothing to "select" any more (see
+        /// DailyChallengeCalendar) -- every player's today is the same fixed level, so this is a
+        /// pure readout of the save file, nothing committed just by the main menu being shown.
         /// </summary>
         private void SetDailyChallengeCard(DailyChallengeData data, UIController ui)
         {
             int today = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            bool selectedToday = data.dailyChallengeCachedDay == today;
+            bool completedToday = data.IsDayCompleted(today);
 
-            int total = selectedToday ? data.DailyChallengeCount : ui.ConfiguredDailyChallengeCount;
-            int solved = selectedToday ? data.SolvedDailyChallengeCount() : 0;
-
-            if (newBadge != null)
-            {
-                newBadge.SetActive(!selectedToday);
-            }
+            if (newBadge != null) { newBadge.SetActive(!completedToday); }
 
             if (dailySubtitleText != null)
             {
-                string progress = solved == 0 ? total + " challenges today"
-                    : solved < total ? solved + " / " + total + " solved today"
-                    : "all " + total + " done today";
+                string progress = completedToday ? "today's puzzle solved" : "today's puzzle waiting";
 
                 // The LIVE streak, not the stored one -- a lapsed run keeps its last count in
                 // the save until another day is credited, and a line boasting "3-day streak"
