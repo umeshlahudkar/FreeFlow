@@ -67,7 +67,7 @@ public class SettingPage : Page
         UpdateVolumeLabel(musicVolumeLabel, musicVolumeSlider.value);
         UpdateVolumeLabel(soundVolumeLabel, soundVolumeSlider.value);
 
-        SettingsData settings = SettingsSystem.Instance.Load();
+        SettingsData settings = ProfileManager.Instance.LoadSettings();
         if (vibrationToggle != null)
         {
             vibrationToggle.SetIsOnWithoutNotify(settings.vibrationEnabled);
@@ -156,13 +156,13 @@ public class SettingPage : Page
         label.text = Mathf.RoundToInt(value * 100f) + "%";
     }
 
-    // Persisted through SettingsSystem (like audioData) rather than PlayerPrefs, so every local
-    // device preference lives in one file, separate from progress (see SaveData).
+    // Persisted through ProfileManager's settings file (like audioData) rather than PlayerPrefs,
+    // so every local device preference lives in one file, separate from progress (see PlayerProgress).
     public void OnVibrationToggleChanged(bool isOn)
     {
-        SettingsData settings = SettingsSystem.Instance.Load();
+        SettingsData settings = ProfileManager.Instance.LoadSettings();
         settings.vibrationEnabled = isOn;
-        SettingsSystem.Instance.Save(settings);
+        ProfileManager.Instance.SaveSettings(settings);
         SetToggleVisual(vibrationTrackImage, vibrationKnob, isOn);
 
         // Haptics keep the preference cached rather than re-reading the save on every dot picked
@@ -176,9 +176,9 @@ public class SettingPage : Page
 
     public void OnShowHintButtonToggleChanged(bool isOn)
     {
-        SettingsData settings = SettingsSystem.Instance.Load();
+        SettingsData settings = ProfileManager.Instance.LoadSettings();
         settings.showHintButton = isOn;
-        SettingsSystem.Instance.Save(settings);
+        ProfileManager.Instance.SaveSettings(settings);
         SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, isOn);
 
         // Tell the gameplay HUD now. It reads this flag when it refreshes, and refreshing means a
@@ -218,9 +218,12 @@ public class SettingPage : Page
     }
 
     /// <summary>
-    /// Deletes SaveData.json -- every pack's progress, the daily-challenge streaks and history --
-    /// then reloads the scene so the whole game rebuilds from the defaults SavingSystem.Awake
-    /// writes for a first run. Nothing here is recoverable afterwards.
+    /// Deletes SaveData.json -- every pack's progress, plus the daily-challenge streaks and
+    /// history it now carries alongside them -- then reloads the scene. This reloads MainScene, not
+    /// StartScene, so GameBootstrap/ProfileManager.Initialize do not run again -- the fresh defaults
+    /// come from ProfileManager.EnsureProgressLoaded instead, the same lazy "create if missing"
+    /// logic Initialize itself calls, triggered the moment anything on the rebuilt screen next asks
+    /// for progress. Nothing here is recoverable afterwards.
     ///
     /// Deliberately leaves Settings.json untouched: audio/vibration/hint-button are local device
     /// preferences the player set up on this screen, not progress, and "reset progress" resetting
@@ -239,7 +242,7 @@ public class SettingPage : Page
 
         if (resetArmed && Time.unscaledTime <= resetArmedUntil)
         {
-            SavingSystem.Instance.DeleteFile();
+            ProfileManager.Instance.DeleteAllProgress();
             ResetConfirmState();
             UnityEngine.SceneManagement.SceneManager.LoadScene(
                 UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);

@@ -128,8 +128,7 @@ namespace FreeFlow.UI
         {
             UIController ui = UIController.Instance;
             if (ui == null) { return; }
-            SaveData data = SavingSystem.Instance.Load();
-            DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
             // MainMenu is the root page (nothing to go back to) and already has its own
             // branding (GameNameLabel/Wordmark) plus the level chip below -- only the Setting
@@ -144,7 +143,7 @@ namespace FreeFlow.UI
 
             AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic);
             AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced);
-            SetDailyChallengeCard(dailyData, ui);
+            SetDailyChallengeCard(data, ui);
         }
 
         /// <summary>
@@ -153,7 +152,7 @@ namespace FreeFlow.UI
         /// every player's today is the same fixed level, so this is a pure readout of the save
         /// file, nothing committed just by the main menu being shown.
         /// </summary>
-        private void SetDailyChallengeCard(DailyChallengeData data, UIController ui)
+        private void SetDailyChallengeCard(PlayerProgress data, UIController ui)
         {
             int today = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
             bool completedToday = data.IsDayCompleted(today);
@@ -177,7 +176,7 @@ namespace FreeFlow.UI
         /// is simpler and always visibly plays. Starts immediately, with no delay tying it to the
         /// card reveal above -- an earlier version waited for that reveal to finish first, which
         /// was pulled per explicit request.</summary>
-        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, SaveData data, UIController ui, GameMode mode)
+        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, PlayerProgress data, UIController ui, GameMode mode)
         {
             if (text == null) { return; }
 

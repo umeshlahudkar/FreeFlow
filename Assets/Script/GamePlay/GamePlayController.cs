@@ -917,43 +917,40 @@ namespace FreeFlow.GamePlay
             // actually earned rather than a time inflated by the time spent looking at the board.
             if (completionRecordedThisAttempt) { return; }
 
-            SaveData data = SavingSystem.Instance.Load();
             int currentLevel = UIController.Instance.CurrentLevel;
 
             // Progress is kept per PACK, not per mode: Classic 5x5 level 20 and Classic 7x7 level 20
             // are different boards, so one shared array would have each pack overwriting the other's
             // record.
             string key = UIController.Instance.ProgressKey;
+            bool isDailyChallenge = UIController.Instance.IsDailyChallenge;
+            int dailyDayIndex = UIController.Instance.DailyDayIndex;
 
             lastCompletionSeconds = Time.unscaledTime - attemptStartTime;
-            lastCompletionOldCompletedLevel = data.CompletedLevelForKey(key);
+            lastCompletionOldCompletedLevel = ProfileManager.Instance.LoadProgress().CompletedLevelForKey(key);
+            lastCompletionHintsUsed = hintsUsedThisAttempt;
 
             // The frontier is an unlock GATE, not a tally -- and a daily level is not a pack level
             // at all any more (it lives in its own Resources/Levels/Daily folder, under a level
-            // number that may collide with an unrelated Classic pack level of the same size), so
-            // a daily completion must never move a pack's frontier. See
+            // number that may collide with an unrelated Classic pack level of the same size), so a
+            // daily completion must never move a pack's frontier. See
             // UIController.LoadDailyChallengeForDay's own comment on the same risk.
-            if (!UIController.Instance.IsDailyChallenge
-                && SaveData.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel, false))
+            if (!isDailyChallenge
+                && PlayerProgress.PackFrontierAdvances(currentLevel, lastCompletionOldCompletedLevel, false))
             {
-                data.SetCompletedLevelForKey(key, currentLevel);
+                ProfileManager.Instance.UpdatePackProgress(key, currentLevel);
             }
 
-            lastCompletionHintsUsed = hintsUsedThisAttempt;
-
-            // A day now holds exactly one challenge, so reaching here as a daily completion IS
-            // that day finished -- credited to the day it was OPENED for (DailyDayIndex), not to
+            // A day now holds exactly one challenge, so reaching here as a daily completion IS that
+            // day finished -- credited to the day it was OPENED for (DailyDayIndex), not to
             // whatever "now" is, so a session that happens to cross midnight still counts for the
-            // day it was opened on. MarkDayCompleted is idempotent per day, so replaying an
-            // already-finished day changes nothing.
-            if (UIController.Instance.IsDailyChallenge)
+            // day it was opened on. MarkDailyChallengeCompleted is idempotent per day, so replaying
+            // an already-finished day changes nothing.
+            if (isDailyChallenge)
             {
-                DailyChallengeData dailyData = DailyChallengeSystem.Instance.Load();
-                dailyData.MarkDayCompleted(UIController.Instance.DailyDayIndex);
-                DailyChallengeSystem.Instance.Save(dailyData);
+                ProfileManager.Instance.MarkDailyChallengeCompleted(dailyDayIndex);
             }
 
-            SavingSystem.Instance.Save(data);
             completionRecordedThisAttempt = true;
 
             AnalyticsManager.LogLevelComplete(currentLevel, AnalyticsModeLabel());
@@ -2027,7 +2024,7 @@ namespace FreeFlow.GamePlay
                 : PageManager.Instance.Get<MechanicIntroPage>(PageType.MechanicIntro);
             if (card == null) { return null; }
 
-            SettingsData settings = SettingsSystem.Instance.Load();
+            SettingsData settings = ProfileManager.Instance.LoadSettings();
             string[] keys = LevelMechanics.Keys(currentMechanics);
 
             for (int i = 0; i < keys.Length; i++)
@@ -2051,9 +2048,9 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void RecordMechanicAttempts()
         {
-            SettingsData settings = SettingsSystem.Instance.Load();
+            SettingsData settings = ProfileManager.Instance.LoadSettings();
             settings.metMechanics |= currentMechanics;
-            SettingsSystem.Instance.Save(settings);
+            ProfileManager.Instance.SaveSettings(settings);
         }
 
         // What builds the board this controller then plays: the cells, their walls and dots,
@@ -2103,7 +2100,7 @@ namespace FreeFlow.GamePlay
             // Nothing left to spend. The button is already non-interactable in this state (see
             // GameplayPage.RefreshHintButton), so this is the backstop rather than the gate --
             // but it is the one that actually protects the balance.
-            if (SavingSystem.Instance.Load().hintsRemaining <= 0) { return false; }
+            if (ProfileManager.Instance.LoadProgress().hintsRemaining <= 0) { return false; }
 
             // Mid-drag the board is half-edited and selectedBlocks owns cells that are not in any
             // segment yet; a hint landing in the middle of that would be drawing against state the
@@ -2132,7 +2129,7 @@ namespace FreeFlow.GamePlay
         }
 
         /// <summary>
-        /// Spends one hint -- the balance the hint button counts down (SaveData.hintsRemaining,
+        /// Spends one hint -- the balance the hint button counts down (PlayerProgress.hintsRemaining,
         /// one for the whole game) -- and counts it toward this attempt's <see
         /// cref="hintsUsedThisAttempt"/> tally.
         ///
@@ -2143,9 +2140,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void RecordHintUsed()
         {
-            SaveData data = SavingSystem.Instance.Load();
-
-            if (data.hintsRemaining > 0) { data.hintsRemaining--; }
+            ProfileManager.Instance.SpendHint();
 
             if (UIController.Instance != null)
             {
@@ -2158,8 +2153,6 @@ namespace FreeFlow.GamePlay
                     AnalyticsManager.LogHintUsed(currentLevel);
                 }
             }
-
-            SavingSystem.Instance.Save(data);
         }
 
         /// <summary>

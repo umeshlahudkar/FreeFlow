@@ -126,7 +126,7 @@ namespace FreeFlow.UI
         public void Refresh()
         {
             shownDayIndex = DailyChallengeSelector.DayIndex(DateTime.UtcNow);
-            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
             // shownDayIndex (and every "locked"/"today" decision the grid makes) is derived from
             // DailyChallengeSelector's UTC day index -- the header must show the SAME day, not
@@ -223,7 +223,7 @@ namespace FreeFlow.UI
         /// rather than always reading <see cref="displayedYear"/>/<see cref="displayedMonth"/>,
         /// since the INCOMING block during a slide represents next/prev month, not the one still
         /// technically "displayed" until the animation settles.</summary>
-        private void PopulateBlock(CalendarBlock block, int year, int month, DailyChallengeData data)
+        private void PopulateBlock(CalendarBlock block, int year, int month, PlayerProgress data)
         {
             DateTime monthStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             int daysInMonth = DateTime.DaysInMonth(year, month);
@@ -289,7 +289,7 @@ namespace FreeFlow.UI
         private void OnDayCellClicked(int absoluteDayIndex)
         {
             selectedAbsoluteDay = absoluteDayIndex;
-            DailyChallengeData data = DailyChallengeSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
             // Re-resolve the whole active block's sprites/colours so the newly tapped cell picks up
             // the "selected" sprite and the previously selected one gives it back -- PopulateBlock
             // is the only place that knows how to derive that per-cell, and selectedAbsoluteDay just
@@ -298,7 +298,7 @@ namespace FreeFlow.UI
             RefreshFooter(data);
         }
 
-        private void RefreshFooter(DailyChallengeData data)
+        private void RefreshFooter(PlayerProgress data)
         {
             if (selectedAbsoluteDay == int.MinValue) { return; }
 
@@ -355,7 +355,7 @@ namespace FreeFlow.UI
             CalendarBlock outgoing = ActiveBlock;
             CalendarBlock incoming = InactiveBlock;
 
-            PopulateBlock(incoming, displayedYear, displayedMonth, DailyChallengeSystem.Instance.Load());
+            PopulateBlock(incoming, displayedYear, displayedMonth, ProfileManager.Instance.LoadProgress());
 
             float width = ViewportWidth();
             if (incoming.root != null) { incoming.root.anchoredPosition = new Vector2(direction * width, 0f); }
@@ -422,7 +422,7 @@ namespace FreeFlow.UI
         {
             if (!InputManager.Instance.CanInput()) { return; }
             if (selectedAbsoluteDay == int.MinValue || selectedAbsoluteDay > shownDayIndex) { return; }
-            if (DailyChallengeSystem.Instance.Load().IsDayCompleted(selectedAbsoluteDay)) { return; }
+            if (ProfileManager.Instance.LoadProgress().IsDayCompleted(selectedAbsoluteDay)) { return; }
 
             AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
             UIController.Instance.LoadDailyChallengeForDay(selectedAbsoluteDay);

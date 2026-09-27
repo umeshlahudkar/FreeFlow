@@ -59,7 +59,7 @@ namespace FreeFlow.GamePlay
         /// calendar days. Set from the developer tools screen, which exists in every build except
         /// a FINAL_BUILD, so that waiting 24 hours is not the only way to see a daily reset.
         ///
-        /// Kept in PlayerPrefs rather than SaveData for two reasons: a debug setting must never be
+        /// Kept in PlayerPrefs rather than PlayerProgress for two reasons: a debug setting must never be
         /// able to ride along inside a shipped save file, and wiping progress (which deletes that
         /// file) should not silently switch the override off in the middle of a test.
         ///
@@ -185,7 +185,7 @@ namespace FreeFlow.GamePlay
         /// <paramref name="mode"/> (rotated through by day, so a week of play sees every size --
         /// this rotation is deliberately NOT salted, so that guarantee holds for every install, not
         /// just on average); <paramref name="skillRatingFor"/> gives the 0-100 band signal for a
-        /// SPECIFIC (mode, pack size) -- callers pass <c>SaveData.CompletedLevelForKey</c> as a
+        /// SPECIFIC (mode, pack size) -- callers pass <c>PlayerProgress.CompletedLevelForKey</c> as a
         /// percentage of that pack, so a day drawing from several pack sizes bands each one by
         /// progress in THAT pack rather than one number applied everywhere; <paramref
         /// name="playerSalt"/> is a value generated once per install (formerly cached as

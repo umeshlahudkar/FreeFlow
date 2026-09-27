@@ -4,7 +4,7 @@ namespace FreeFlow.Tests
 {
     /// <summary>
     /// SettingsData's mechanic-teaching gate. SettingsData is a plain serialisable struct with no
-    /// Unity dependencies, so these run against it directly rather than through SettingsSystem's
+    /// Unity dependencies, so these run against it directly rather than through ProfileManager's
     /// file I/O.
     /// </summary>
     public class SettingsDataTests

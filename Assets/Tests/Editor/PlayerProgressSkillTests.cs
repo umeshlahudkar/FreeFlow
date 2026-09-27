@@ -3,29 +3,29 @@ using NUnit.Framework;
 namespace FreeFlow.Tests
 {
     /// <summary>
-    /// SaveData's Phase 9 addition: schema versioning/migration. SaveData is a plain serialisable
+    /// PlayerProgress's Phase 9 addition: schema versioning/migration. PlayerProgress is a plain serialisable
     /// struct with no Unity dependencies, so these run against it directly rather than through
-    /// SavingSystem's file I/O.
+    /// ProfileManager's file I/O.
     /// </summary>
-    public class SaveDataSkillTests
+    public class PlayerProgressSkillTests
     {
         // -- schema migration -----------------------------------------------------------------
 
         [Test]
         public void Migrate_StampsCurrentVersion_OnAZeroVersionSave()
         {
-            SaveData data = new SaveData(); // schemaVersion defaults to 0, as an old save would
-            SaveData.Migrate(ref data);
+            PlayerProgress data = new PlayerProgress(); // schemaVersion defaults to 0, as an old save would
+            PlayerProgress.Migrate(ref data);
 
-            Assert.AreEqual(SaveData.CurrentSchemaVersion, data.schemaVersion);
+            Assert.AreEqual(PlayerProgress.CurrentSchemaVersion, data.schemaVersion);
         }
 
         [Test]
         public void Migrate_PreservesExistingProgress()
         {
-            SaveData data = new SaveData();
+            PlayerProgress data = new PlayerProgress();
             data.SetCompletedLevelForKey("Classic6x6", 12);
-            SaveData.Migrate(ref data);
+            PlayerProgress.Migrate(ref data);
 
             Assert.AreEqual(12, data.CompletedLevelForKey("Classic6x6"));
         }

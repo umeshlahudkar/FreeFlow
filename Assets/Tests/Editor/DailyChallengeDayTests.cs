@@ -145,7 +145,7 @@ namespace FreeFlow.Tests
         }
     }
 
-    /// <summary>SaveData.PackFrontierAdvances -- when finishing a level may move a pack's unlock
+    /// <summary>PlayerProgress.PackFrontierAdvances -- when finishing a level may move a pack's unlock
     /// gate. A daily challenge drawn from deep inside a pack must not unlock everything below
     /// it.</summary>
     public class PackFrontierTests
@@ -153,18 +153,18 @@ namespace FreeFlow.Tests
         [Test]
         public void AnOrdinaryPlay_AdvancesTheFrontierWheneverItBeatsIt()
         {
-            Assert.IsTrue(SaveData.PackFrontierAdvances(6, 5, false));
+            Assert.IsTrue(PlayerProgress.PackFrontierAdvances(6, 5, false));
             // Can't actually happen through the level grid (levels above the frontier are locked),
             // but if it did it would still be a real play of every level up to it.
-            Assert.IsTrue(SaveData.PackFrontierAdvances(59, 5, false));
+            Assert.IsTrue(PlayerProgress.PackFrontierAdvances(59, 5, false));
         }
 
         [Test]
         public void ReplayingAnAlreadyFinishedLevel_NeverMovesTheFrontier()
         {
-            Assert.IsFalse(SaveData.PackFrontierAdvances(3, 5, false));
-            Assert.IsFalse(SaveData.PackFrontierAdvances(5, 5, false));
-            Assert.IsFalse(SaveData.PackFrontierAdvances(3, 5, true));
+            Assert.IsFalse(PlayerProgress.PackFrontierAdvances(3, 5, false));
+            Assert.IsFalse(PlayerProgress.PackFrontierAdvances(5, 5, false));
+            Assert.IsFalse(PlayerProgress.PackFrontierAdvances(3, 5, true));
         }
 
         [Test]
@@ -172,16 +172,16 @@ namespace FreeFlow.Tests
         {
             // The shipped bug: a level-59 daily pick in a pack the player had barely started set
             // the frontier to 59, unlocking 58 levels and reporting "59/100" as pack progress.
-            Assert.IsFalse(SaveData.PackFrontierAdvances(59, 5, true));
-            Assert.IsFalse(SaveData.PackFrontierAdvances(7, 5, true));
+            Assert.IsFalse(PlayerProgress.PackFrontierAdvances(59, 5, true));
+            Assert.IsFalse(PlayerProgress.PackFrontierAdvances(7, 5, true));
         }
 
         [Test]
         public void ADailyChallengeThatIsExactlyTheNextLevel_StillCounts()
         {
             // Nothing is skipped in this case, so it is an ordinary completion of that level.
-            Assert.IsTrue(SaveData.PackFrontierAdvances(6, 5, true));
-            Assert.IsTrue(SaveData.PackFrontierAdvances(1, 0, true));
+            Assert.IsTrue(PlayerProgress.PackFrontierAdvances(6, 5, true));
+            Assert.IsTrue(PlayerProgress.PackFrontierAdvances(1, 0, true));
         }
     }
 

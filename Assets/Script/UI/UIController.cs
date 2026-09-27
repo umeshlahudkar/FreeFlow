@@ -12,12 +12,6 @@ namespace FreeFlow.UI
     /// </summary>
     public class UIController : Singleton<UIController>
     {
-        [Header("Hints")]
-        // What a player starts with, granted once per save (see EnsureHintBalance). One balance
-        // for the whole game -- not per level, per pack or per run -- so a hint saved on a Classic
-        // 6x6 level is a hint still available in tomorrow's daily challenge.
-        [SerializeField] private int startingHintCount = 3;
-
         [Header("Packs")]
         // Board sizes that have a generated pack, and how many levels each holds. A pack is a
         // self-contained run the player CHOOSES -- 5x5 through 9x9 for Classic -- rather than a
@@ -105,7 +99,7 @@ namespace FreeFlow.UI
         /// <summary>Same key format as <see cref="ProgressKey"/>, for any pack size/mode
         /// combination rather than just the one currently on screen -- what a pack-select screen
         /// needs to read every pack's progress at once. Callers must use this rather than
-        /// building the string themselves -- see SaveData's own warning about that.</summary>
+        /// building the string themselves -- see PlayerProgress's own warning about that.</summary>
         public string KeyFor(GameMode mode, int packSize)
         {
             return packSize > 0 ? mode.ToString() + packSize + "x" + packSize : mode.ToString();
@@ -122,7 +116,7 @@ namespace FreeFlow.UI
         /// <summary>
         /// Identifies whose progress this is. Packs are keyed by mode AND size, because finishing
         /// 5x5 level 20 must not mark 7x7 level 20 complete; the legacy campaigns keep the bare mode
-        /// name and, through <see cref="SaveData"/>, their original fields -- so a returning player
+        /// name and, through <see cref="PlayerProgress"/>, their original fields -- so a returning player
         /// mid-way through the old run keeps their place.
         ///
         /// A daily challenge keys to the pack it was drawn FROM, not to a daily-only bucket: it is
@@ -214,47 +208,26 @@ namespace FreeFlow.UI
             }
 
             LevelsScreen.SpawnLevelButtons(TotalLevelCount);
-
-            // Before any screen can read the balance, so a save that has never held one is never
-            // seen as a save with no hints left.
-            EnsureHintBalance();
         }
 
         // ---- hints -----------------------------------------------------------------------
         //
         // One balance for the whole game, held in the save file rather than here so it survives
-        // the session; this class owns only the opening grant. Spending is GamePlayController's
-        // (see RecordHintUsed) -- it is the thing that knows a hint actually committed to a pair.
+        // the session; ProfileManager grants the opening balance the moment a save is first
+        // created (see ProfileManager.StartingHintCount). Spending is GamePlayController's (see
+        // RecordHintUsed) -- it is the thing that knows a hint actually committed to a pair.
 
         /// <summary>How many hints the player has left, across every mode, pack and run.</summary>
         public int HintsRemaining
         {
-            get { return SavingSystem.Instance.Load().hintsRemaining; }
+            get { return ProfileManager.Instance.LoadProgress().hintsRemaining; }
         }
 
-        /// <summary>Grants <see cref="startingHintCount"/> hints to a save that has never been
-        /// granted any, and does nothing to one that has. Keyed on the balance still sitting at
-        /// -1 (see SaveData.hintsRemaining) rather than on it being 0, so a player who has spent
-        /// every hint is not handed a fresh set on the next level load.</summary>
-        private void EnsureHintBalance()
-        {
-            SaveData data = SavingSystem.Instance.Load();
-            if (data.hintsRemaining >= 0) { return; }
-
-            data.hintsRemaining = Mathf.Max(0, startingHintCount);
-            SavingSystem.Instance.Save(data);
-        }
-
-        /// <summary>Adds to the player's hint balance -- the rewarded-ad payout, as opposed to
-        /// <see cref="EnsureHintBalance"/>'s one-time opening grant. Whoever awards the hint (the
-        /// ad flow) still leaves refreshing the on-screen pill to its own caller.</summary>
+        /// <summary>Adds to the player's hint balance -- the rewarded-ad payout. Whoever awards the
+        /// hint (the ad flow) still leaves refreshing the on-screen pill to its own caller.</summary>
         public void GrantHint(int amount = 1)
         {
-            if (amount <= 0) { return; }
-
-            SaveData data = SavingSystem.Instance.Load();
-            data.hintsRemaining += amount;
-            SavingSystem.Instance.Save(data);
+            ProfileManager.Instance.GrantHints(amount);
         }
 
         /// <summary>Puts a short message on screen -- why a tap did nothing, typically -- and lets
@@ -521,7 +494,7 @@ namespace FreeFlow.UI
                 if (currentSource == LevelSource.Daily)
                 {
                     if (dailyPicksDay <= 0) { return false; }
-                    return !DailyChallengeSystem.Instance.Load().IsDayCompleted(dailyPicksDay - 1);
+                    return !ProfileManager.Instance.LoadProgress().IsDayCompleted(dailyPicksDay - 1);
                 }
                 return currentLevel > 1;
             }
@@ -538,14 +511,14 @@ namespace FreeFlow.UI
                 if (currentSource == LevelSource.Daily)
                 {
                     if (dailyPicksDay < 0 || dailyPicksDay >= DailyChallengeSelector.DayIndex(System.DateTime.UtcNow)) { return false; }
-                    return !DailyChallengeSystem.Instance.Load().IsDayCompleted(dailyPicksDay + 1);
+                    return !ProfileManager.Instance.LoadProgress().IsDayCompleted(dailyPicksDay + 1);
                 }
 
                 if (currentLevel >= TotalLevelCount) { return false; }
 
                 // Same unlock frontier the level grid enforces: Next cannot jump past a level the
                 // player has not reached, exactly as a locked LevelButton refuses a tap.
-                int unlockedUpTo = SavingSystem.Instance.Load().CompletedLevelForKey(ProgressKey) + 1;
+                int unlockedUpTo = ProfileManager.Instance.LoadProgress().CompletedLevelForKey(ProgressKey) + 1;
                 return currentLevel < unlockedUpTo;
             }
         }

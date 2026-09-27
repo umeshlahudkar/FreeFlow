@@ -268,7 +268,7 @@ namespace FreeFlow.UI
         /// </summary>
         public void RefreshHintButton()
         {
-            SaveData data = SavingSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
             if (hintCountText != null) { hintCountText.text = "×" + data.hintsRemaining; }
 
@@ -286,7 +286,7 @@ namespace FreeFlow.UI
             // show); an empty balance deliberately leaves the button live, because a tap on it is
             // what raises the "No More Hints" notice. A dead button would answer the same tap with
             // nothing at all.
-            hintButton.gameObject.SetActive(SettingsSystem.Instance.Load().showHintButton);
+            hintButton.gameObject.SetActive(ProfileManager.Instance.LoadSettings().showHintButton);
             hintButton.interactable = GamePlayController.Instance != null
                 && GamePlayController.Instance.HintAvailable;
         }

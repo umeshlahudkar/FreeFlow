@@ -127,12 +127,7 @@ namespace FreeFlow.UI
             int count;
             if (hintCountInput == null || !int.TryParse(hintCountInput.text, out count) || count < 0) { count = 0; }
 
-            // count is clamped non-negative above, so this alone also counts as "granted" (see
-            // SaveData.hintsRemaining's -1 sentinel) -- a typed 0 is a real, spendable balance,
-            // not "never granted" waiting to be refilled by UIController.EnsureHintBalance.
-            SaveData data = SavingSystem.Instance.Load();
-            data.hintsRemaining = count;
-            SavingSystem.Instance.Save(data);
+            ProfileManager.Instance.SetHintsRemaining(count);
 
             SetHintStatus();
 
@@ -169,7 +164,7 @@ namespace FreeFlow.UI
         ///
         /// A pack's unlock frontier IS its completed-level count -- setting it to N declares levels
         /// 1..N finished and opens N+1 (see LevelsPage.RefreshButtons) -- so this writes the number
-        /// straight in rather than going through SaveData.PackFrontierAdvances. That guard exists
+        /// straight in rather than going through PlayerProgress.PackFrontierAdvances. That guard exists
         /// to stop ORDINARY play from skipping ahead, which is the entire point of this row; and 0,
         /// to put a pack back to untouched, has to stay reachable too.
         ///
@@ -200,9 +195,8 @@ namespace FreeFlow.UI
             if (unlockLevelInput == null || !int.TryParse(unlockLevelInput.text, out level)) { level = 0; }
             level = Mathf.Clamp(level, 0, total);
 
-            SaveData data = SavingSystem.Instance.Load();
-            data.SetCompletedLevelForKey(ui.KeyFor(mode, packSize), level);
-            SavingSystem.Instance.Save(data);
+            string key = ui.KeyFor(mode, packSize);
+            ProfileManager.Instance.UpdatePackProgress(key, level);
 
             // Echo back what was actually applied rather than what was typed -- 999 in a
             // hundred-level pack has to read as 100, or the row silently disagrees with the grid
@@ -327,7 +321,7 @@ namespace FreeFlow.UI
                 return;
             }
 
-            int completed = SavingSystem.Instance.Load().CompletedLevelForKey(ui.KeyFor(mode, unlockPackSize));
+            int completed = ProfileManager.Instance.LoadProgress().CompletedLevelForKey(ui.KeyFor(mode, unlockPackSize));
             int total = ui.PackLevelCountFor(unlockPackSize);
 
             if (unlockLevelInput != null) { unlockLevelInput.SetTextWithoutNotify(completed.ToString()); }
@@ -349,7 +343,7 @@ namespace FreeFlow.UI
         /// as the developer having typed.</summary>
         private void SetHintStatus()
         {
-            int balance = SavingSystem.Instance.Load().hintsRemaining;
+            int balance = ProfileManager.Instance.LoadProgress().hintsRemaining;
 
             if (hintCountInput != null) { hintCountInput.SetTextWithoutNotify(balance.ToString()); }
             if (hintStatusText != null) { hintStatusText.text = "Hint balance: " + balance; }

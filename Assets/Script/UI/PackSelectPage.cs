@@ -29,7 +29,7 @@ namespace FreeFlow.UI
             var ui = UIController.Instance;
             GameMode mode = ui.CurrentMode;
             int[] sizes = ui.PackSizesFor(mode);
-            SaveData data = SavingSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
             foreach (PackCard card in spawnedCards)
             {

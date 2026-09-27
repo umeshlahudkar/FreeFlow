@@ -388,7 +388,7 @@ namespace FreeFlow.Tests
             // the array reference BEFORE calling PackIndex, so the write went through the null
             // reference the expression had already captured rather than the array PackIndex had
             // just allocated.
-            SaveData data = new SaveData();          // packProgress is null, as on a fresh save
+            PlayerProgress data = new PlayerProgress();          // packProgress is null, as on a fresh save
 
             data.SetCompletedLevelForKey("Classic7x7", 3);
 
@@ -399,7 +399,7 @@ namespace FreeFlow.Tests
         [Test]
         public void PackProgress_KeepsPacksApart()
         {
-            SaveData data = new SaveData();
+            PlayerProgress data = new PlayerProgress();
             data.SetCompletedLevelForKey("Classic5x5", 20);
             data.SetCompletedLevelForKey("Classic7x7", 4);
 

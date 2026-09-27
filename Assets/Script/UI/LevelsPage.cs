@@ -79,7 +79,7 @@ namespace FreeFlow.UI
         {
             if (levelButtonPrefab == null || levelsScroll == null || levelsScroll.content == null) { return; }
 
-            SaveData data = SavingSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
             // The pack on screen, not Classic's raw field. Reading `completedLevel` directly
             // meant the Advanced level list showed Classic's progress, and would have shown 5x5's
             // on every pack.
@@ -122,7 +122,7 @@ namespace FreeFlow.UI
             if (levelsScroll == null || levelsScroll.content == null || levelsScroll.viewport == null) { return; }
             if (levelButtons.Count == 0) { return; }
 
-            SaveData data = SavingSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
             int nextLevel = data.CompletedLevelForKey(UIController.Instance.ProgressKey) + 1;
             int slot = Mathf.Clamp(nextLevel - 1, 0, levelButtons.Count - 1);
 
@@ -151,7 +151,7 @@ namespace FreeFlow.UI
         {
             var ui = UIController.Instance;
             int size = ui.CurrentPackSize;
-            SaveData data = SavingSystem.Instance.Load();
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
             int completed = data.CompletedLevelForKey(ui.ProgressKey);
             int total = ui.TotalLevelCount;
 

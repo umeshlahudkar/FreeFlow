@@ -93,7 +93,7 @@ public class AudioManager : Singleton<AudioManager>
         BuildTable();
         BuildVoices();
 
-        AudioData data = SettingsSystem.Instance.Load().audioData;
+        AudioData data = ProfileManager.Instance.LoadSettings().audioData;
 
         isBgMute = data.isMusicMute;
         isSfxMute = data.isSoundMute;
@@ -318,7 +318,7 @@ public class AudioManager : Singleton<AudioManager>
     }
 
     // sliders fire UpdateBgVolume/UpdateSFXVolume on every onValueChanged tick while being
-    // dragged; debounce so the full SaveData read-modify-write only happens once dragging
+    // dragged; debounce so the full PlayerProgress read-modify-write only happens once dragging
     // settles, not on every tick
     private void ScheduleSave()
     {
@@ -358,13 +358,13 @@ public class AudioManager : Singleton<AudioManager>
 
     private void SaveAudioData()
     {
-        SettingsData settings = SettingsSystem.Instance.Load();
+        SettingsData settings = ProfileManager.Instance.LoadSettings();
 
         settings.audioData.isMusicMute = isBgMute;
         settings.audioData.isSoundMute = isSfxMute;
         settings.audioData.musicVolume = bgVolume;
         settings.audioData.soundVolume = sfxVolume;
 
-        SettingsSystem.Instance.Save(settings);
+        ProfileManager.Instance.SaveSettings(settings);
     }
 }
