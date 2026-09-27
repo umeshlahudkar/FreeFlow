@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using FreeFlow.Util;
 using GoogleMobileAds.Api;
 using UnityEngine;
@@ -70,6 +71,19 @@ public class ADManager : Singleton<ADManager>, IInitializable
         }
     }
 
+    /// <summary>Fires <paramref name="callback"/> two frames from now instead of immediately. The
+    /// SDK's own OnAdFullScreenContentClosed/Failed callbacks land the moment the native ad
+    /// overlay hands control back to Unity, before a frame has actually rendered on top of it --
+    /// calling straight back into gameplay/UI code from there is calling it mid-transition. Two
+    /// yield return nulls give Unity's own state (focus, rendering) a couple of frames to settle
+    /// back to normal first.</summary>
+    private IEnumerator InvokeAfterAdClosed(Action callback)
+    {
+        yield return null;
+        yield return null;
+        callback?.Invoke();
+    }
+
     /// <summary>The same FINAL_BUILD symbol the rest of the project strips dev-only code with
     /// (see DeveloperPage) decides ad IDs too: a store build (FINAL_BUILD defined) serves real
     /// ads, any other build serves Google's test ads so development never risks invalid-traffic
@@ -132,8 +146,12 @@ public class ADManager : Singleton<ADManager>, IInitializable
     /// <summary>Shows a rewarded ad if one is ready. <paramref name="onComplete"/> fires only
     /// once the player actually earned the reward; anything else -- none loaded, the SDK
     /// couldn't show it, or the player closed it before earning the reward -- calls
-    /// <paramref name="onFailed"/> instead. Either way, the next ad starts loading right
-    /// away.</summary>
+    /// <paramref name="onFailed"/> instead. Either way, the next ad starts loading right away.
+    ///
+    /// Once the ad actually closes, the callback is not called from the SDK's own closed/failed
+    /// event -- see <see cref="InvokeAfterAdClosed"/> -- so it always lands a couple of frames
+    /// after control is back with Unity. The "not initialized"/"none ready" failures above are
+    /// synchronous, straight from this method's own call stack, and are not delayed.</summary>
     public void ShowRewardedAd(Action onComplete, Action onFailed)
     {
         // A caller can reach this before GameBootstrap's fire-and-forget Initialize() has
@@ -162,8 +180,7 @@ public class ADManager : Singleton<ADManager>, IInitializable
         {
             adToShow.Destroy();
             LoadRewardedAd();
-            if (earnedReward) { onComplete?.Invoke(); }
-            else { onFailed?.Invoke(); }
+            StartCoroutine(InvokeAfterAdClosed(earnedReward ? onComplete : onFailed));
         };
 
         adToShow.OnAdFullScreenContentFailed += (AdError error) =>
@@ -171,7 +188,7 @@ public class ADManager : Singleton<ADManager>, IInitializable
             Debug.LogWarning("ADManager: rewarded ad failed to show: " + error);
             adToShow.Destroy();
             LoadRewardedAd();
-            onFailed?.Invoke();
+            StartCoroutine(InvokeAfterAdClosed(onFailed));
         };
 
         adToShow.Show((Reward reward) => { earnedReward = true; });
@@ -201,7 +218,12 @@ public class ADManager : Singleton<ADManager>, IInitializable
 
     /// <summary>Shows an interstitial ad if one is ready. There's no reward to earn, so
     /// <paramref name="onComplete"/> and <paramref name="onFailed"/> only distinguish whether
-    /// the ad actually showed.</summary>
+    /// the ad actually showed.
+    ///
+    /// Same delayed-callback rule as ShowRewardedAd: once the ad actually closes, the callback
+    /// runs a couple of frames later (see <see cref="InvokeAfterAdClosed"/>), not synchronously
+    /// from the SDK's own event. The "not initialized"/"none ready" failures above are not
+    /// delayed.</summary>
     public void ShowInterstitialAd(Action onComplete, Action onFailed)
     {
         // See the same check in ShowRewardedAd -- a caller can reach here before the
@@ -227,7 +249,7 @@ public class ADManager : Singleton<ADManager>, IInitializable
         {
             adToShow.Destroy();
             LoadInterstitialAd();
-            onComplete?.Invoke();
+            StartCoroutine(InvokeAfterAdClosed(onComplete));
         };
 
         adToShow.OnAdFullScreenContentFailed += (AdError error) =>
@@ -235,7 +257,7 @@ public class ADManager : Singleton<ADManager>, IInitializable
             Debug.LogWarning("ADManager: interstitial ad failed to show: " + error);
             adToShow.Destroy();
             LoadInterstitialAd();
-            onFailed?.Invoke();
+            StartCoroutine(InvokeAfterAdClosed(onFailed));
         };
 
         adToShow.Show();

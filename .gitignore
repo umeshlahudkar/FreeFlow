@@ -106,3 +106,7 @@ Assets/Resources/PerformanceTestRunSettings.json*
 
 # UnityMCP scratch
 .utmp/
+
+# graphify output -- regenerated locally via `/graphify --update`, not something to track
+graphify-out/
+/[Aa]ssets/**/graphify-out.meta
