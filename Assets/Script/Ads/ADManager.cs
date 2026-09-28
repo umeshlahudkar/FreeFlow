@@ -37,10 +37,26 @@ public class ADManager : Singleton<ADManager>, IInitializable
     [SerializeField] private string iosTestRewardedAdUnitId = "ca-app-pub-3940256099942544/1712485313";
     [SerializeField] private string iosTestInterstitialAdUnitId = "ca-app-pub-3940256099942544/4411468910";
 
+    // Both conditions below must hold before an interstitial is due -- see
+    // TryShowInterstitialIfDue. Tweakable here rather than hardcoded so cadence can be balanced
+    // against retention without a code change.
+    [Header("Interstitial Ad Gating")]
+    [Tooltip("How many levels the player must complete before another interstitial is due.")]
+    [SerializeField] private int levelsBetweenInterstitials = 3;
+    [Tooltip("Minimum real-world seconds that must pass between two interstitials.")]
+    [SerializeField] private float minSecondsBetweenInterstitials = 180f;
+
     private RewardedAd rewardedAd;
     private InterstitialAd interstitialAd;
     private bool isInitialized;
     private bool isInitializing;
+    private bool isLoadingRewardedAd;
+    private bool isLoadingInterstitialAd;
+
+    private int levelsCompletedSinceLastInterstitial;
+    // NegativeInfinity so the very first interstitial of a session is never held back by the
+    // time gate -- there is no "last shown" yet to measure against.
+    private float lastInterstitialShownRealtime = float.NegativeInfinity;
 
 
     private string RewardedAdUnitId
@@ -97,13 +113,16 @@ public class ADManager : Singleton<ADManager>, IInitializable
 #endif
     }
 
-    /// <summary>Starts the Mobile Ads SDK and, once that finishes, the first load of each ad
-    /// format so one is usually already sitting in memory by the time a player asks for it.
-    /// <paramref name="onComplete"/> fires immediately, before any of that has actually happened
-    /// -- GameBootstrap waits for it before moving on to whatever's queued after this manager, and
-    /// an ad SDK's own startup (a network round trip) is not worth blocking MainScene load over.
-    /// Ad loading finishes in the background on its own time; ShowRewardedAd/ShowInterstitialAd
-    /// already handle "asked for before it's ready" as a normal failure, not a crash.</summary>
+    /// <summary>Starts the Mobile Ads SDK. <paramref name="onComplete"/> fires immediately,
+    /// before that has actually happened -- GameBootstrap waits for it before moving on to
+    /// whatever's queued after this manager, and an ad SDK's own startup (a network round trip)
+    /// is not worth blocking MainScene load over.
+    ///
+    /// Neither ad format is loaded here -- an ad sitting in memory this early is very likely
+    /// stale (a rewarded ad the player never runs low on hints to redeem, an interstitial shown
+    /// long after the level-count/time gate that justified fetching it). Each format is instead
+    /// loaded on demand: see NotifyLevelStarted for rewarded, and NotifyLevelStarted /
+    /// PreloadInterstitialAd for interstitial.</summary>
     public void Initialize(Action onComplete)
     {
         onComplete?.Invoke();
@@ -115,13 +134,66 @@ public class ADManager : Singleton<ADManager>, IInitializable
         {
             isInitializing = false;
             isInitialized = true;
-
-            LoadRewardedAd();
-            LoadInterstitialAd();
         });
     }
 
+    /// <summary>Called once a level actually starts playing (not merely navigating to the
+    /// gameplay page -- see GamePlayController.BeginAttempt). Preloads whichever ad format might
+    /// be needed soon, so it is not started cold the moment it is actually asked for:
+    /// - Rewarded, only once the player has no hints left to spend -- <paramref
+    ///   name="hintsRemaining"/> is read at the call site rather than here, since ADManager has
+    ///   no reason to know about ProfileManager/hint balances.
+    /// - Interstitial, one level before it is due, i.e. this attempt is the last one that will
+    ///   push levelsCompletedSinceLastInterstitial up to the threshold.</summary>
+    public void NotifyLevelStarted(int hintsRemaining)
+    {
+        if (hintsRemaining <= 0)
+        {
+            PreloadRewardedAd();
+        }
+
+        if (levelsCompletedSinceLastInterstitial >= levelsBetweenInterstitials - 1)
+        {
+            PreloadInterstitialAd();
+        }
+    }
+
+    /// <summary>Bumps the level-complete tally and, if both gates now pass and an interstitial
+    /// is actually sitting loaded, shows it. Called once per completed attempt, right after the
+    /// level-complete screen opens (see UIController.ActivateLevelCompleteScreen) so the
+    /// interstitial always lands after that screen is already up, never before or instead of
+    /// it.</summary>
+    public void NotifyLevelCompleted()
+    {
+        levelsCompletedSinceLastInterstitial++;
+        TryShowInterstitialIfDue();
+    }
+
+    /// <summary>Shows the interstitial only when both the level-count and time gates have been
+    /// met AND an ad is actually ready. If it is due but nothing is loaded yet (a slow/failed
+    /// fetch), this does NOT wait for one -- the player keeps playing, and the next completed
+    /// level tries again; the gates are left exactly as they are so that retry happens
+    /// immediately rather than waiting out a fresh cooldown window.</summary>
+    private void TryShowInterstitialIfDue()
+    {
+        if (levelsCompletedSinceLastInterstitial < levelsBetweenInterstitials) { return; }
+        if (Time.realtimeSinceStartup - lastInterstitialShownRealtime < minSecondsBetweenInterstitials) { return; }
+        if (!isInitialized || interstitialAd == null || !interstitialAd.CanShowAd()) { return; }
+
+        levelsCompletedSinceLastInterstitial = 0;
+        lastInterstitialShownRealtime = Time.realtimeSinceStartup;
+        ShowInterstitialAd(null, null);
+    }
+
     // ---- rewarded ------------------------------------------------------------------------
+
+    /// <summary>Starts a rewarded fetch if one is not already loaded or in flight. Safe to call
+    /// repeatedly -- see NotifyLevelStarted, its only caller.</summary>
+    public void PreloadRewardedAd()
+    {
+        if (!isInitialized || isLoadingRewardedAd || (rewardedAd != null && rewardedAd.CanShowAd())) { return; }
+        LoadRewardedAd();
+    }
 
     private void LoadRewardedAd()
     {
@@ -131,8 +203,10 @@ public class ADManager : Singleton<ADManager>, IInitializable
             rewardedAd = null;
         }
 
+        isLoadingRewardedAd = true;
         RewardedAd.Load(RewardedAdUnitId, new AdRequest(), (RewardedAd ad, LoadAdError error) =>
         {
+            isLoadingRewardedAd = false;
             if (error != null || ad == null)
             {
                 Debug.LogWarning("ADManager: rewarded ad failed to load: " + error);
@@ -196,6 +270,14 @@ public class ADManager : Singleton<ADManager>, IInitializable
 
     // ---- interstitial ----------------------------------------------------------------------
 
+    /// <summary>Starts an interstitial fetch if one is not already loaded or in flight. Safe to
+    /// call repeatedly -- see NotifyLevelStarted (one level ahead of when it's due).</summary>
+    public void PreloadInterstitialAd()
+    {
+        if (!isInitialized || isLoadingInterstitialAd || (interstitialAd != null && interstitialAd.CanShowAd())) { return; }
+        LoadInterstitialAd();
+    }
+
     private void LoadInterstitialAd()
     {
         if (interstitialAd != null)
@@ -204,8 +286,10 @@ public class ADManager : Singleton<ADManager>, IInitializable
             interstitialAd = null;
         }
 
+        isLoadingInterstitialAd = true;
         InterstitialAd.Load(InterstitialAdUnitId, new AdRequest(), (InterstitialAd ad, LoadAdError error) =>
         {
+            isLoadingInterstitialAd = false;
             if (error != null || ad == null)
             {
                 Debug.LogWarning("ADManager: interstitial ad failed to load: " + error);

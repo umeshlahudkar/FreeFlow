@@ -728,6 +728,14 @@ namespace FreeFlow.UI
             AudioManager.Instance.PlaySFX(SoundType.LevelComplete);
             Haptics.Play(HapticType.Success);
             PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
+
+            // After the overlay, never before/instead of it -- see NotifyLevelCompleted's own
+            // doc comment. Gated internally by ADManager's own level-count/time thresholds, so
+            // this fires every completion but only actually shows an ad when due.
+            if (ADManager.Instance != null)
+            {
+                ADManager.Instance.NotifyLevelCompleted();
+            }
         }
 
         /// <summary>

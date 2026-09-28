@@ -895,6 +895,11 @@ namespace FreeFlow.GamePlay
             if (currentLevel < 1 || currentLevel > totalLevelCount) { return; }
 
             AnalyticsManager.LogLevelStart(currentLevel, AnalyticsModeLabel());
+
+            if (ADManager.Instance != null)
+            {
+                ADManager.Instance.NotifyLevelStarted(ProfileManager.Instance.LoadProgress().hintsRemaining);
+            }
         }
 
         /// <summary>What "mode" means to analytics: Classic/Advanced for an ordinary pack level,

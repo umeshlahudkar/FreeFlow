@@ -401,6 +401,8 @@ MonoBehaviour:
   androidTestInterstitialAdUnitId: ca-app-pub-3940256099942544/1033173712
   iosTestRewardedAdUnitId: ca-app-pub-3940256099942544/1712485313
   iosTestInterstitialAdUnitId: ca-app-pub-3940256099942544/4411468910
+  levelsBetweenInterstitials: 3
+  minSecondsBetweenInterstitials: 120
 --- !u!4 &1991428217
 Transform:
   m_ObjectHideFlags: 0
