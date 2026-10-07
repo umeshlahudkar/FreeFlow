@@ -1,30 +1,43 @@
 using System.Collections;
+using System.Globalization;
 using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.Serialization;
 using TMPro;
 using DG.Tweening;
 using FreeFlow.Enums;
+using FreeFlow.GamePlay;
 using FreeFlow.Input;
 
 namespace FreeFlow.UI
 {
     /// <summary>
-    /// Owns behavior local to the main menu screen itself: the header's "next level" chip, and
-    /// each mode card's real progress line ("37 / 100 levels"). Cross-screen flow (which screen
-    /// is active, level loading) stays in UIController; this only owns what belongs to this one
-    /// screen. Replaces the earlier single-PLAY-button + Classic/Advanced tab design -- the
-    /// updated reference shows two independent, always-visible mode cards instead, each with its
-    /// own PLAY button (see UIController.OnPlayClassicButtonClick/OnPlayAdvancedButtonClick).
+    /// Owns behavior local to the main menu screen itself: the header's hint balance, and the
+    /// three stacked cards -- Classic, Advanced, Daily challenge -- each of which is one button
+    /// (there is no separate PLAY button inside a card). Cross-screen flow (which screen is
+    /// active, level loading) stays in UIController/PageManager; this only owns what belongs to
+    /// this one screen.
     /// </summary>
     public class MainMenuPage : Page
     {
         [SerializeField] private TopPanel topPanel;
 
         [Header("Header")]
-        [SerializeField] private TextMeshProUGUI levelChipText;
+        // The player's spendable hint balance (PlayerProgress.hintsRemaining). Display only --
+        // hints are topped up from gameplay, not from here.
+        [SerializeField] private TextMeshProUGUI hintCountText;
 
         [Header("Mode cards")]
         [SerializeField] private TextMeshProUGUI classicProgressText;
+        [SerializeField] private Slider classicProgressSlider;
         [SerializeField] private TextMeshProUGUI advancedProgressText;
+        [SerializeField] private Slider advancedProgressSlider;
+
+        // The completed count in each card's "37 / 500 levels" line is drawn in that card's own
+        // accent. Darker than the bar fill on purpose: small text needs 4.5:1 against white, which
+        // the fill colours do not reach.
+        [SerializeField] private Color classicAccent = new Color32(11, 122, 105, 255);
+        [SerializeField] private Color advancedAccent = new Color32(180, 50, 40, 255);
 
         // How long each card's number counts up over, from zero to the real count, every time the
         // card is shown -- see AnimateProgressText.
@@ -44,13 +57,19 @@ namespace FreeFlow.UI
         }
 
         [Header("Daily challenge card")]
-        // Today's solved/waiting state in one line. Streak tracking was removed entirely (no
-        // longer maintained), so this is just the day's own status now.
-        [SerializeField] private TextMeshProUGUI dailySubtitleText;
+        // Today's date, from the same UTC day index the Daily Challenge page and the save file use
+        // -- never DateTime.Now, which can already be tomorrow ahead of UTC.
+        [FormerlySerializedAs("dailySubtitleText")]
+        [SerializeField] private TextMeshProUGUI dailyDateText;
+        [SerializeField] private TextMeshProUGUI dailyBoardText;
 
-        // Shown until today's challenge is solved, then cleared -- unseen content, not unplayed
-        // content, so it clears the moment the day is done even if the player never opens the hub.
-        [SerializeField] private GameObject newBadge;
+        // One pill with two states: NEW until today's board is solved, SOLVED after.
+        [SerializeField] private Image dailyBadgeImage;
+        [SerializeField] private TextMeshProUGUI dailyBadgeText;
+        [SerializeField] private Color newBadgeColor = new Color32(255, 228, 168, 255);
+        [SerializeField] private Color newBadgeTextColor = new Color32(125, 78, 0, 255);
+        [SerializeField] private Color solvedBadgeColor = new Color32(218, 244, 238, 255);
+        [SerializeField] private Color solvedBadgeTextColor = new Color32(11, 122, 105, 255);
 
         [Header("Card reveal")]
         // Tab_Classic, Tab_Advanced, Button_dailyChallenge -- in the order they should pop in.
@@ -121,7 +140,7 @@ namespace FreeFlow.UI
             Refresh();
         }
 
-        /// <summary>Re-reads save data and updates the header chip + both cards' progress lines.
+        /// <summary>Re-reads save data and updates the hint balance and all three cards.
         /// Called on enable (not just Start) since returning from a level changes this screen's
         /// own numbers without the GameObject being recreated.</summary>
         public void Refresh()
@@ -130,39 +149,46 @@ namespace FreeFlow.UI
             if (ui == null) { return; }
             PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
-            // MainMenu is the root page (nothing to go back to) and already has its own
-            // branding (GameNameLabel/Wordmark) plus the level chip below -- only the Setting
-            // button is needed here, no title/subtitle/Back/Option.
+            // MainMenu is the root page (nothing to go back to) and carries no title -- only the
+            // Setting button is needed here, no title/subtitle/Back/Option.
             if (topPanel != null) { topPanel.SetTopPanel("", "", showBack: false, showSetting: true, showOption: false); }
 
-            if (levelChipText != null)
-            {
-                int nextLevel = data.CompletedLevelForKey(DefaultKey(ui, GameMode.Classic)) + 1;
-                levelChipText.text = "Level " + nextLevel;
-            }
+            if (hintCountText != null) { hintCountText.text = data.hintsRemaining.ToString(); }
 
-            AnimateProgressText(classicProgressText, classicProgress, data, ui, GameMode.Classic);
-            AnimateProgressText(advancedProgressText, advancedProgress, data, ui, GameMode.Advanced);
-            SetDailyChallengeCard(data, ui);
+            AnimateProgressText(classicProgressText, classicProgressSlider, classicAccent, classicProgress, data, ui, GameMode.Classic);
+            AnimateProgressText(advancedProgressText, advancedProgressSlider, advancedAccent, advancedProgress, data, ui, GameMode.Advanced);
+            SetDailyChallengeCard(data);
         }
 
         /// <summary>
-        /// Fills the daily-challenge card from the save: whether today's one calendar level has
-        /// been solved yet. There is nothing to "select" any more (see DailyChallengeCalendar) --
-        /// every player's today is the same fixed level, so this is a pure readout of the save
-        /// file, nothing committed just by the main menu being shown.
+        /// Fills the daily-challenge card from the save: today's date, the size of today's board,
+        /// and whether it has been solved yet. Every player's today is the same fixed level (see
+        /// DailyChallengeCalendar), so this is a pure readout -- nothing is committed just by the
+        /// main menu being shown.
         /// </summary>
-        private void SetDailyChallengeCard(PlayerProgress data, UIController ui)
+        private void SetDailyChallengeCard(PlayerProgress data)
         {
-            int today = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
-            bool completedToday = data.IsDayCompleted(today);
+            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            bool solvedToday = data.IsDayCompleted(today);
 
-            if (newBadge != null) { newBadge.SetActive(!completedToday); }
-
-            if (dailySubtitleText != null)
+            if (dailyDateText != null)
             {
-                dailySubtitleText.text = completedToday ? "today's puzzle solved" : "today's puzzle waiting";
+                dailyDateText.text = DailyChallengeSelector.EpochUtc.AddDays(today)
+                    .ToString("dddd, MMMM d", CultureInfo.InvariantCulture);
             }
+
+            if (dailyBoardText != null)
+            {
+                int size = DailyChallengeCalendar.LevelForAbsoluteDay(today).packSize;
+                dailyBoardText.text = size + "×" + size + " board";
+            }
+
+            if (dailyBadgeText != null)
+            {
+                dailyBadgeText.text = solvedToday ? "SOLVED" : "NEW";
+                dailyBadgeText.color = solvedToday ? solvedBadgeTextColor : newBadgeTextColor;
+            }
+            if (dailyBadgeImage != null) { dailyBadgeImage.color = solvedToday ? solvedBadgeColor : newBadgeColor; }
         }
 
         /// <summary>Summed across every pack size in the mode (e.g. Classic's 5x5 + 6x6 + 7x7 +
@@ -172,13 +198,12 @@ namespace FreeFlow.UI
         /// Always counts up FROM ZERO, every time the card is shown -- not from whatever was
         /// displayed last visit. An earlier version animated from the last-shown count instead, so
         /// two visits in a row with no level finished in between produced a correct but invisible
-        /// zero-distance "animation", which read as broken. Matching PackCard's own reveal treatment
-        /// is simpler and always visibly plays. Starts immediately, with no delay tying it to the
-        /// card reveal above -- an earlier version waited for that reveal to finish first, which
-        /// was pulled per explicit request.</summary>
-        private void AnimateProgressText(TextMeshProUGUI text, ProgressReadout readout, PlayerProgress data, UIController ui, GameMode mode)
+        /// zero-distance "animation", which read as broken. The bar fills in step with the number,
+        /// from the same displayed value, so the two can never disagree mid-count.</summary>
+        private void AnimateProgressText(TextMeshProUGUI text, Slider slider, Color accent, ProgressReadout readout,
+            PlayerProgress data, UIController ui, GameMode mode)
         {
-            if (text == null) { return; }
+            if (text == null && slider == null) { return; }
 
             int completed = 0;
             int total = 0;
@@ -190,15 +215,16 @@ namespace FreeFlow.UI
             }
 
             if (readout.routine != null) { StopCoroutine(readout.routine); }
-            readout.routine = StartCoroutine(CountProgress(text, readout, completed, total));
+            readout.routine = StartCoroutine(CountProgress(text, slider, accent, readout, completed, total));
         }
 
         /// <summary>Eases <paramref name="readout"/>'s displayed count from zero up to
         /// <paramref name="completed"/> over <see cref="progressAnimSeconds"/>.</summary>
-        private IEnumerator CountProgress(TextMeshProUGUI text, ProgressReadout readout, int completed, int total)
+        private IEnumerator CountProgress(TextMeshProUGUI text, Slider slider, Color accent, ProgressReadout readout,
+            int completed, int total)
         {
             readout.displayed = 0f;
-            SetProgressLabel(text, 0f, total);
+            SetProgress(text, slider, accent, 0f, total);
 
             // One frame set aside before timing anything: this coroutine is started synchronously
             // from the middle of a page transition (Instantiate/Destroy, layout rebuilds), and
@@ -221,30 +247,27 @@ namespace FreeFlow.UI
                 float eased = 1f - ((1f - t) * (1f - t));
 
                 readout.displayed = Mathf.LerpUnclamped(from, completed, eased);
-                SetProgressLabel(text, readout.displayed, total);
+                SetProgress(text, slider, accent, readout.displayed, total);
                 yield return null;
             }
 
             readout.displayed = completed;
-            SetProgressLabel(text, completed, total);
+            SetProgress(text, slider, accent, completed, total);
             readout.routine = null;
         }
 
-        private static void SetProgressLabel(TextMeshProUGUI text, float completed, int total)
+        private static void SetProgress(TextMeshProUGUI text, Slider slider, Color accent, float completed, int total)
         {
-            text.text = "<color=#0F9E88>" + Mathf.RoundToInt(completed) + "</color> / " + total + " levels";
+            if (text != null)
+            {
+                text.text = "<color=#" + ColorUtility.ToHtmlStringRGB(accent) + ">" + Mathf.RoundToInt(completed)
+                    + "</color> / " + total + " levels";
+            }
+            if (slider != null) { slider.value = total > 0 ? completed / total : 0f; }
         }
 
-        /// <summary>The pack-progress key for a mode's first/default pack size -- each card shows
-        /// one representative progress number ("at your own pace"), not an aggregate across every
-        /// size, mirroring how the original PLAY button's own progress bar worked.</summary>
-        private static string DefaultKey(UIController ui, GameMode mode)
-        {
-            return ui.KeyFor(mode, ui.PackSizesFor(mode)[0]);
-        }
-
-        /// <summary>Each mode card (CLASSIC/ADVANCED) has its own PLAY button -- these set the
-        /// mode the tapped card belongs to before opening pack-select.</summary>
+        /// <summary>Each mode card (CLASSIC/ADVANCED) is itself the button -- these set the mode
+        /// the tapped card belongs to before opening pack-select.</summary>
         public void OnPlayClassicButtonClick()
         {
             if (InputManager.Instance.CanInput())
@@ -265,9 +288,8 @@ namespace FreeFlow.UI
             }
         }
 
-        /// <summary>Opens the Daily Challenge hub (streak, this week, today's pick) rather than
-        /// jumping straight into gameplay -- actually loading a challenge is done by tapping its
-        /// own card on that hub.</summary>
+        /// <summary>Opens the Daily Challenge calendar rather than jumping straight into gameplay
+        /// -- actually loading a challenge is done from that page's own Play button.</summary>
         public void OnDailyChallengeButtonClick()
         {
             if (InputManager.Instance.CanInput())
