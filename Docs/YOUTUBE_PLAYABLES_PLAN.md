@@ -1,158 +1,273 @@
-# FreeFlow — YouTube Playables: Implementation Plan
+# FreeFlow — YouTube Playables Plan
 
-As of 2026-10-07 · Companion: [YOUTUBE_PLAYABLES_REQUIRED_CHANGES.md](YOUTUBE_PLAYABLES_REQUIRED_CHANGES.md) · Live doc: https://claude.ai/code/artifact/26f66072-79d7-4210-930e-042b1cc004cd
+As of 2026-10-07 · Live doc: https://claude.ai/code/artifact/c4263b7c-2842-4b64-80cc-bffae928956a
 
-## Goals and non-negotiables
+## Summary
 
-Ship FreeFlow as a certified YouTube Playable from the same Unity project as the Play Store and App Store builds, without changing how the mobile builds behave. The work happens on a separate branch and is merged back.
+FreeFlow can ship on YouTube Playables as a Unity WebGL build from the same project as the Android game. It uses Google's Unity wrapper and WebGL template, and swaps every mobile-only service for YouTube's SDK in that build only. Nothing below has been implemented yet; this plan restarts from the current committed code.
 
-Goals:
+[YouTube Playables](https://developers.google.com/youtube/gaming/playables) are web games played inside the YouTube app and website on phones and desktops. Access is by invitation: a studio fills in the Playables interest form, then uploads a ZIP of the build through the [Developer Portal](https://developers.google.com/youtube/gaming/playables/developer_portal) for certification.
 
-- A WebGL build that passes Playables certification on desktop web, mobile web, YouTube Android and YouTube iOS.
-- Player progress (pack levels, daily completions, hints, settings) kept in YouTube cloud save.
-- YouTube interstitial and rewarded ads built in place of AdMob behind a switch, turned on only if Google confirms they serve; hints refill +1 per daily challenge solved, so they never depend on ads.
+What the YouTube build has to change, in short:
 
-Non-negotiables:
+1. **Build for the web** (Unity WebGL, uncompressed), with Google's WebGL template so YouTube's SDK loads before the game.
+2. **Talk to YouTube through Google's Unity wrapper:** signal when the first frame and the menu are ready, obey YouTube's pause, resume and mute, and save to YouTube's cloud instead of files.
+3. **Remove what YouTube forbids:** AdMob and Firebase, share buttons, the privacy-policy link, and any other way off the page. Only YouTube's own ads are permitted, and v1 will have none.
+4. **Meet the size limits:** every file under 30 MiB and the download before the menu is playable under 30 MiB. A first test build had a 31.7 MiB code file.
+5. **Work at every window shape** with touch and mouse, and tell the player when there is no more content.
 
-- Mobile code paths, SDKs, packages and settings stay as they are; Playables code is added behind `YOUTUBE_PLAYABLES`.
-- No package is removed from the project; mobile-only packages are excluded from the WebGL build by define symbols and plugin import settings.
-- Every Playables change is checked against an Android build before merge.
+The Android build stays as it is: YouTube-only code sits behind a `YOUTUBE_PLAYABLES` define that only the web build profile sets. Several choices need your answer before work starts; they are listed in the last section.
 
-## Architecture
+## YouTube Playables requirements
 
-Add a thin platform layer: game code calls interfaces, and the build target decides whether the mobile or the YouTube implementation sits behind them.
+Certification checks eight areas. Every rule below is quoted or closely paraphrased from Google's pages, read on 2026-10-07; the Level column uses Google's own MUST / SHOULD / MAY wording.
+
+| Area | Rule | Level | Source |
+| --- | --- | --- | --- |
+| Integration | Load the SDK (`https://www.youtube.com/game_api/v1`) before any game code | MUST | [Integration](https://developers.google.com/youtube/gaming/playables/certification/requirements_integration), [Getting started](https://developers.google.com/youtube/gaming/playables/reference/getting_started) |
+| Integration | Call `firstFrameReady` when a loading or splash screen is rendering | MUST | Integration |
+| Integration | Call `gameReady` only when the game is ready for interaction, never while non-interactable elements show | MUST | Integration |
+| Integration | Call `saveData` after material progress; no other mechanism to save progress | MUST | Integration |
+| Integration | Await `loadData` before calling `saveData`; load saves from previous versions without errors | MUST | Integration |
+| Integration | Auto-save at milestones; the final flush save is best-effort and limited to 64 KiB | SHOULD | Integration |
+| Integration | Respect YouTube mute with `isAudioEnabled` / `onAudioEnabledChange`, the device volume and system audio; no sound while YouTube mute is on | MUST | Integration |
+| Integration | No internal master mute button; separate music/SFX controls are allowed | SHOULD NOT / MAY | Integration |
+| Integration | Pause all execution after `onPause` and resume only on `onResume`; do not use the Page Visibility API | MUST | Integration |
+| Integration | If `sendScore` is used, the best score sent matches the best score in the save | MUST if used | Integration |
+| Stability | Download until `gameReady` under 30 MiB (SHOULD under 15 MiB) | MUST | [Stability](https://developers.google.com/youtube/gaming/playables/certification/requirements_stability) |
+| Stability | Total bundle under 250 MiB; lazy-load what is not needed up front | MUST / SHOULD | Stability |
+| Stability | Every file under 30 MiB (SHOULD under 512 KiB); at most 8,000 files; relative paths; filenames only letters, digits, `_ - .` | MUST | Stability |
+| Stability | Save data under 3 MiB (SHOULD under 500 KiB) | MUST | Stability |
+| Stability | Interactive in under 5 seconds | SHOULD | Stability |
+| Stability | No reproducible crashes; peak JavaScript heap under 512 MB | MUST NOT exceed | Stability |
+| Stability | Work in all browsers YouTube supports and in the YouTube Android and iOS apps | MUST | Stability |
+| Design | Playable at all aspect ratios and adjust when the viewport changes (Google's examples: 9:32 to 32:9); otherwise centred with pillarbox or letterbox; no orientation lock; keep state on resize | MUST | [Design](https://developers.google.com/youtube/gaming/playables/certification/requirements_design) |
+| Design | Touch and mouse for all interactions; keyboard for directional/text input; Esc closes dialogs; never `preventDefault()` on Esc | MUST / SHOULD | Design |
+| Design | Text and graphics sharp at every resolution, aspect ratio and density | MUST | Design |
+| Design | Tell the player when there is no more content | MUST | Design |
+| Design | No in-game sharing prompts, no clickable external links, no extra user agreement, no exit/quit button, no icons identical to YouTube's close/mute/menu near them | MUST NOT | Design |
+| Design | If haptics exist, a way to turn them off | MUST if used | Design |
+| Monetization | No off-platform monetization, ads or purchases; ads only through YouTube's ad functions, configured in the Developer Portal | MUST NOT / MAY | [Monetization](https://developers.google.com/youtube/gaming/playables/certification/requirements_monetization) |
+| Privacy | No external calls; no clipboard access except on paste; no personal data or login; no code obfuscation (minifying is fine) | MUST NOT | [Privacy and data](https://developers.google.com/youtube/gaming/playables/certification/requirements_privacydata) |
+| Localization | Support English; language only from `getLanguage`, never `navigator.language` | MUST | [i18n](https://developers.google.com/youtube/gaming/playables/certification/requirements_i18n_l10n) |
+| Trust and safety | Suitable for general audiences 13+, not made for kids; rights cleared for all IP, music and likeness; not identical to an existing Playable | MUST | [Trust and safety](https://developers.google.com/youtube/gaming/playables/certification/requirements_trustsafety) |
+| Accessibility | Best effort toward WCAG AA; accurate accessibility tags | SHOULD / MUST NOT mislabel | [Accessibility](https://developers.google.com/youtube/gaming/playables/certification/requirements_accessibility) |
+
+Four points from other pages matter for planning:
+
+- **Ads are unclear today.** The monetization page opens with "Monetization is not supported within YouTube Playables" and "In-game advertising is strictly prohibited", yet its rules say games MAY use YouTube's ad functions. The Developer Portal says ad settings "won't change the end-user ads experience for now".
+- **YouTube compresses files on submission.** Per the [Unity wrapper page](https://developers.google.com/youtube/gaming/playables/samples/unity_wrapper), a ~25 MiB `.wasm` becomes ~7 MiB, and that check covers the initial-download limit. A file over 30 MiB must be ZIP-compressed by us; Unity's own gzip/Brotli is not supported.
+- **The SDK does nothing when served locally**, so real testing needs the YouTube dev link from the Developer Portal ([Getting started](https://developers.google.com/youtube/gaming/playables/reference/getting_started)).
+- **YouTube serves the game with a strict Content Security Policy**; the [test suite guide](https://developers.google.com/youtube/gaming/playables/reference/test_suite_guide) gives the exact header to test against locally.
+
+## Google's Unity wrapper and WebGL template
+
+Google's [Experimental YouTube Playables Unity Wrapper](https://developers.google.com/youtube/gaming/playables/samples/unity_wrapper) covers every SDK call FreeFlow needs; the game still has to decide what to do with each one. Both packages come from Google's [web-game-samples](https://github.com/google/web-game-samples) repo (Apache 2.0) and were inspected on 2026-10-07.
+
+| Package | Contents | Setup Google requires |
+| --- | --- | --- |
+| `GoogleYTGameWrapper.unitypackage` (4.7 KB) | `Assets/Plugins/UnityYTGameSDKLib.jslib`, `Assets/Scripts/YTGameSDK/YTGameWrapper.cs` | A GameObject named exactly `YTGameWrapper` in the main scene, with `YTGameWrapper.cs` on it; it persists across scenes by default |
+| `Google-WebGLTemplate-only.unitypackage` (73 KB) | `Assets/WebGLTemplates/YTGameWrapperTemplate/` (index.html, loading bar, optional ZIP unpacker) | Select `YTGameWrapperTemplate` in Player Settings > WebGL; Compression Format set to Disabled |
+
+Wrapper calls, mapped to the SDK:
+
+| Wrapper method | SDK call |
+| --- | --- |
+| `SendGameFirstFrameReady()` / `SendGameIsReady()` | `game.firstFrameReady()` / `game.gameReady()` |
+| `LoadGameSaveData(callback)` / `SendGameSaveData(string)` | `game.loadData()` / `game.saveData()` |
+| `SetOnPauseCallback` / `SetOnResumeCallback` | `system.onPause` / `system.onResume` |
+| `IsYTGameAudioEnabled()` / `SetOnAudioEnabledChangeCallback` | `system.isAudioEnabled` / `system.onAudioEnabledChange` |
+| `RequestInterstitialAd()` / `RequestRewardedAd(id, callback)` | `ads.requestInterstitialAd` / `ads.requestRewardedAd` |
+| `SendGameScore(int)` | `engagement.sendScore` |
+| `SendYTGameError` / `SendYTGameWarning` | `health.logError` / `health.logWarning` |
+| `InPlayablesEnv()` | `IN_PLAYABLES_ENV` |
+
+Not in the wrapper: `getLanguage` and `openYTContent`.
+
+What the packages leave to the game, from reading their source:
+
+- **Pause stops nothing by itself.** The wrapper only calls the game's callback; Google's example sets a `gameIsPaused` flag. Unity's web runtime keeps running and rendering unless the game stops it.
+- **Save and interstitial results are not real.** `SendGameSaveData` and `RequestInterstitialAd` return an int, but the JavaScript returns before YouTube answers, so the value says nothing about success.
+- **A failed `loadData` never answers.** There is no error path, so the game needs its own timeout or startup could wait forever.
+- **In the Editor, `RequestRewardedAd` always reports the reward as earned**, so Editor tests must not trust it.
+- **The template never calls `firstFrameReady`**; the game calls it through the wrapper.
+- **The template stretches the game to fill any window shape**; it has no pillarbox or letterbox.
+- **The template's page title is "YT Game Wrapper WebGL Template"** and its loading screen shows the Unity logo.
+
+## Gap analysis: the Android game today
+
+Firebase stops a web build compiling; file saves, missing SDK signals and forbidden UI stop certification; the puzzle itself, the 1,066 levels, the page system and audio carry over. Facts below were checked against the code on Unity 6000.3.8f1 (Built-in pipeline, legacy Input Manager).
+
+| Part | Today (checked in code) | YouTube build needs | Blocks |
+| --- | --- | --- | --- |
+| Firebase Analytics + Crashlytics | `FirebaseManager.cs`, `AnalyticsManager.cs`, unguarded; Firebase DLLs exclude WebGL | Compiled out; errors could go to `SendYTGameError` | Compile |
+| AdMob | `ADManager.cs`: rewarded ad when hints are 0 (`GameplayPage.cs:341`), interstitial after 3 levels and 180 s (`UIController.cs:737`); four core AdMob DLLs are set to Any Platform | Compiled out; four DLLs excluded from WebGL; no ads in v1 | Policy |
+| Saving | `ProfileManager.cs`: `SaveData.json` + `Settings.json` written with `System.IO` | Cloud save through the wrapper, loaded before the first save, saved after progress and on pause | Certification |
+| Startup signals | StartScene runs ProfileManager, AdManager, FirebaseManager, then loads MainScene; no SDK calls | `firstFrameReady` on the first frame, `gameReady` once the main menu is interactive | Certification |
+| Pause / resume | Nothing handles either | Stop the game on `onPause`, restart on `onResume` (freeze, save, stop the frame loop) | Certification |
+| Audio | `AudioManager.cs`: music starts in `Start`; music and SFX sliders; no master mute | YouTube mute silences everything; sliders stay | Certification |
+| Share | Settings row `Row_Share` and Level Complete `ShareBtn` use NativeShare | Hidden | Certification |
+| Privacy policy | Settings row `Row_Privacy`, no click handler | Hidden (no external links) | Certification |
+| Vibration | `Haptics.cs` is already a no-op on WebGL; Settings shows `Row_Vibration` | Hidden, since it would do nothing | Minor |
+| Settings and Level Complete layout | Rows and buttons are hand-positioned, no layout groups | Close the gaps the hidden rows leave | Minor |
+| Esc key and Android back | No Esc or back handling anywhere, so Android's back button does nothing | Every platform: close the top popup, else go back one page; nothing on the main menu; from a board, back to the level list (the daily calendar for a daily challenge); on Level Complete, close it | SHOULD on YouTube; new on Android |
+| End of content | Last pack level says "PACK COMPLETE"; nothing says all content is done | "ALL PACKS COMPLETE" | Certification |
+| Window shape | Portrait layout; `CanvasScalerMatchSetter` covers 9:19.5 to 3:4; orientation Portrait | Pillarbox inside Unity | Certification |
+| Hints | 3 at start; refilled only by the rewarded ad (also by the Developer page and Reset) | +1 hint the first time each day's challenge is solved | Decided |
+| Developer page | Gated by `FINAL_BUILD`, which is defined nowhere, so it shows in every build | Define `FINAL_BUILD` for the YouTube submission | Minor |
+| Frame rate | `AppBootstrap.cs` sets 60 fps | Leave the web loop to the browser (`-1`) on WebGL | Minor |
+| Daily challenge | Fixed level per UTC date from the device clock | No change | None |
+| Language | English only, hard-coded | Passes (English is required) | None |
+
+Size, measured on a test build (since reverted) with today's code and settings:
+
+| File | Raw | gzip | Limit |
+| --- | --- | --- | --- |
+| `.wasm` (code) | 31.73 MiB | 9.00 MiB | Over the 30 MiB per-file MUST |
+| `.data` (assets) | 9.61 MiB | 5.02 MiB | OK |
+| Download until playable | 41.8 MiB | ~14.1 MiB | Depends on how YouTube measures; Google's note says submissions are compressed |
+
+Likely contributors, from that build's report: code optimization stored as 0 (likely "Shorter Build Time", not confirmed), managed stripping Low, the Unity splash logo (2.7 MiB), TextMesh Pro's default font and emoji sprites (~1.7 MiB), three Teko font weights (1 MB each), and `bg-music` (1.5 MiB built). Nothing here is fixed yet.
+
+## Approach
+
+Game code talks only to service interfaces. Each platform's SDK code lives in its own assembly, switched on or off by the build profile's define, and a config asset per build picks which compiled-in provider serves each interface. Adding a provider later (another ad network, another web portal) means a new assembly and a config entry, with no change to the game code. Google's wrapper and template are used as shipped.
 
 ```mermaid
 flowchart TD
-    shared["<b>Shared game code (unchanged)</b><br/>GamePlayController, UIController, PageManager,<br/>AudioManager, ProfileManager"]
-    iface["<b>Platform interfaces (new, shared)</b><br/>IAdService, IAnalyticsService, ISaveStorage,<br/>IPlatformEvents, IShareService"]
-    mobile["<b>Mobile implementations (existing)</b><br/>AdMob ads: today's ADManager<br/>Firebase: AnalyticsManager, Crashlytics<br/>File storage: SaveData.json via System.IO<br/>NativeShare and Haptics: unchanged"]
-    yt["<b>Playables implementations (new)</b><br/>YouTube ads: interstitial and rewarded<br/>Health log: logError, logWarning<br/>Cloud storage: loadData, saveData<br/>Lifecycle: ready, pause, resume, mute"]
-    native["AdMob and Firebase native SDKs"]
-    jslib[".jslib bridge to ytgame SDK in index.html"]
+    core["<b>FreeFlow.Core (every build)</b><br/>Puzzle, levels, UI, ad rules (cadence, hint reward), service registry<br/>IAdService, IAnalyticsService, ISaveStorage, IPlatformService, IShareService, IHapticsService"]
+    config["Config asset per build: picks the compiled-in providers and holds settings such as ads on/off"]
+    android["<b>Android / iOS build</b><br/>FreeFlow.Ads.AdMob<br/>FreeFlow.Analytics.Firebase<br/>FreeFlow.Platform.Mobile<br/><i>define: none</i>"]
+    youtube["<b>YouTube build</b><br/>FreeFlow.Platform.YouTube<br/>lifecycle, cloud save,<br/>pause, mute, error log<br/><i>define: YOUTUBE_PLAYABLES</i>"]
+    future["<b>Next platform or provider</b><br/>its own assembly<br/>its own define<br/>its own config asset<br/><i>no change to FreeFlow.Core</i>"]
+    msdk["Google Mobile Ads,<br/>Firebase, NativeShare"]
+    ysdk["Google YTGameWrapper<br/>then YouTube SDK"]
 
-    shared --> iface
-    iface -- "Android, iOS: #if !YOUTUBE_PLAYABLES" --> mobile
-    iface -- "WebGL: YOUTUBE_PLAYABLES" --> yt
-    mobile --> native
-    yt --> jslib
+    core --> config
+    config --> android
+    config --> youtube
+    config -.-> future
+    android --> msdk
+    youtube --> ysdk
 ```
 
-Only the Playables column and the interfaces are new; the mobile column is today's code moved behind an interface.
+Assemblies (Unity assembly definitions), and when each is compiled:
 
-**Define and build profile.** `YOUTUBE_PLAYABLES` is set only on the WebGL target, together with `FINAL_BUILD` for submission. A "YouTube Playables" Build Profile (Unity 6) holds the WebGL template, compression Disabled, data caching off, High stripping and the define, so switching store never means hand-editing Player Settings.
+| Assembly | Holds | Compiled |
+| --- | --- | --- |
+| `FreeFlow.Core` | Gameplay, UI, levels, ad rules, the service interfaces, the service registry, config types, null providers, device-file save storage | Always |
+| `FreeFlow.Editor` | The tools in `Assets/Script/Editor` (level generator, pack verifier and others) | Editor only |
+| `FreeFlow.Ads.AdMob` | `IAdService` on Google Mobile Ads | Without `YOUTUBE_PLAYABLES` |
+| `FreeFlow.Analytics.Firebase` | `IAnalyticsService` on Firebase Analytics and Crashlytics | Without `YOUTUBE_PLAYABLES` |
+| `FreeFlow.Platform.Mobile` | `IShareService` (NativeShare), `IHapticsService` (Android and iOS vibration), `IPlatformService` | Without `YOUTUBE_PLAYABLES` |
+| `FreeFlow.Platform.YouTube` | `IPlatformService`, `ISaveStorage` (cloud save), `IAnalyticsService` (error log), all on Google's wrapper | With `YOUTUBE_PLAYABLES` |
+| DOTween Modules | DOTween's module scripts, so Core can still use tweens such as `DOFade` | Always |
+| Google's wrapper | `YTGameWrapper.cs`, unmodified, with an `.asmdef` file added beside it | With `YOUTUBE_PLAYABLES` |
 
-**Keep mobile classes compiling.** `ADManager`, `FirebaseManager` and `AnalyticsManager` stay as classes on both targets, because StartScene and `GameBootstrap.initializationOrder` reference them. Only the SDK calls inside are wrapped in `#if !YOUTUBE_PLAYABLES`; on WebGL their `Initialize` just calls back. This avoids missing-script components and keeps one scene for every store.
+The last two exist because code inside an assembly definition cannot reference loose scripts: DOTween's modules and Google's wrapper are both loose today. DOTween's setup panel can create its modules assembly; Google's files would only gain a new file next to them (Q13).
 
-**Save storage.** `ProfileManager` keeps its in-memory cache and JSON format; only the backend changes. `ISaveStorage` has `Load(Action<string>)` and `Save(string)`. Mobile writes the two files as today; Playables merges `PlayerProgress` and `SettingsData` into one JSON envelope with `schemaVersion` and calls `saveData`. The existing async `Initialize(Action)` seam waits for `loadData` before MainScene loads.
+Which provider serves each interface:
 
-**JS bridge.** Start from Google's [Unity wrapper](https://developers.google.com/youtube/gaming/playables/samples/unity_wrapper) (`.jslib`, `YTGameWrapper.cs`, template) Inspected on 2026-10-07: it already wraps every call FreeFlow needs except `getLanguage` and `openYTContent`, and calls back through `SendMessage` to a `DontDestroyOnLoad` object that must be named `YTGameWrapper`. Three gaps to cover in our code: don't trust the int status from the save or interstitial calls, put a timeout around `loadData` (it has no failure path), and don't rely on the Editor rewarded-ad stub (it always grants). Files: `Assets/Plugins/WebGL/` for the jslib, `Assets/WebGLTemplates/YouTubePlayables/` for `index.html`.
+| Interface | Android / iOS | YouTube | Default when none is set |
+| --- | --- | --- | --- |
+| `IAdService` | AdMob | None in v1 | No ads |
+| `IAnalyticsService` | Firebase Analytics + Crashlytics | YouTube error log only | Nothing recorded |
+| `ISaveStorage` | Device files (in Core) | YouTube cloud save | Device files |
+| `IPlatformService` | Mobile: no YouTube signals; behaves as today | Ready signals, pause/resume, mute, language | No-op |
+| `IShareService` | NativeShare | None | Not available |
+| `IHapticsService` | Native vibration | None | Off |
 
-**Editor fake.** A `FakePlayablesService` stands in for the jslib in Play mode, with Inspector buttons for pause, resume and mute, so lifecycle code is testable without a browser.
+Rules that keep the design extensible and the Android build unchanged:
+
+1. **Refactor first, then add YouTube.** The Android build moves onto the interfaces with no change in behaviour before any YouTube code lands.
+2. **Rules live in Core, providers only deliver.** The interstitial cadence (3 levels, 180 s), when a rewarded ad is offered and what it pays stay in Core; an ad provider only loads, shows and reports the result.
+3. **The UI asks services, not platforms.** For example the Share row shows only when `IShareService` says sharing is available, so a new platform needs no UI change.
+4. **Google's files stay as Google ships them.** Gaps found in their source (fake save results, no load timeout, Editor reward stub, pause that stops nothing) are handled inside `FreeFlow.Platform.YouTube`.
+5. **One save format.** The same progress and settings JSON goes to device files on Android and to YouTube cloud save on the web.
+6. **Plugin import settings, not deletions.** Mobile SDK DLLs are excluded from WebGL in their import settings; no package is removed.
+7. **Check Android before each commit** with an Android build and a quick play-through.
+
+Each build finds its config through one asset per define, loaded from Resources. Google's `YTGameWrapper` object sits in StartScene, where saves are loaded, and stays alive into MainScene (the wrapper's default).
 
 ## Work plan
 
-Six phases, about 20 to 26 developer-days for one Unity developer, plus the certification review wait. Estimates are Claude's from the codebase survey, not measured and not yet agreed with the team; Phase 0 exists to correct them early.
+Six phases of work in Unity, none of which needs the Developer Portal; portal access runs alongside as its own track (below the table). Phase 1 restructures the Android game onto the service layer before any YouTube code is added. Each phase lists what it still waits on. No time estimates, by your choice.
 
-| # | Phase | Main tasks | Estimate | Done when |
+| # | Phase | Tasks | Done when | Waits on |
 | --- | --- | --- | --- | --- |
-| 0 | Access and spike | Apply via the Playables interest form; throwaway branch: guard Firebase and AdMob, build WebGL once, load it in the Test Suite, record `.data`/`.wasm` sizes | 2–3 days | First real size number; game boots in the Test Suite |
-| 1 | Platform layer and build profile | `YOUTUBE_PLAYABLES` define; Build Profile; interfaces; move `ADManager`, Firebase and file I/O behind them; import Google's Unity wrapper and template; Editor fake | 4–5 days | Android build behaves as before; WebGL compiles with no mobile SDK code |
-| 2 | SDK lifecycle and cloud save | `ISaveStorage` on `loadData`/`saveData` with one versioned JSON envelope; wait for load before MainScene; `firstFrameReady`/`gameReady`; pause/resume freeze and save flush; YouTube mute in `AudioManager`; music after first input; `targetFrameRate = -1` on WebGL | 4–5 days | Test Suite pause, resume, mute and save checks pass |
-| 3 | UI and policy fixes | Hide Share, Privacy and Vibration rows; Esc closes overlays through `PageManager`; pillarbox up to 32:9 and check 9:32; end-of-content message; YouTube ads behind `IAdService` and a switch (off until Google confirms ads serve), with today's 3-level/180 s gating; +1 hint per daily solved | 4–5 days | Every Design MUST in the Required Changes doc passes by hand |
-| 4 | Size and performance | Re-encode `bg-music`, drop unused Teko SDF weights, exclude unreferenced `__Sprites/screens`, compress large backgrounds, High stripping, data caching off; measure load time and heap on phones | 3–4 days | Under 15 MiB to `gameReady`; interactive under 5 s on mid-range Android |
-| 5 | Test and submit | Full testing plan; Developer Portal release, metadata, thumbnails, ad settings; fix findings; submit | 3–4 days + review | Submitted for certification |
+| 0 | Setup | Create the Web build profile with `YOUTUBE_PLAYABLES`. Import Google's wrapper and template packages unmodified. | The profile exists; the Android build is unchanged | Nothing |
+| 1 | Service layer (Android only) | Create the assemblies (Core, Editor, DOTween Modules, one per provider) and the `.asmdef` beside Google's wrapper. Add the six interfaces, the service registry, null providers, and one config asset per define in Resources. Move AdMob, Firebase, NativeShare, haptics and file saving into providers; move the ad rules into Core. Exclude the four core AdMob DLLs from WebGL. | The Android build behaves exactly as before; edit-mode tests pass; a web build compiles with no mobile SDK code | Nothing |
+| 2 | YouTube SDK integration | Build `FreeFlow.Platform.YouTube` on Google's wrapper: the `YTGameWrapper` scene object in StartScene; `firstFrameReady` and `gameReady`; cloud save (load before any save, a load timeout, save after progress and on pause); pause (freeze time, audio and input, save, stop the frame loop with Unity's `pauseMainLoop`; on resume restart it and turn input back on a frame later); YouTube mute; error log; browser-driven frame rate on WebGL. No ads. | Works in the Editor and a local web build; confirmed on the YouTube dev link once portal access exists (save survives a reload, pause stops the game, mute silences it) | Nothing to start; portal access to confirm |
+| 3 | Rules and UI | Hide the Settings share row, the Level Complete share button, the privacy-policy row and the vibration row, and move the rest up. Pillarbox inside Unity for very wide and very tall windows. "ALL PACKS COMPLETE" once every pack is done. +1 hint the first time each day's challenge is solved. `FINAL_BUILD` for the submission build. Esc and Android back on every platform (shared code, so Android gets it too). | Every Design and Monetization rule in the requirements table checked by hand | Nothing |
+| 4 | Size and performance | Measure the build, then choose: shrink it (stripping, code optimization, splash, unused fonts and emoji, music), ZIP the `.wasm` as Google describes, or both. Keep the heap well under 512 MB. Aim for interactive in under 5 s. | All Stability MUSTs met on a measured build | The measurement |
+| 5 | Test and submit | Run the testing checklist on the YouTube dev link. Portal release: Claude drafts the title, description and accessibility tags, your team makes the thumbnails, ads stay off. Submit for certification. | Submitted | Portal access, licences confirmed |
 
-Phases 1 and 2 are the only ones that touch shared code; review each of them with an Android and iOS build before merging. Phases 3 and 4 change only Playables-guarded UI and WebGL-only import settings.
+**Portal access (parallel track).** Development does not need the Developer Portal. It is needed for three things: testing on YouTube itself (the SDK does nothing on a local build, so cloud save, pause, mute and ads can only be confirmed there), the Test Suite, and uploading and submitting. Access is by invitation, so apply through the Playables interest form early; the studio had not applied yet on 2026-10-07.
 
-## Testing plan
+Every phase that touches shared code ends with an Android build and a quick play-through before it is committed.
 
-Every release candidate goes through four layers, cheapest first.
+## Testing and submission
 
-| Layer | How | Pass criteria |
+The SDK does nothing when the game is served locally, so local tests cover the game and the security policy; YouTube behaviour is tested on the Developer Portal's dev link.
+
+| Where | How | Checks |
 | --- | --- | --- |
-| Editor | Play mode with a fake `ytgame` service (no jslib) | Boot waits for load; pause freezes play; mute silences all audio |
-| Local browser | WebGL build served locally, YouTube CSP applied with Chrome local overrides ([guide](https://developers.google.com/youtube/gaming/playables/reference/test_suite_guide)) | No CSP violations in console; no external requests in the Network tab |
-| Playables Test Suite | Build loaded into the [Test Suite](https://developers.google.com/youtube/gaming/playables/test_suite) (the Developer Portal links it per release) | Unverified: the page does not load without portal access, so what it checks beyond CSP is unknown |
-| YouTube dev link | Developer Portal release, "Verify and test" tab | Works on the four platforms the portal lists: YouTube desktop web, mobile web, Android and iOS, in all YouTube-supported browsers |
+| Unity Editor | Play mode | Game runs with AdMob and Firebase compiled out; hidden rows and layout; Esc and back |
+| Local browser | WebGL build on a local server, with Google's CSP header applied through Chrome local overrides ([guide](https://developers.google.com/youtube/gaming/playables/reference/test_suite_guide)) | No CSP violations; no external requests; window resizing |
+| Test Suite | [SDK Test Suite](https://developers.google.com/youtube/gaming/playables/test_suite) | Not yet known: the page shows nothing without access (Q1) |
+| YouTube dev link | Developer Portal release, "Verify and test" tab | YouTube desktop web, mobile web, Android app, iOS app |
 
-Budgets checked on every build (the device and network conditions are proposed test setups, not Google rules):
+To check on the dev link:
 
-- Bytes downloaded until `gameReady`: under 15 MiB target, 30 MiB hard limit (Network tab, cache disabled).
-- Largest file under 30 MiB; total file count under 8,000; filenames only letters, digits, `_ - .`.
-- Interactive in under 5 seconds on a mid-range Android phone over 4G throttling.
-- JS heap well under 512 MB on an iPhone after 20 levels.
-- Save payload size logged; target under 500 KiB.
+- [ ] Loading screen shows, then the main menu; YouTube's spinner clears only once the menu is usable
+- [ ] First launch, play, reload: pack progress, daily completions, hints and settings come back
+- [ ] A save from the previous build loads without errors
+- [ ] Pause during a level: nothing moves, no sound, taps are ignored; resume continues cleanly
+- [ ] YouTube mute: no sound anywhere, whatever the in-game sliders say
+- [ ] Every window shape from very tall to very wide: playable, nothing cut off, no state lost on resize
+- [ ] Touch only, then mouse only, for every flow
+- [ ] Esc (and back on Android): closes the top popup, else goes back one page; nothing on the main menu; from a board back to the level list (daily calendar for a daily challenge); on Level Complete closes it
+- [ ] No share, privacy-policy or vibration controls
+- [ ] Finishing all content shows the end-of-content message
+- [ ] Android build from the same commit still has ads, share, haptics and Firebase, and its back button behaves as above
 
-Scenarios to run by hand:
+Before pressing "Submit for Certification" in the portal (only one release can be in review at a time):
 
-- [ ] First launch with no save, then reload: pack progress, daily completions, hints and settings restored
-- [ ] Save from an older build version loads without errors
-- [ ] Resize from 9:32 to 32:9 mid-level: board stays playable, no state lost
-- [ ] Draw every flow with mouse only, then with touch only
-- [ ] YouTube mute on: no sound anywhere, including the first tap and ad close
-- [ ] Pause during a level and during an ad, then resume
-- [ ] Esc closes every popup
-- [ ] Daily challenge across midnight and on Feb 29
-- [ ] Last level solved: an end-of-content message appears
-- [ ] Rewarded ad declined or unavailable: no reward, no stuck UI
-- [ ] Solving a daily challenge adds 1 hint on YouTube; the mobile build is unchanged
-- [ ] Android build of the same commit still shows AdMob ads, share and haptics, and logs Firebase events
+- [ ] Title, genre, description, publisher and developer filled in; no logos or branding in thumbnails, titles or descriptions
+- [ ] Thumbnails in every aspect ratio the portal asks for
+- [ ] Accurate accessibility tags
+- [ ] Rights confirmed for all art, fonts, music and sounds; general audience 13+, not made for kids
+- [ ] Ads left off in the portal (no ads in v1)
+- [ ] ZIP of the uncompressed WebGL build, every file under 30 MiB
+- [ ] `FINAL_BUILD` set, so the Developer page is gone
+- [ ] Dev and staging links kept inside the team
 
-## Risks and open questions
+## Decisions and open questions
 
-The biggest open risk is whether YouTube ads serve at all. Hints no longer depend on them: the YouTube build grants +1 hint per daily challenge solved.
+All questions are answered except the one below. Decisions recorded on 2026-10-07:
 
-| Risk | Impact | Mitigation |
-| --- | --- | --- |
-| YouTube ads not available: the requirements page says monetization is not supported, the portal says ad settings "won't change the end-user ads experience for now", and `requestRewardedAd` makes no guarantee an ad was shown | No ad revenue on YouTube | Decided: ads built behind a switch, off until Google confirms; hints refill through daily solves |
-| Early-access application not accepted, or slow | Work done with no launch slot | Apply in Phase 0, before Phases 1 to 5 |
-| Initial download over 15 MiB (on-disk sizes suggest it is close) | Slow first load, weaker certification | Phase 0 measurement; lazy-load music; trim fonts and sprites |
-| iPhone memory: WebGL max memory is set to 2048 MB today | Crash in YouTube iOS above 512 MB heap | Lower max memory on the WebGL target; test 20+ levels on an iPhone |
-| "Substantially identical" and trade-dress rules in Trust and Safety | Rejection if Pathza looks too close to existing flow-puzzle games | Review title, thumbnails and colour style before submission |
-| Shared-code refactor in Phases 1 and 2 | Mobile regression | Android and iOS smoke test before each merge; save-format tests in `Assets/Tests/Editor` |
-| Old saves after updates (cloud saves must load across versions) | Lost progress | Keep `schemaVersion` migration in the envelope; test loading a save from the previous build |
-| No Firebase analytics on YouTube | No level funnel data for the Playables build | Accept for launch; use Developer Portal metrics if offered |
+| Topic | Decision |
+| --- | --- |
+| Branch | Same branch as the Android game |
+| Wrapper and template | Google's wrapper and Google's WebGL template, both unmodified (its page title and Unity logo included) |
+| Code structure | Interfaces for ads, analytics, save storage, platform lifecycle, share and haptics; one assembly definition per provider; providers chosen by build profile plus a config asset |
+| Config selection (Q12) | One config asset per define, loaded from Resources |
+| Wrapper assembly (Q13) | Add an `.asmdef` beside Google's wrapper files; their files untouched |
+| Wrapper object (Q2) | `YTGameWrapper` as a scene object in StartScene |
+| Pause (Q3) | Freeze time, audio and input, save, then stop Unity's frame loop with its built-in `pauseMainLoop` (a two-line `.jslib`); on resume restart the loop and turn input back on a frame later |
+| Ads (Q4) | No ads in the YouTube build for v1 |
+| Hints (Q5) | +1 hint the first time each day's challenge is solved, YouTube build only |
+| Window shape (Q6) | Pillarbox inside Unity: a centred portrait game area with bars; template untouched |
+| Hidden UI (Q7) | Settings share row, Level Complete share button, privacy-policy row and vibration row; the rest moves up to close the gaps |
+| End of content (Q8) | "ALL PACKS COMPLETE" |
+| Size (Q9) | Decided in Phase 4 from a measured build |
+| Language and score (Q10) | English only; no `sendScore` |
+| Listing (Q10) | Claude drafts the title, description and accessibility tags for your review; your team makes the thumbnails |
+| Developer page | `FINAL_BUILD` set for the YouTube submission build |
+| Portal access (Q1) | Not applied yet; development goes ahead meanwhile |
+| Estimates (Q11) | None |
+| Esc and Android back | Every platform: close the top popup, else go back one page; nothing on the main menu; from a board, back to the level list (the daily calendar for a daily challenge); on Level Complete, close it |
 
-Open questions:
+Still open:
 
-- [x] Ads: build YouTube ads behind a switch; turn on only if Google confirms they serve (decided 2026-10-07)
-- [x] Hint refill on YouTube: +1 hint per daily challenge solved (decided 2026-10-07)
-- [x] Branch: Playables work on a separate branch, merged back (decided 2026-10-07)
-- [ ] Ask Google (Playables Discord or your contact) whether YouTube ads currently serve
-- [ ] Is the license for `bg-music.wav` and the SFX valid for distribution on YouTube?
-- [ ] Send a score with `sendScore` (for example total levels solved), or skip it?
-- [ ] Add more languages now via `getLanguage`, or English only for v1?
-
-Found during the survey, unrelated to Playables: `UIController.RetryCurrentLevel` always built the pack path, so Retry on a Daily level loaded the Classic level with the same number. Fixed on 2026-10-07 in commit `0707991`: Retry now reloads a daily level from its Daily folder. Also found: `FINAL_BUILD` is not defined on any target, so the Developer row (which can set hints) shows in current Play Store and App Store builds too.
-
-## Submission checklist
-
-Tick these in the Developer Portal release before pressing "Submit for Certification"; only one release can be in review at a time.
-
-Access and listing:
-
-- [ ] Studio accepted through the Playables interest form; YouTube channel onboarded
-- [ ] Team members given Editor or Manager permission on the channel in YouTube Studio
-- [ ] Title, genre, description, publisher and developer filled in, with no logos or branding in thumbnails or text
-- [ ] Thumbnails exported in every aspect ratio the portal asks for
-- [ ] Accurate accessibility tags selected
-- [ ] Rights confirmed for all art, fonts, music and SFX; listing is general audience 13+, not made for kids
-- [ ] Interstitial and rewarded ad settings chosen in the portal
-
-Build:
-
-- [ ] ZIP of the WebGL output, built with Compression Disabled; folder layout checked against the portal's upload rules (not yet confirmed)
-- [ ] SDK script is the first script in `index.html`
-- [ ] Under 30 MiB to `gameReady`, under 250 MiB total, under 8,000 files, every file under 30 MiB
-- [ ] Relative paths and safe filenames only
-- [ ] No external requests, no AdMob or Firebase code in the bundle
-- [ ] No share buttons, privacy-policy row, vibration toggle or external link in the UI
-- [ ] No in-game master mute; music and SFX toggles still work under YouTube mute
-- [ ] Code minified only, not obfuscated
-
-Verification:
-
-- [ ] Test Suite run clean; dev link tested on desktop web, mobile web, Android and iOS
-- [ ] Android and iOS builds from the same commit smoke-tested
-- [ ] Dev and staging links kept internal; not shared outside the team
+- [ ] **Licences.** Music, sound effects and fonts must be cleared for distribution on YouTube; not yet confirmed. Needed before submission.
