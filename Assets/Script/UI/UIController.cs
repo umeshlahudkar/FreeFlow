@@ -740,15 +740,24 @@ namespace FreeFlow.UI
 
         /// <summary>
         /// Resets gameplay state and reloads the level currently in progress -- what every
-        /// "Retry" button (the Level Complete overlay's) does. Goes through
-        /// LoadCurrentModeLevel rather than LoadLevel precisely so it does NOT touch
+        /// "Retry" button (the Level Complete overlay's) does. Goes through the loaders rather
+        /// than LoadLevel/LoadDailyChallengeForDay precisely so it does NOT touch
         /// <see cref="currentSource"/>: retrying a daily challenge is still that daily challenge.
+        /// A daily level must reload from its own Daily folder: its number collides with an
+        /// unrelated Classic pack level of the same size, which LoadCurrentModeLevel would open.
         /// </summary>
         public void RetryCurrentLevel()
         {
             GamePlayController.Instance.ResetGameplay();
-            // LoadCurrentModeLevel closes the LevelComplete overlay itself before opening Gameplay.
-            LoadCurrentModeLevel(currentLevel);
+            // Both loaders close the LevelComplete overlay themselves before opening Gameplay.
+            if (currentSource == LevelSource.Daily)
+            {
+                LoadDailyLevelAsset(dailyPackSize, currentLevel);
+            }
+            else
+            {
+                LoadCurrentModeLevel(currentLevel);
+            }
         }
 
         /// <summary>
