@@ -39,9 +39,20 @@ namespace FreeFlow.UI
         // this object registered a tween that never advanced past its start value.
         private Coroutine slideRoutine;
 
+        [Header("Bottom row")]
+        // Home, Retry and Share, side by side. A build with no share sheet (YouTube) hides Share
+        // and spreads the other two across the row -- see Awake.
+        [SerializeField] private RectTransform[] bottomRowButtons;
+        [SerializeField] private RectTransform shareButton;
+
         private void Awake()
         {
             if (sheet != null) { sheetRestingPosition = sheet.anchoredPosition; }
+
+            if (!ShareService.Instance.IsAvailable)
+            {
+                FreeFlow.Util.ManualLayout.CollapseRow(bottomRowButtons, shareButton);
+            }
         }
 
         /// <summary>Slides the sheet up from below the screen into its resting position while the
@@ -301,6 +312,14 @@ namespace FreeFlow.UI
                 AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
                 UIController.Instance.DismissLevelCompleteOverlay();
             }
+        }
+
+        /// <summary>Esc / Android back closes this overlay the way tapping the backdrop does,
+        /// returning to the solved board.</summary>
+        public override bool HandleBackKey()
+        {
+            UIController.Instance.DismissLevelCompleteOverlay();
+            return true;
         }
 
         public void OnHomeButtonClick()

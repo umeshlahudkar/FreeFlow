@@ -27,6 +27,10 @@ namespace FreeFlow.UI
         private readonly Dictionary<PageType, Page> pageMap = new Dictionary<PageType, Page>();
         private readonly Stack<Page> pageStack = new Stack<Page>();
 
+        // Overlays currently open, in the order they were opened -- the last one is on top. Only
+        // the back key reads it, to close the top dialog first (Developer over Settings, say).
+        private readonly List<Page> openOverlays = new List<Page>();
+
         public PageType CurrentPage { get { return pageStack.Peek().PageType; } }
 
         private void Awake()
@@ -122,7 +126,12 @@ namespace FreeFlow.UI
         /// without touching the back-stack.</summary>
         public void OpenAsOverlay(PageType type)
         {
-            if (pageMap.TryGetValue(type, out Page overlay)) { overlay.Open(); }
+            if (pageMap.TryGetValue(type, out Page overlay))
+            {
+                openOverlays.Remove(overlay);
+                openOverlays.Add(overlay);
+                overlay.Open();
+            }
             else { Debug.LogError("PageManager: no page registered for " + type); }
         }
 
@@ -130,7 +139,54 @@ namespace FreeFlow.UI
         /// it is already closed.</summary>
         public void CloseOverlay(PageType type)
         {
-            if (pageMap.TryGetValue(type, out Page overlay)) { overlay.Close(); }
+            if (pageMap.TryGetValue(type, out Page overlay))
+            {
+                openOverlays.Remove(overlay);
+                overlay.Close();
+            }
+        }
+
+        // ---- Esc / Android back ----------------------------------------------------------------
+        //
+        // The same on every platform: Android's back button arrives as Escape. Closes the top
+        // dialog if there is one, otherwise goes back one page -- from a board to the level list,
+        // or to the daily calendar for a daily challenge, since that is the page beneath it. Does
+        // nothing on the main menu. Each page's own close button decides what "close" means (see
+        // Page.HandleBackKey), so the key never does something its button would not.
+
+        private void Update()
+        {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) { OnBackKey(); }
+        }
+
+        private void OnBackKey()
+        {
+            Page target = TopBackKeyOverlay();
+            bool isOverlay = target != null;
+            if (!isOverlay)
+            {
+                if (pageStack.Count <= 1) { return; }
+                target = pageStack.Peek();
+            }
+
+            // The same one-shot gate every button uses, so the key cannot act mid-transition,
+            // while input is off (a YouTube pause), or twice in one press.
+            if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
+            AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
+
+            if (target.HandleBackKey()) { return; }
+            if (isOverlay) { CloseOverlay(target.PageType); }
+            else { ClosePage(); }
+        }
+
+        private Page TopBackKeyOverlay()
+        {
+            for (int i = openOverlays.Count - 1; i >= 0; i--)
+            {
+                Page overlay = openOverlays[i];
+                if (overlay.IsOpen && overlay.TakesBackKey) { return overlay; }
+            }
+            return null;
         }
     }
 }

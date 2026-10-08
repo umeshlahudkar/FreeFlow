@@ -25,11 +25,18 @@ public static class AppBootstrap
     /// vSyncCount is cleared because it takes precedence over targetFrameRate wherever it is
     /// honoured: the quality level this project ships for mobile (Medium) sets vSyncCount to 1, and
     /// a non-zero vSyncCount makes targetFrameRate a no-op rather than an override.
+    ///
+    /// Not in a web build: there the browser's own animation frame drives the loop, and setting a
+    /// target frame rate takes the game off it.
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ApplyFrameRate()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        Application.targetFrameRate = -1;
+#else
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = TargetFrameRate;
+#endif
     }
 }

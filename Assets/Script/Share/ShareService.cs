@@ -1,5 +1,6 @@
 using System.IO;
 using UnityEngine;
+using FreeFlow.Core.Services;
 using FreeFlow.Util;
 
 namespace FreeFlow.Share
@@ -77,6 +78,22 @@ namespace FreeFlow.Share
         // One fixed name, overwritten each time: the cache directory is not somewhere to
         // accumulate one PNG per level ever completed.
         private const string CardFileName = "pathza_result.png";
+
+        // This build's share sheet, built once from the ServiceConfig the first time it is needed.
+        private IShareService shareService;
+
+        private IShareService ShareSheet
+        {
+            get
+            {
+                if (shareService == null) { shareService = ServiceConfig.Current.CreateShareService(); }
+                return shareService;
+            }
+        }
+
+        /// <summary>Whether this build has a share sheet at all. Screens hide their Share controls
+        /// when it does not (the YouTube build).</summary>
+        public bool IsAvailable { get { return ShareSheet.IsAvailable; } }
 
         /// <summary>What the game calls itself -- Player Settings' Product Name, unless something
         /// here deliberately overrides it.</summary>
@@ -191,7 +208,9 @@ namespace FreeFlow.Share
             }
         }
 
-        /// <summary>Hands the share to the platform.
+        /// <summary>Hands the share to the platform's share sheet -- this service's
+        /// <see cref="IShareService"/>, built from the build's ServiceConfig (NativeShare on Android
+        /// and iOS).
         ///
         /// There is no share sheet in the Editor, so a tap there would otherwise do nothing at all
         /// and look like a broken button. Instead it says so on screen -- through the same
@@ -210,9 +229,7 @@ namespace FreeFlow.Share
                 UI.UIController.Instance.ShowWarning(editorNoticeMessage);
             }
 #else
-            NativeShare share = new NativeShare().SetSubject(subject).SetText(text);
-            if (!string.IsNullOrEmpty(filePath)) { share.AddFile(filePath); }
-            share.Share();
+            ShareSheet.Share(subject, text, filePath);
 #endif
         }
     }

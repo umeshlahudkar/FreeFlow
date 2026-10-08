@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 02ecff78b5cf4fc4aa19c1d78d9388f1, type: 3}
+  m_Name: ServiceConfig_Mobile
+  m_EditorClassIdentifier: FreeFlow.Core::FreeFlow.Core.Services.ServiceConfig
+  ads: {fileID: 11400000, guid: 8c1a66db029d0304f90dccf0eaf02609, type: 2}
+  analytics: {fileID: 11400000, guid: 8d886b23c5be9ef4d99af63373abeae7, type: 2}
+  saveStorage: {fileID: 0}
+  platform: {fileID: 11400000, guid: f1fdde1c8e64dc643af351f6c1019db9, type: 2}
+  share: {fileID: 11400000, guid: cf5ebfadaedc27c4cb3c77167c963fff, type: 2}
+  haptics: {fileID: 11400000, guid: caa529600b25d1a49b37b40921b4bdce, type: 2}
+  levelsBetweenInterstitials: 3
+  minSecondsBetweenInterstitials: 120
+  dailyFirstSolveHints: 0

@@ -1,0 +1,19 @@
+{
+    "name": "FreeFlow.Platform.YouTube",
+    "rootNamespace": "",
+    "references": [
+        "FreeFlow.Core",
+        "YTGameSDK"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "YOUTUBE_PLAYABLES"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

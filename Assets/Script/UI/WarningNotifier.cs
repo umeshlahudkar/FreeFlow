@@ -41,6 +41,10 @@ namespace FreeFlow.UI
             restingScale = transform.localScale;
         }
 
+        // A toast, not a dialog: it goes away on its own, so Esc / back passes straight through it
+        // to whatever is underneath.
+        public override bool TakesBackKey { get { return false; } }
+
         /// <summary>The message this notifier shows when it is next opened. Set before opening it,
         /// not instead of opening it: only PageManager puts a page on screen.</summary>
         public void SetMessage(string message)

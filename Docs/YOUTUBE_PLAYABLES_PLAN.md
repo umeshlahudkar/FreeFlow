@@ -101,7 +101,7 @@ Firebase stops a web build compiling; file saves, missing SDK signals and forbid
 | Part | Today (checked in code) | YouTube build needs | Blocks |
 | --- | --- | --- | --- |
 | Firebase Analytics + Crashlytics | `FirebaseManager.cs`, `AnalyticsManager.cs`, unguarded; Firebase DLLs exclude WebGL | Compiled out; errors could go to `SendYTGameError` | Compile |
-| AdMob | `ADManager.cs`: rewarded ad when hints are 0 (`GameplayPage.cs:341`), interstitial after 3 levels and 180 s (`UIController.cs:737`); four core AdMob DLLs are set to Any Platform | Compiled out; four DLLs excluded from WebGL; no ads in v1 | Policy |
+| AdMob | `ADManager.cs`: rewarded ad when hints are 0 (`GameplayPage.cs:341`), interstitial after 3 levels and 120 s (scene value; the code default is 180 s) (`UIController.cs:737`); four core AdMob DLLs are set to Any Platform | Compiled out; four DLLs excluded from WebGL; no ads in v1 | Policy |
 | Saving | `ProfileManager.cs`: `SaveData.json` + `Settings.json` written with `System.IO` | Cloud save through the wrapper, loaded before the first save, saved after progress and on pause | Certification |
 | Startup signals | StartScene runs ProfileManager, AdManager, FirebaseManager, then loads MainScene; no SDK calls | `firstFrameReady` on the first frame, `gameReady` once the main menu is interactive | Certification |
 | Pause / resume | Nothing handles either | Stop the game on `onPause`, restart on `onResume` (freeze, save, stop the frame loop) | Certification |
@@ -129,13 +129,69 @@ Size, measured on a test build (since reverted) with today's code and settings:
 
 Likely contributors, from that build's report: code optimization stored as 0 (likely "Shorter Build Time", not confirmed), managed stripping Low, the Unity splash logo (2.7 MiB), TextMesh Pro's default font and emoji sprites (~1.7 MiB), three Teko font weights (1 MB each), and `bg-music` (1.5 MiB built). Nothing here is fixed yet.
 
+**Phase 4 baseline, 2026-10-08.** Clean, non-development build of the YouTube Playables profile after Phases 0–3 (AdMob and Firebase compiled out). Settings at the time: compression Disabled, data caching on, managed stripping Low, Strip Engine Code on, IL2CPP Release with Optimize Speed, code optimization read as Runtime Speed, splash screen off, memory 32 MB initial / 2048 MB max.
+
+| File | Raw | gzip -9 | Brotli 11 | Limit |
+| --- | --- | --- | --- | --- |
+| `.wasm` (code) | 31.76 MiB | 8.97 MiB | 5.97 MiB | Over the 30 MiB per-file MUST |
+| `.data` (assets) | 9.64 MiB | 5.04 MiB | 4.42 MiB | OK |
+| `.framework.js` | 0.40 MiB | 0.09 MiB | 0.07 MiB | OK |
+| `.loader.js` | 0.03 MiB | 0.01 MiB | 0.01 MiB | OK |
+| Whole build, 22 files | 41.98 MiB | | | Download until playable is essentially all of it |
+
+Assets in the `.data` (Unity's report, uncompressed): textures 15.3 MB, other assets 2.6 MB, sounds 1.6 MB, shaders 38 KB; 19.7 MB of user assets in a 42.0 MB build. Largest single items: the Unity splash logo texture 2.7 MB (included although the splash is off), `bg-music.wav` 1.5 MB, LiberationSans SDF and the three Teko SDF fonts 1.0 MB each, the gameplay sprite atlas 1.0 MB, `bg_light_1080x1920.png` 1.0 MB, TextMesh Pro's `LiberationSans.ttf` 0.34 MB and `EmojiOne.png` 0.34 MB, nine `board_grid_*` sprites and five other UI sprites ~0.26 MB each.
+
+Also found: `Assets/StreamingAssets/google-services-desktop.json` (Firebase's config file) is copied into the YouTube build, although Firebase is compiled out of it.
+
+**After removing the splash logo, LiberationSans and EmojiOne, 2026-10-08.** "Show Unity Logo" unticked; TMP's default font set to Teko-Medium (Teko's atlases regenerated with "·"); LiberationSans, its fallback and materials, and EmojiOne moved out of TMP's `Resources`.
+
+| File | Raw | gzip -9 | Brotli 11 | Change from baseline (raw) |
+| --- | --- | --- | --- | --- |
+| `.wasm` (code) | 31.76 MiB | 8.97 MiB | 5.97 MiB | none |
+| `.data` (assets) | 8.92 MiB | 4.42 MiB | 3.87 MiB | −0.72 MiB |
+| Whole build, 22 files | 41.27 MiB | | | −0.71 MiB |
+
+Unity's report counts user assets falling from 19.7 MB to 15.3 MB, but its sizes are before compression: inside `.data`, every asset is in `data.unity3d`, a bundle Unity already compresses with LZ4HC. What `.data` actually holds:
+
+| Inside `.data` | Size | What it is |
+| --- | --- | --- |
+| `Il2CppData/Metadata/global-metadata.dat` | 4.09 MiB | Code metadata; grows and shrinks with the code, like the `.wasm` |
+| `data.unity3d` | 1.72 MiB | All scenes, textures, fonts and sprites, LZ4HC-compressed |
+| `Resources/unity default resources` | 1.56 MiB | Unity's built-in resources |
+| `sharedassets1.resource` | 1.55 MiB | Audio stored for streaming (mainly `bg-music`) |
+
+So art and fonts are a small part of the download. Code is most of it: the `.wasm` plus its metadata come to about 35.9 MiB of the 41.3 MiB.
+
+**After removing unused packages, 2026-10-08.** Removed from `Packages/manifest.json` (project-wide, so Android too): Visual Scripting, 2D Animation, 2D PSD Importer, 2D SpriteShape, 2D Pixel Perfect, 2D Tilemap Editor, Timeline, AI Navigation, Multiplayer Center; Burst, Collections, Mathematics and 2D Common went with them as dependencies. `com.unity.2d.sprite` (the Sprite Editor, needed for the 17 nine-slice sprites) added explicitly so it stays. Nothing in the project used any of them; no missing scripts afterwards, and the Editor needed a restart for Burst.
+
+| File | Raw | gzip -9 | Brotli 11 | Change from previous (raw) |
+| --- | --- | --- | --- | --- |
+| `.wasm` (code) | 31.26 MiB | 8.86 MiB | 5.84 MiB | −0.50 MiB |
+| `.data` (assets) | 8.74 MiB | 4.33 MiB | 3.80 MiB | −0.18 MiB (code metadata 4.09 → 3.96 MiB) |
+| Whole build, 22 files | 40.58 MiB | | | −0.69 MiB |
+
+Assemblies in the build fell from 108 to 87. Apart from Unity's engine modules, what is left is DOTween (+ Modules), FreeFlow.Core, FreeFlow.Platform.YouTube, YTGameSDK, TextMesh Pro, NativeShare.Runtime, and the Unity MCP plugin's runtime with Newtonsoft.Json. The small saving shows that Low stripping was already removing most of those packages' code; the `.wasm` is still over 30 MiB.
+
+**After the Web-only code-size settings, 2026-10-08.** Managed Stripping Level Low → High and IL2CPP Code Generation Optimize Speed → Optimize Size (both set for the Web target only; Android and iOS stay Low / Optimize Speed), and the YouTube Playables profile's Code Optimization Runtime Speed → Disk Size with LTO. The clean build took about 9 minutes.
+
+| File | Raw | gzip -9 | Brotli 11 | Change from previous (raw) |
+| --- | --- | --- | --- | --- |
+| `.wasm` (code) | **17.11 MiB** | 6.21 MiB | 4.49 MiB | −14.15 MiB |
+| `.data` (assets) | 8.08 MiB | 4.14 MiB | 3.65 MiB | −0.66 MiB (code metadata 3.96 → 3.30 MiB) |
+| `.framework.js` | 0.39 MiB | 0.08 MiB | 0.07 MiB | |
+| Whole build, 22 files | **25.77 MiB** | | | −14.81 MiB |
+
+Every file is now under the 30 MiB per-file MUST, and the whole build is under 30 MiB even before YouTube compresses it, so no ZIP step is needed.
+
+Played in a local browser (Chromium, served from `127.0.0.1`) to check High stripping removed nothing the game needs: boots to the main menu; Classic → 5×5 → level 1; drawing paths; a hint (3 → 2); solving to Level Complete (Share hidden, "·" drawn in Teko); Esc closing Level Complete, then back to the level list, the pack list and the main menu; Settings with the vibration, share and privacy rows hidden; the daily calendar, today's daily board, and Esc back to the calendar. No console errors. Advanced-mode mechanics, the developer page and audio were not exercised.
+
 ## Approach
 
 Game code talks only to service interfaces. Each platform's SDK code lives in its own assembly, switched on or off by the build profile's define, and a config asset per build picks which compiled-in provider serves each interface. Adding a provider later (another ad network, another web portal) means a new assembly and a config entry, with no change to the game code. Google's wrapper and template are used as shipped.
 
 ```mermaid
 flowchart TD
-    core["<b>FreeFlow.Core (every build)</b><br/>Puzzle, levels, UI, ad rules (cadence, hint reward), service registry<br/>IAdService, IAnalyticsService, ISaveStorage, IPlatformService, IShareService, IHapticsService"]
+    core["<b>FreeFlow.Core (every build)</b><br/>Puzzle, levels, UI, ad rules; each manager holds its own service<br/>IAdService, IAnalyticsService, ISaveStorage, IPlatformService, IShareService, IHapticsService"]
     config["Config asset per build: picks the compiled-in providers and holds settings such as ads on/off"]
     android["<b>Android / iOS build</b><br/>FreeFlow.Ads.AdMob<br/>FreeFlow.Analytics.Firebase<br/>FreeFlow.Platform.Mobile<br/><i>define: none</i>"]
     youtube["<b>YouTube build</b><br/>FreeFlow.Platform.YouTube<br/>lifecycle, cloud save,<br/>pause, mute, error log<br/><i>define: YOUTUBE_PLAYABLES</i>"]
@@ -155,14 +211,14 @@ Assemblies (Unity assembly definitions), and when each is compiled:
 
 | Assembly | Holds | Compiled |
 | --- | --- | --- |
-| `FreeFlow.Core` | Gameplay, UI, levels, ad rules, the service interfaces, the service registry, config types, null providers, device-file save storage | Always |
+| `FreeFlow.Core` | Gameplay, UI, levels, ad rules, the service interfaces, the managers that each own one service (ADManager, AnalyticsManager, ProfileManager, ShareService, Haptics, PlatformManager), config types, null providers, device-file save storage | Always |
 | `FreeFlow.Editor` | The tools in `Assets/Script/Editor` (level generator, pack verifier and others) | Editor only |
 | `FreeFlow.Ads.AdMob` | `IAdService` on Google Mobile Ads | Without `YOUTUBE_PLAYABLES` |
 | `FreeFlow.Analytics.Firebase` | `IAnalyticsService` on Firebase Analytics and Crashlytics | Without `YOUTUBE_PLAYABLES` |
 | `FreeFlow.Platform.Mobile` | `IShareService` (NativeShare), `IHapticsService` (Android and iOS vibration), `IPlatformService` | Without `YOUTUBE_PLAYABLES` |
 | `FreeFlow.Platform.YouTube` | `IPlatformService`, `ISaveStorage` (cloud save), `IAnalyticsService` (error log), all on Google's wrapper | With `YOUTUBE_PLAYABLES` |
 | DOTween Modules | DOTween's module scripts, so Core can still use tweens such as `DOFade` | Always |
-| Google's wrapper | `YTGameWrapper.cs`, unmodified, with an `.asmdef` file added beside it | With `YOUTUBE_PLAYABLES` |
+| Google's wrapper | `YTGameWrapper.cs`, unmodified, with an `.asmdef` file added beside it | Always (its own code keeps the SDK calls to web builds; only `FreeFlow.Platform.YouTube` references it) |
 
 The last two exist because code inside an assembly definition cannot reference loose scripts: DOTween's modules and Google's wrapper are both loose today. DOTween's setup panel can create its modules assembly; Google's files would only gain a new file next to them (Q13).
 
@@ -180,7 +236,7 @@ Which provider serves each interface:
 Rules that keep the design extensible and the Android build unchanged:
 
 1. **Refactor first, then add YouTube.** The Android build moves onto the interfaces with no change in behaviour before any YouTube code lands.
-2. **Rules live in Core, providers only deliver.** The interstitial cadence (3 levels, 180 s), when a rewarded ad is offered and what it pays stay in Core; an ad provider only loads, shows and reports the result.
+2. **Rules live in Core, providers only deliver.** The interstitial cadence (3 levels, 120 s), when a rewarded ad is offered and what it pays stay in Core; an ad provider only loads, shows and reports the result.
 3. **The UI asks services, not platforms.** For example the Share row shows only when `IShareService` says sharing is available, so a new platform needs no UI change.
 4. **Google's files stay as Google ships them.** Gaps found in their source (fake save results, no load timeout, Editor reward stub, pause that stops nothing) are handled inside `FreeFlow.Platform.YouTube`.
 5. **One save format.** The same progress and settings JSON goes to device files on Android and to YouTube cloud save on the web.
@@ -189,6 +245,8 @@ Rules that keep the design extensible and the Android build unchanged:
 
 Each build finds its config through one asset per define, loaded from Resources. Google's `YTGameWrapper` object sits in StartScene, where saves are loaded, and stays alive into MainScene (the wrapper's default).
 
+**Edit each config on its own build profile.** A provider asset's script lives in its provider assembly, so while the other profile is active that script is not compiled and the Inspector shows the provider fields as None. The references are still on disk. `ServiceConfig_Mobile` and the assets in `Assets/Settings/Services/Mobile` are edited with the Android or iOS profile active; `ServiceConfig_YouTube` and `Assets/Settings/Services/YouTube` with the YouTube Playables profile active.
+
 ## Work plan
 
 Six phases of work in Unity, none of which needs the Developer Portal; portal access runs alongside as its own track (below the table). Phase 1 restructures the Android game onto the service layer before any YouTube code is added. Each phase lists what it still waits on. No time estimates, by your choice.
@@ -196,9 +254,9 @@ Six phases of work in Unity, none of which needs the Developer Portal; portal ac
 | # | Phase | Tasks | Done when | Waits on |
 | --- | --- | --- | --- | --- |
 | 0 | Setup | Create the Web build profile with `YOUTUBE_PLAYABLES`. Import Google's wrapper and template packages unmodified. | The profile exists; the Android build is unchanged | Nothing |
-| 1 | Service layer (Android only) | Create the assemblies (Core, Editor, DOTween Modules, one per provider) and the `.asmdef` beside Google's wrapper. Add the six interfaces, the service registry, null providers, and one config asset per define in Resources. Move AdMob, Firebase, NativeShare, haptics and file saving into providers; move the ad rules into Core. Exclude the four core AdMob DLLs from WebGL. | The Android build behaves exactly as before; edit-mode tests pass; a web build compiles with no mobile SDK code | Nothing |
+| 1 | Service layer (Android only) | Create the assemblies (Core, Editor, DOTween Modules, one per provider) and the `.asmdef` beside Google's wrapper. Add the six interfaces and null providers; each manager holds its own service, built from the one config asset per define in Resources. Move AdMob, Firebase, NativeShare, haptics and file saving into providers; move the ad rules into Core. Exclude the four core AdMob DLLs from WebGL. | The Android build behaves exactly as before; edit-mode tests pass; a web build compiles with no mobile SDK code | Nothing |
 | 2 | YouTube SDK integration | Build `FreeFlow.Platform.YouTube` on Google's wrapper: the `YTGameWrapper` scene object in StartScene; `firstFrameReady` and `gameReady`; cloud save (load before any save, a load timeout, save after progress and on pause); pause (freeze time, audio and input, save, stop the frame loop with Unity's `pauseMainLoop`; on resume restart it and turn input back on a frame later); YouTube mute; error log; browser-driven frame rate on WebGL. No ads. | Works in the Editor and a local web build; confirmed on the YouTube dev link once portal access exists (save survives a reload, pause stops the game, mute silences it) | Nothing to start; portal access to confirm |
-| 3 | Rules and UI | Hide the Settings share row, the Level Complete share button, the privacy-policy row and the vibration row, and move the rest up. Pillarbox inside Unity for very wide and very tall windows. "ALL PACKS COMPLETE" once every pack is done. +1 hint the first time each day's challenge is solved. `FINAL_BUILD` for the submission build. Esc and Android back on every platform (shared code, so Android gets it too). | Every Design and Monetization rule in the requirements table checked by hand | Nothing |
+| 3 | Rules and UI | **Done 2026-10-07, except the pillarbox (deferred).** Hide the Settings share row, the Level Complete share button, the privacy-policy row and the vibration row, and move the rest up. Pillarbox inside Unity for very wide and very tall windows. "ALL PACKS COMPLETE" once every pack is done. +1 hint the first time each day's challenge is solved. `FINAL_BUILD` for the submission build. Esc and Android back on every platform (shared code, so Android gets it too). | Every Design and Monetization rule in the requirements table checked by hand | Nothing |
 | 4 | Size and performance | Measure the build, then choose: shrink it (stripping, code optimization, splash, unused fonts and emoji, music), ZIP the `.wasm` as Google describes, or both. Keep the heap well under 512 MB. Aim for interactive in under 5 s. | All Stability MUSTs met on a measured build | The measurement |
 | 5 | Test and submit | Run the testing checklist on the YouTube dev link. Portal release: Claude drafts the title, description and accessibility tags, your team makes the thumbnails, ads stay off. Submit for certification. | Submitted | Portal access, licences confirmed |
 
@@ -239,7 +297,7 @@ Before pressing "Submit for Certification" in the portal (only one release can b
 - [ ] Rights confirmed for all art, fonts, music and sounds; general audience 13+, not made for kids
 - [ ] Ads left off in the portal (no ads in v1)
 - [ ] ZIP of the uncompressed WebGL build, every file under 30 MiB
-- [ ] `FINAL_BUILD` set, so the Developer page is gone
+- [ ] `FINAL_BUILD` added to the YouTube Playables profile's Scripting Defines for the submission build (and removed afterwards), so the Developer page is gone
 - [ ] Dev and staging links kept inside the team
 
 ## Decisions and open questions
@@ -256,14 +314,14 @@ All questions are answered except the one below. Decisions recorded on 2026-10-0
 | Wrapper object (Q2) | `YTGameWrapper` as a scene object in StartScene |
 | Pause (Q3) | Freeze time, audio and input, save, then stop Unity's frame loop with its built-in `pauseMainLoop` (a two-line `.jslib`); on resume restart the loop and turn input back on a frame later |
 | Ads (Q4) | No ads in the YouTube build for v1 |
-| Hints (Q5) | +1 hint the first time each day's challenge is solved, YouTube build only |
-| Window shape (Q6) | Pillarbox inside Unity: a centred portrait game area with bars; template untouched |
-| Hidden UI (Q7) | Settings share row, Level Complete share button, privacy-policy row and vibration row; the rest moves up to close the gaps |
-| End of content (Q8) | "ALL PACKS COMPLETE" |
+| Hints (Q5) | +1 hint the first time each day's challenge is solved, YouTube build only: `dailyFirstSolveHints` on the config asset, 1 for YouTube and 0 for Mobile |
+| Window shape (Q6) | Pillarbox inside Unity: a centred portrait game area with bars; template untouched. Deferred out of Phase 3 on 2026-10-07 ("skip UI changes for now"); still needed for certification |
+| Hidden UI (Q7) | Settings share row, Level Complete share button, privacy-policy row and vibration row; the rest moves up to close the gaps. Each asks its service: `IShareService.IsAvailable`, `IHapticsService.IsSupported`, and `IPlatformService.CanOpenExternalLinks` for the privacy row |
+| End of content (Q8) | "ALL PACKS COMPLETE" on every platform, in place of "PACK COMPLETE" when the last unfinished pack of either mode is finished |
 | Size (Q9) | Decided in Phase 4 from a measured build |
 | Language and score (Q10) | English only; no `sendScore` |
 | Listing (Q10) | Claude drafts the title, description and accessibility tags for your review; your team makes the thumbnails |
-| Developer page | `FINAL_BUILD` set for the YouTube submission build |
+| Developer page | `FINAL_BUILD` set for the YouTube submission build: added to the YouTube Playables profile's Scripting Defines for that build only, then removed, as for the store builds |
 | Portal access (Q1) | Not applied yet; development goes ahead meanwhile |
 | Estimates (Q11) | None |
 | Esc and Android back | Every platform: close the top popup, else go back one page; nothing on the main menu; from a board, back to the level list (the daily calendar for a daily challenge); on Level Complete, close it |

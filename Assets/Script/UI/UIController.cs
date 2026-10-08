@@ -470,7 +470,26 @@ namespace FreeFlow.UI
 
                 if (currentSource == LevelSource.Daily) { return "DAY COMPLETE"; }
 
-                return currentLevel >= TotalLevelCount ? "PACK COMPLETE" : "";
+                if (currentLevel < TotalLevelCount) { return ""; }
+                return AllPacksComplete ? "ALL PACKS COMPLETE" : "PACK COMPLETE";
+            }
+        }
+
+        /// <summary>Whether every pack of every mode is finished -- the end of the game's content,
+        /// which the last pack's completion says in so many words.</summary>
+        public bool AllPacksComplete
+        {
+            get
+            {
+                PlayerProgress data = ProfileManager.Instance.LoadProgress();
+                foreach (GameMode mode in new[] { GameMode.Classic, GameMode.Advanced })
+                {
+                    foreach (int size in PackSizesFor(mode))
+                    {
+                        if (data.CompletedLevelForKey(KeyFor(mode, size)) < PackLevelCountFor(size)) { return false; }
+                    }
+                }
+                return true;
             }
         }
 

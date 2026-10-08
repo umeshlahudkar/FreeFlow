@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 02ecff78b5cf4fc4aa19c1d78d9388f1, type: 3}
+  m_Name: ServiceConfig_YouTube
+  m_EditorClassIdentifier: FreeFlow.Core::FreeFlow.Core.Services.ServiceConfig
+  ads: {fileID: 0}
+  analytics: {fileID: 11400000, guid: 91135ad410ea4bd46921f75bf3423cfa, type: 2}
+  saveStorage: {fileID: 11400000, guid: ccf8a743362ceff4fb259870ebca6c86, type: 2}
+  platform: {fileID: 11400000, guid: 5d4a091a0cc9634479a492aeea7f8125, type: 2}
+  share: {fileID: 0}
+  haptics: {fileID: 0}
+  levelsBetweenInterstitials: 3
+  minSecondsBetweenInterstitials: 120
+  dailyFirstSolveHints: 1

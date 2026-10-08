@@ -3886,7 +3886,7 @@ MonoBehaviour:
   m_CaretWidth: 1
   m_ReadOnly: 0
   m_RichText: 1
-  m_GlobalFontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_GlobalFontAsset: {fileID: 11400000, guid: 0d5067fce15fd124791bc2e078692af4, type: 2}
   m_OnFocusSelectAll: 1
   m_ResetOnDeActivation: 1
   m_KeepTextSelectionVisible: 0
@@ -24765,6 +24765,11 @@ MonoBehaviour:
   fadeSeconds: 0.2
   sheet: {fileID: 653578071}
   slideSeconds: 0.3
+  bottomRowButtons:
+  - {fileID: 564510806}
+  - {fileID: 1467030267}
+  - {fileID: 951139913}
+  shareButton: {fileID: 951139913}
   titleText: {fileID: 1347308843}
   subtitleText: {fileID: 453546292}
   nextLevelTitleText: {fileID: 535920517}
@@ -36913,6 +36918,12 @@ MonoBehaviour:
   resetProgressText: {fileID: 646411976}
   developerHeading: {fileID: 488902903}
   developerSection: {fileID: 1012741934}
+  vibrationRow: {fileID: 1312316939}
+  vibrationDivider: {fileID: 1791052204}
+  shareRow: {fileID: 210881059}
+  shareDivider: {fileID: 1678648619}
+  privacyRow: {fileID: 1673537487}
+  privacyDivider: {fileID: 919135219}
 --- !u!1 &1269642312
 GameObject:
   m_ObjectHideFlags: 0
@@ -42602,7 +42613,7 @@ MonoBehaviour:
   m_CaretWidth: 1
   m_ReadOnly: 0
   m_RichText: 1
-  m_GlobalFontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_GlobalFontAsset: {fileID: 11400000, guid: 0d5067fce15fd124791bc2e078692af4, type: 2}
   m_OnFocusSelectAll: 1
   m_ResetOnDeActivation: 1
   m_KeepTextSelectionVisible: 0
@@ -53357,7 +53368,7 @@ MonoBehaviour:
   m_CaretWidth: 1
   m_ReadOnly: 0
   m_RichText: 1
-  m_GlobalFontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_GlobalFontAsset: {fileID: 11400000, guid: 0d5067fce15fd124791bc2e078692af4, type: 2}
   m_OnFocusSelectAll: 1
   m_ResetOnDeActivation: 1
   m_KeepTextSelectionVisible: 0

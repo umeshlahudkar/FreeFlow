@@ -953,7 +953,11 @@ namespace FreeFlow.GamePlay
             // an already-finished day changes nothing.
             if (isDailyChallenge)
             {
+                // The build's daily hint reward (see ServiceConfig.DailyFirstSolveHints) -- only on
+                // the day's FIRST solve, checked before the day is marked.
+                bool firstSolve = !ProfileManager.Instance.LoadProgress().IsDayCompleted(dailyDayIndex);
                 ProfileManager.Instance.MarkDailyChallengeCompleted(dailyDayIndex);
+                if (firstSolve) { ProfileManager.Instance.GrantHints(FreeFlow.Core.Services.ServiceConfig.Current.DailyFirstSolveHints); }
             }
 
             completionRecordedThisAttempt = true;

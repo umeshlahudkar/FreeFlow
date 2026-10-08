@@ -42,6 +42,15 @@ namespace FreeFlow.UI
             }
         }
 
+        /// <summary>Whether Esc / Android back acts on this page while it is the top one. Off only
+        /// for overlays that are not dialogs, such as the Warning toast, which closes on its own.</summary>
+        public virtual bool TakesBackKey { get { return true; } }
+
+        /// <summary>Esc / Android back on this page. Returns false to let PageManager do the default
+        /// -- close the overlay, or go back one page. A page whose own close button does more than
+        /// that overrides this to do the same thing its button does.</summary>
+        public virtual bool HandleBackKey() { return false; }
+
         public virtual void Open()
         {
             gameObject.Activate();

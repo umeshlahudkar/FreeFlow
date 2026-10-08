@@ -1,0 +1,19 @@
+{
+    "name": "FreeFlow.Platform.Mobile",
+    "rootNamespace": "",
+    "references": [
+        "FreeFlow.Core",
+        "NativeShare.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "!YOUTUBE_PLAYABLES"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

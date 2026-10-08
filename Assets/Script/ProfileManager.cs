@@ -1,7 +1,7 @@
 using UnityEngine;
 using System;
 using System.Collections.Generic;
-using System.IO;
+using FreeFlow.Core.Services;
 using FreeFlow.Util;
 
 /// <summary>
@@ -16,7 +16,9 @@ using FreeFlow.Util;
 ///   to know about, so "reset progress" must never touch it, and a future server sync must never
 ///   upload it either.
 ///
-/// Both are read from disk once -- in <see cref="Initialize"/> -- and kept in memory after that.
+/// Both are read once -- in <see cref="Initialize"/> -- and kept in memory after that. Where they
+/// are actually stored is this manager's <see cref="ISaveStorage"/>, built from the build's
+/// ServiceConfig: files on the device for Android and iOS.
 /// LoadProgress/LoadSettings hand out the cached copy instead of a fresh file read.
 ///
 /// SettingsData is all value types (bools, floats, an enum), so a caller's copy from LoadSettings
@@ -29,8 +31,8 @@ using FreeFlow.Util;
 /// directly and persist it, and LoadProgress is for reading only.
 ///
 /// Implements IInitializable so a scene's GameBootstrap loads both files before anything else in
-/// the game reads them -- today that is just a synchronous file read, but it is the seam a future
-/// server fetch plugs into without every caller changing.
+/// the game reads them. On the device that is a synchronous file read; a storage backend that has to
+/// fetch its data first (a cloud save) does it in Initialize, without any caller changing.
 /// </summary>
 public class ProfileManager : Singleton<ProfileManager>, IInitializable
 {
@@ -42,8 +44,17 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
     private readonly string progressFileName = "SaveData.json";
     private readonly string settingsFileName = "Settings.json";
 
-    private string progressFilePath = string.Empty;
-    private string settingsFilePath = string.Empty;
+    // Where the slots live, built once from the ServiceConfig the first time it is needed.
+    private ISaveStorage storage;
+
+    private ISaveStorage Storage
+    {
+        get
+        {
+            if (storage == null) { storage = ServiceConfig.Current.CreateSaveStorage(); }
+            return storage;
+        }
+    }
 
     private PlayerProgress cachedProgress;
     private SettingsData cachedSettings;
@@ -52,19 +63,21 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
 
     /// <summary>Loads both files into memory. GameBootstrap calls this before anything else
     /// touches player progress or settings; every Load/Save below also loads lazily on first use,
-    /// so this manager still works correctly even if it is reached before Initialize runs.</summary>
+    /// so this manager still works correctly even if it is reached before Initialize runs.
+    ///
+    /// The caches are re-read once the storage has loaded: a backend that fetches its data hands
+    /// out first-run defaults to anything that reads early, and the real save must replace them.
+    /// For files on the device the re-read finds exactly what the cache already holds.</summary>
     public void Initialize(Action onComplete)
     {
-        EnsureProgressLoaded();
-        EnsureSettingsLoaded();
-        onComplete?.Invoke();
-    }
-
-    private void EnsurePaths()
-    {
-        if (!string.IsNullOrEmpty(progressFilePath)) { return; }
-        progressFilePath = Path.Combine(Application.persistentDataPath, progressFileName);
-        settingsFilePath = Path.Combine(Application.persistentDataPath, settingsFileName);
+        Storage.Load(() =>
+        {
+            progressLoaded = false;
+            settingsLoaded = false;
+            EnsureProgressLoaded();
+            EnsureSettingsLoaded();
+            onComplete?.Invoke();
+        });
     }
 
     // ---- progress: pack completion, hint balance, daily-challenge history --------------------
@@ -72,14 +85,13 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
     private void EnsureProgressLoaded()
     {
         if (progressLoaded) { return; }
-        EnsurePaths();
         progressLoaded = true;
 
         bool dirty;
         PlayerProgress data;
-        if (File.Exists(progressFilePath))
+        if (Storage.TryRead(progressFileName, out string json))
         {
-            data = JsonUtility.FromJson<PlayerProgress>(File.ReadAllText(progressFilePath));
+            data = JsonUtility.FromJson<PlayerProgress>(json);
 
             // A save written before schemaVersion existed reads as 0 (JsonUtility's int default),
             // which is indistinguishable from "genuinely on version 0" -- exactly the property a
@@ -161,7 +173,14 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
 
     private void WriteProgressFile()
     {
-        File.WriteAllText(progressFilePath, JsonUtility.ToJson(cachedProgress));
+        Storage.Write(progressFileName, JsonUtility.ToJson(cachedProgress));
+    }
+
+    /// <summary>Persists anything the storage still holds unsaved -- PlatformManager calls this when
+    /// the host pauses the game. On the device every change is already on disk.</summary>
+    public void FlushSave()
+    {
+        Storage.Flush();
     }
 
     /// <summary>Wipes pack progress and daily-challenge streaks/history, then puts PlayerProgress back
@@ -169,8 +188,7 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
     /// Settings.json untouched; see SettingsData's own doc comment for why.</summary>
     public void DeleteAllProgress()
     {
-        EnsurePaths();
-        if (File.Exists(progressFilePath)) { File.Delete(progressFilePath); }
+        Storage.Delete(progressFileName);
         progressLoaded = false;
         cachedProgress = default;
     }
@@ -180,12 +198,11 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
     private void EnsureSettingsLoaded()
     {
         if (settingsLoaded) { return; }
-        EnsurePaths();
         settingsLoaded = true;
 
-        if (File.Exists(settingsFilePath))
+        if (Storage.TryRead(settingsFileName, out string json))
         {
-            cachedSettings = JsonUtility.FromJson<SettingsData>(File.ReadAllText(settingsFilePath));
+            cachedSettings = JsonUtility.FromJson<SettingsData>(json);
         }
         else
         {
@@ -210,7 +227,6 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
 
     public void SaveSettings(SettingsData data)
     {
-        EnsurePaths();
         settingsLoaded = true;
         cachedSettings = data;
         WriteSettingsFile();
@@ -218,7 +234,7 @@ public class ProfileManager : Singleton<ProfileManager>, IInitializable
 
     private void WriteSettingsFile()
     {
-        File.WriteAllText(settingsFilePath, JsonUtility.ToJson(cachedSettings));
+        Storage.Write(settingsFileName, JsonUtility.ToJson(cachedSettings));
     }
 }
 

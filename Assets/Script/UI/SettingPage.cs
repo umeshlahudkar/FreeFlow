@@ -46,6 +46,16 @@ public class SettingPage : Page
     [SerializeField] private GameObject developerHeading;
     [SerializeField] private GameObject developerSection;
 
+    // Rows a build can lack the service for, each with the divider under it. Hidden together, and
+    // the rest of the screen moves up -- see HideUnavailableRows.
+    [Header("Rows hidden when the build lacks the service")]
+    [SerializeField] private RectTransform vibrationRow;
+    [SerializeField] private RectTransform vibrationDivider;
+    [SerializeField] private RectTransform shareRow;
+    [SerializeField] private RectTransform shareDivider;
+    [SerializeField] private RectTransform privacyRow;
+    [SerializeField] private RectTransform privacyDivider;
+
     // Upper case to match the other rows on this screen ("SHARE PATHZA", "PRIVACY POLICY").
     private const string ResetPromptText = "RESET ALL PROGRESS";
     private const string ResetConfirmText = "TAP AGAIN TO CONFIRM";
@@ -53,6 +63,36 @@ public class SettingPage : Page
 
     private bool resetArmed;
     private float resetArmedUntil;
+
+    private void Awake()
+    {
+        HideUnavailableRows();
+    }
+
+    /// <summary>Hides the rows this build has nothing behind -- no vibration motor, no share
+    /// sheet, no way to open an outside page (all three on YouTube Playables) -- and moves the rest
+    /// of the screen up to close the gaps. Asks the services rather than checking the platform, so
+    /// a new platform needs no change here. Runs once, the first time the screen opens; on Android
+    /// and iOS nothing is hidden and nothing moves.</summary>
+    private void HideUnavailableRows()
+    {
+        HideRows(!Haptics.IsSupported, vibrationRow, vibrationDivider);
+
+        // Share and privacy share one card, so they collapse in one pass.
+        bool hideShare = !FreeFlow.Share.ShareService.Instance.IsAvailable;
+        bool hidePrivacy = !FreeFlow.Util.PlatformManager.CanOpenExternalLinks;
+        RectTransform generalCard = shareRow != null ? shareRow.parent as RectTransform : null;
+        var hidden = new System.Collections.Generic.List<RectTransform>();
+        if (hideShare) { hidden.Add(shareRow); hidden.Add(shareDivider); }
+        if (hidePrivacy) { hidden.Add(privacyRow); hidden.Add(privacyDivider); }
+        FreeFlow.Util.ManualLayout.CollapseStack(generalCard, hidden);
+    }
+
+    private static void HideRows(bool hide, RectTransform row, RectTransform divider)
+    {
+        if (!hide || row == null) { return; }
+        FreeFlow.Util.ManualLayout.CollapseStack(row.parent as RectTransform, new[] { row, divider });
+    }
 
     private void OnEnable()
     {
