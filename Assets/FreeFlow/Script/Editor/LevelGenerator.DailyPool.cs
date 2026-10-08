@@ -9,7 +9,7 @@ namespace FreeFlow.GamePlay
 {
     /// <summary>
     /// The daily-challenge pool: 365 Classic boards, one per day of the year, generated into
-    /// <c>Assets/Resources/Levels/Daily/{N}x{N}</c> and NOT yet read by anything in the game.
+    /// <c>Assets/FreeFlow/Resources/Levels/Daily/{N}x{N}</c> and NOT yet read by anything in the game.
     ///
     /// Same construction as the shipped Classic packs (<see cref="BuildSizePack"/>) -- refinement to
     /// a proven-unique board, the 8M-step re-proof, stored answer checked against the solver,
@@ -41,7 +41,7 @@ namespace FreeFlow.GamePlay
     /// </summary>
     public static partial class LevelGenerator
     {
-        private const string DailyPoolRoot = "Assets/Resources/Levels/Daily";
+        private const string DailyPoolRoot = "Assets/FreeFlow/Resources/Levels/Daily";
         private const string DailyCacheDir = "Library/DailyPoolCache";
         private const string DailyProgressLog = DailyCacheDir + "/progress.log";
 
@@ -312,7 +312,7 @@ namespace FreeFlow.GamePlay
             }
 
             // ---- the medium floor, from the shipped pack ------------------------------------
-            string floorPath = "Assets/Resources/Levels/Classic/" + size + "x" + size
+            string floorPath = "Assets/FreeFlow/Resources/Levels/Classic/" + size + "x" + size
                 + "/Level_" + DailyMediumFloorLevel + ".asset";
             SingleLevelDataSO floorLevel = AssetDatabase.LoadAssetAtPath<SingleLevelDataSO>(floorPath);
             if (floorLevel == null || floorLevel.levelData.difficultyScore <= 0f)
@@ -744,8 +744,8 @@ namespace FreeFlow.GamePlay
         private static HashSet<string> ShippedCanonicalKeys()
         {
             HashSet<string> keys = new HashSet<string>();
-            AddFolderKeys("Assets/Resources/Levels/Classic", keys);
-            AddFolderKeys("Assets/Resources/Levels/Advanced", keys);
+            AddFolderKeys("Assets/FreeFlow/Resources/Levels/Classic", keys);
+            AddFolderKeys("Assets/FreeFlow/Resources/Levels/Advanced", keys);
             return keys;
         }
 
@@ -769,7 +769,7 @@ namespace FreeFlow.GamePlay
         private static float ShippedScore(int size, int level)
         {
             SingleLevelDataSO so = AssetDatabase.LoadAssetAtPath<SingleLevelDataSO>(
-                "Assets/Resources/Levels/Classic/" + size + "x" + size + "/Level_" + level + ".asset");
+                "Assets/FreeFlow/Resources/Levels/Classic/" + size + "x" + size + "/Level_" + level + ".asset");
             return so == null ? 0f : so.levelData.difficultyScore;
         }
 

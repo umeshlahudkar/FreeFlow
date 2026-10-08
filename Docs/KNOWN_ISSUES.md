@@ -1,8 +1,8 @@
 # Known Issues — Drag/Select Algorithm (`GamePlayController`)
 
 Findings from a manual code review of the drag-to-connect logic in
-[`Assets/Script/GamePlay/GamePlayController.cs`](../Assets/Script/GamePlay/GamePlayController.cs),
-[`Assets/Script/GamePlay/Block.cs`](../Assets/Script/GamePlay/Block.cs) and related files.
+[`Assets/FreeFlow/Script/GamePlay/GamePlayController.cs`](../Assets/FreeFlow/Script/GamePlay/GamePlayController.cs),
+[`Assets/FreeFlow/Script/GamePlay/Block.cs`](../Assets/FreeFlow/Script/GamePlay/Block.cs) and related files.
 Ordered by practical impact.
 
 ---

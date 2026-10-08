@@ -4,7 +4,7 @@ namespace FreeFlow.GamePlay
 {
     /// <summary>
     /// Maps a calendar date to one of the 366 dedicated daily-challenge levels in
-    /// Assets/Resources/Levels/Daily/{6x6,7x7,8x8,9x9} -- a fixed, curated calendar, not a pick
+    /// Assets/FreeFlow/Resources/Levels/Daily/{6x6,7x7,8x8,9x9} -- a fixed, curated calendar, not a pick
     /// drawn from the Classic packs. Every player sees the SAME board on the SAME date; there is
     /// no per-install salt and no skill banding here at all (contrast
     /// <see cref="DailyChallengeSelector"/>, the older pack-drawing design -- left in place,
@@ -33,7 +33,7 @@ namespace FreeFlow.GamePlay
 
         // The board sizes and level counts making up the regular (non-leap-day) 365-level
         // calendar, in the fixed order they are interleaved below. MUST match what is actually
-        // shipped in Assets/Resources/Levels/Daily -- see the freeflow-daily-pool-365 memory /
+        // shipped in Assets/FreeFlow/Resources/Levels/Daily -- see the freeflow-daily-pool-365 memory /
         // LevelGenerator.DailyPool.cs's own DailyPacks table for where these numbers came from.
         private static readonly (int packSize, int count)[] RegularPools =
         {

@@ -1,8 +1,8 @@
 # Puzzle Mechanics — Reference
 
 Every board mechanic in FreeFlow: the eight shipped in
-[`Enums/BlockType.cs`](../Assets/Script/Enums/BlockType.cs) /
-[`ScriptableObject/LevelData.cs`](../Assets/Script/ScriptableObject/LevelData.cs) today, and
+[`Enums/BlockType.cs`](../Assets/FreeFlow/Script/Enums/BlockType.cs) /
+[`ScriptableObject/LevelData.cs`](../Assets/FreeFlow/Script/ScriptableObject/LevelData.cs) today, and
 four proposed additions. Written against the code, not the roadmap docs — every file and
 symbol name here is the real one.
 
@@ -48,13 +48,13 @@ it as closed unless a level design specifically needs "must bend here".
 Everything below is a variation on four facts about the current implementation.
 
 **One cell = one `Block`.** The board is `Block[,] grid` in
-[`GamePlayController`](../Assets/Script/GamePlay/GamePlayController.cs), laid out by
+[`GamePlayController`](../Assets/FreeFlow/Script/GamePlay/GamePlayController.cs), laid out by
 `BoardGenerator.LayoutBoard` from the square play area's measured rect. There is no notion of
 an edge object between two cells; `wallMask` is stored per cell precisely because of that.
 
 **Pair identity is an int, not a colour.** `Block.PairId` is the identity; `PairColorType` is
 only rendering. `completedPairs` is keyed `Dictionary<int, List<Block>>`.
-[`BoardGenerator`](../Assets/Script/GamePlay/BoardGenerator.cs) derives `pairId` from the
+[`BoardGenerator`](../Assets/FreeFlow/Script/GamePlay/BoardGenerator.cs) derives `pairId` from the
 cell's colour when level data leaves the column empty, so old levels keep working, and levels
 can now exceed 9 simultaneous pairs by authoring `pairId` explicitly.
 

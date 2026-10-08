@@ -58,7 +58,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 1-10 (Basic Flow + Blocked Cell)")]
         public static void GenerateLevels1To10()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
             const int levelCount = 10;
             // Classic numbering already starts at 1, so nothing to subtract -- declared anyway so
             // every generate method reads the same way.
@@ -127,7 +127,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 11-15 (Wall)")]
         public static void GenerateLevels11To15()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 11;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -195,7 +195,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 16-20 (One-Way)")]
         public static void GenerateLevels16To20()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 16;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -264,7 +264,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 21-25 (Arrow)")]
         public static void GenerateLevels21To25()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 21;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -355,7 +355,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Prototype Levels 31-33 (relaxed coverage)")]
         public static void GeneratePrototypeLevels31To33()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 31;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -453,7 +453,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 26-30 (Forbidden)")]
         public static void GenerateLevels26To30()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 26;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -522,7 +522,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 51-55 (Mastery: 8x8)")]
         public static void GenerateLevels51To55()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 51;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -593,7 +593,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 46-50 (Shared Destination)")]
         public static void GenerateLevels46To50()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 46;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -658,7 +658,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 41-45 (Checkpoint)")]
         public static void GenerateLevels41To45()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 41;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -723,7 +723,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 36-40 (Bridge)")]
         public static void GenerateLevels36To40()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 36;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -788,7 +788,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Generate Levels 31-35 (Permitted)")]
         public static void GenerateLevels31To35()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Advanced";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced";
             const int startLevel = 31;
             // Campaign numbering stays as authored (the specs and the plan doc both use it);
             // the mode's own level files are numbered from 1, so subtract the offset on write.
@@ -2378,7 +2378,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Classic/Rebuild levels 1-50 on tangle")]
         public static void RebuildClassicFirstFifty()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
 
             // size, firstLevel, lastLevel, poolTarget
             int[,] blocks =
@@ -2741,7 +2741,7 @@ namespace FreeFlow.GamePlay
 
         /// <summary>
         /// Builds one self-contained PACK of <paramref name="count"/> levels at a single board size,
-        /// into <c>Assets/Resources/Levels/Classic/{size}x{size}</c>.
+        /// into <c>Assets/FreeFlow/Resources/Levels/Classic/{size}x{size}</c>.
         ///
         /// <b>Packs are chosen, not progressed through.</b> The player picks a board size and plays
         /// that pack from 1, so each pack ramps on its own from the easiest board the size can
@@ -2832,7 +2832,7 @@ namespace FreeFlow.GamePlay
         private static void BuildSizePack(int size, int count, int shortlistPerLevel, int poolTarget,
             int cellsPerColour = CellsPerColourTarget)
         {
-            string levelsFolder = "Assets/Resources/Levels/Classic/" + size + "x" + size;
+            string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic/" + size + "x" + size;
             int cells = size * size;
 
             EnsureLevelFolder(levelsFolder);
@@ -3934,7 +3934,7 @@ namespace FreeFlow.GamePlay
         private static void BuildAdvancedPack(int size, int count, int shortlistPerLevel,
             int poolTarget, int cellsPerColour)
         {
-            string levelsFolder = "Assets/Resources/Levels/Advanced/" + size + "x" + size;
+            string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced/" + size + "x" + size;
             int cells = size * size;
             int holes = Mathf.Max(2, cells / 12);
 
@@ -5220,7 +5220,7 @@ namespace FreeFlow.GamePlay
 
         private static void RebuildClassicBlocks(int[,] blocks, string label)
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
             int blockCount = blocks.GetLength(0);
 
             EnsureLevelFolder(levelsFolder);
@@ -5380,7 +5380,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Classic/Write 3 calibration levels (58,59,60)")]
         public static void WriteCalibrationLevels()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
             int[] sizes = { 6, 7, 8 };
             int[] slots = { 58, 59, 60 };
             int[] poolFor = { 400, 250, 60 };
@@ -5476,7 +5476,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Classic/Rebuild 6x6 block only (26-60)")]
         public static void RebuildClassicSixBlock()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
             const int firstLevel = 26;
             const int lastLevel = 60;
             const int size = 6;
@@ -5586,7 +5586,7 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/Classic/Generate Classic campaign (100, up to 7x7)")]
         public static void GenerateClassicCampaign()
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
             const int totalLevels = 100;
             // How many valid boards to generate and score before keeping the hardest. Higher means
             // harder levels and a longer run; 12 costs seconds per level at these sizes.
@@ -6035,7 +6035,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private static void GenerateClassicRange(int startLevel, int endLevel, int seed, string label)
         {
-            const string levelsFolder = "Assets/Resources/Levels/Classic";
+            const string levelsFolder = "Assets/FreeFlow/Resources/Levels/Classic";
 
             System.Random rng = new System.Random(seed);
             HashSet<string> seenCanonicalKeys = new HashSet<string>();

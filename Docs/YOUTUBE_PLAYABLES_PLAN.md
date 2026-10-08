@@ -212,7 +212,7 @@ Assemblies (Unity assembly definitions), and when each is compiled:
 | Assembly | Holds | Compiled |
 | --- | --- | --- |
 | `FreeFlow.Core` | Gameplay, UI, levels, ad rules, the service interfaces, the managers that each own one service (ADManager, AnalyticsManager, ProfileManager, ShareService, Haptics, PlatformManager), config types, null providers, device-file save storage | Always |
-| `FreeFlow.Editor` | The tools in `Assets/Script/Editor` (level generator, pack verifier and others) | Editor only |
+| `FreeFlow.Editor` | The tools in `Assets/FreeFlow/Script/Editor` (level generator, pack verifier and others) | Editor only |
 | `FreeFlow.Ads.AdMob` | `IAdService` on Google Mobile Ads | Without `YOUTUBE_PLAYABLES` |
 | `FreeFlow.Analytics.Firebase` | `IAnalyticsService` on Firebase Analytics and Crashlytics | Without `YOUTUBE_PLAYABLES` |
 | `FreeFlow.Platform.Mobile` | `IShareService` (NativeShare), `IHapticsService` (Android and iOS vibration), `IPlatformService` | Without `YOUTUBE_PLAYABLES` |
@@ -245,7 +245,7 @@ Rules that keep the design extensible and the Android build unchanged:
 
 Each build finds its config through one asset per define, loaded from Resources. Google's `YTGameWrapper` object sits in StartScene, where saves are loaded, and stays alive into MainScene (the wrapper's default).
 
-**Edit each config on its own build profile.** A provider asset's script lives in its provider assembly, so while the other profile is active that script is not compiled and the Inspector shows the provider fields as None. The references are still on disk. `ServiceConfig_Mobile` and the assets in `Assets/Settings/Services/Mobile` are edited with the Android or iOS profile active; `ServiceConfig_YouTube` and `Assets/Settings/Services/YouTube` with the YouTube Playables profile active.
+**Edit each config on its own build profile.** A provider asset's script lives in its provider assembly, so while the other profile is active that script is not compiled and the Inspector shows the provider fields as None. The references are still on disk. `ServiceConfig_Mobile` and the assets in `Assets/FreeFlow/Settings/Services/Mobile` are edited with the Android or iOS profile active; `ServiceConfig_YouTube` and `Assets/FreeFlow/Settings/Services/YouTube` with the YouTube Playables profile active.
 
 ## Work plan
 

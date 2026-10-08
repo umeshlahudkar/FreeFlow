@@ -21,7 +21,7 @@ Confirmed by direct code reading (not just the docs): `GamePlayController.cs` (f
 file), `Block.cs`, `BoardGenerator.cs`, `LevelData.cs`/`LevelDataSO.cs`,
 `AudioManager.cs`, `PairColorType.cs`, `Direction.cs`, and `LevelScreenController.cs`
 (pooling is indeed commented out, confirming the README/code mismatch). No
-project-authored test suite exists (`Assets/Script` has none) — verification
+project-authored test suite exists (`Assets/FreeFlow/Script` has none) — verification
 throughout is manual play-testing via the Unity Editor (MCP is connected to the
 `FreeFlow` instance).
 

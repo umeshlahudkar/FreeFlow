@@ -6,13 +6,13 @@ shippable plan for the four proposed mechanics (arrow, bridge, splitter, rotator
 fixes they depend on.
 
 **How this was verified.** Direct reading of
-[`Block.cs`](../Assets/Script/GamePlay/Block.cs) (all 663 lines),
-[`GamePlayController.cs`](../Assets/Script/GamePlay/GamePlayController.cs) (all 1184),
-[`BoardGenerator.cs`](../Assets/Script/GamePlay/BoardGenerator.cs),
-[`LevelData.cs`](../Assets/Script/ScriptableObject/LevelData.cs),
-[`BlockType.cs`](../Assets/Script/Enums/BlockType.cs), the `Block` prefab
-(`Assets/Prefab/Block.prefab`), plus decoding all 12 level assets in
-`Assets/Resources/Levels/` to see which mechanics are authored in real content. No test
+[`Block.cs`](../Assets/FreeFlow/Script/GamePlay/Block.cs) (all 663 lines),
+[`GamePlayController.cs`](../Assets/FreeFlow/Script/GamePlay/GamePlayController.cs) (all 1184),
+[`BoardGenerator.cs`](../Assets/FreeFlow/Script/GamePlay/BoardGenerator.cs),
+[`LevelData.cs`](../Assets/FreeFlow/Script/ScriptableObject/LevelData.cs),
+[`BlockType.cs`](../Assets/FreeFlow/Script/Enums/BlockType.cs), the `Block` prefab
+(`Assets/FreeFlow/Prefab/Block.prefab`), plus decoding all 12 level assets in
+`Assets/FreeFlow/Resources/Levels/` to see which mechanics are authored in real content. No test
 suite exists, so every "verify" below is a manual Editor play-test.
 
 **Status.** **Every step of this plan is built.** All twelve mechanics in
@@ -578,7 +578,7 @@ honest way to ask the question everywhere `HighlightedPairId` is currently used 
 
 | | Task | Done when |
 |---|---|---|
-| S3.1 | ✅ New [`LevelValidator`](../Assets/Script/GamePlay/LevelValidator.cs) replaces `ValidateLevelPairs`; `GamePlayController.ValidateLevelData` hands it the board. Rule cells must name a pair that has dots, must not be dots themselves, and `pairId` 0 is an error | a blanked gate `pairId` logs an error instead of locking forever |
+| S3.1 | ✅ New [`LevelValidator`](../Assets/FreeFlow/Script/GamePlay/LevelValidator.cs) replaces `ValidateLevelPairs`; `GamePlayController.ValidateLevelData` hands it the board. Rule cells must name a pair that has dots, must not be dots themselves, and `pairId` 0 is an error | a blanked gate `pairId` logs an error instead of locking forever |
 | S3.2 | ✅ Errors on `requiredEntryDirection` on a non-`OneWay` cell, on a `OneWay` with no direction, and on a `OneWay` whose only entry edge is walled | delta 3 caught at generate time; the S1.2 collision is now rejected, not just drawn safely |
 | S3.3 | ✅ `PairConstraint` sanity: pair exists, length ≥ Manhattan + 1, and same parity — every detour costs two cells, so an even/odd mismatch is unsatisfiable however the player routes it | an unsatisfiable length is caught before play |
 | S3.4 | ✅ Directed per-pair flood fill honouring walls, blocked cells, one-way entry and other pairs' dots; gates count as passable, since a gate's job is to open. Checkpoints must also be reachable | an over-blocked board logs an error |

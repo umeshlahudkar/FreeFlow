@@ -22,7 +22,7 @@ instead of color.
 
 ### 2. Level-select screen instantiates a button per level, for *all* levels, up front
 
-`LevelScreenController.SpawnLevelButtons` (`Assets/Script/UI/LevelScreenController.cs:53`)
+`LevelScreenController.SpawnLevelButtons` (`Assets/FreeFlow/Script/UI/LevelScreenController.cs:53`)
 does one `Instantiate` per level and keeps every button alive in `levelButtons` for the
 life of the app. At 20 levels that's nothing; at 1000+ that's 1000 live
 Button/TMP/Image GameObjects created the moment the main scene loads.
@@ -42,7 +42,7 @@ number/state on demand instead of pre-creating every button.
 
 ### 3. `LevelDataSO` is one monolithic asset holding every level's grid data
 
-`UIController` (`Assets/Script/UI/UIController.cs:31`) holds a direct scene reference
+`UIController` (`Assets/FreeFlow/Script/UI/UIController.cs:31`) holds a direct scene reference
 to `levelDataSO`, so the entire array — all 1000+ levels' `GridRow[]` data —
 deserializes into memory as soon as the scene loads, even though only one level plays
 at a time.
@@ -54,7 +54,7 @@ with 1000 elements.
 
 ### 4. Pre-size the block pool to the max grid, not 16
 
-`BoardGenerator.InitializePool` (`Assets/Script/GamePlay/BoardGenerator.cs:22`) starts
+`BoardGenerator.InitializePool` (`Assets/FreeFlow/Script/GamePlay/BoardGenerator.cs:22`) starts
 the pool at 16 (a 4×4 grid). It auto-grows the first time an 8×8 level loads (64
 cells) and never shrinks after — fine long-term, but that first big level will eat a
 mid-play allocation/instantiate spike.
@@ -63,7 +63,7 @@ mid-play allocation/instantiate spike.
 
 ### 5. Save file does a full read-modify-write on every settings tick, and grows an array by copy on every level completion
 
-`AudioManager.SaveAudioData` (`Assets/Script/AudioManager.cs:97`) round-trips the
+`AudioManager.SaveAudioData` (`Assets/FreeFlow/Script/AudioManager.cs:97`) round-trips the
 *entire* `SaveData` struct through `JsonUtility` on every slider `onValueChanged` call.
 Fine at today's size, but will matter more as `completedlevelMoves` grows toward 1000
 ints and richer per-level data (stars, times, etc.) is likely to be added.

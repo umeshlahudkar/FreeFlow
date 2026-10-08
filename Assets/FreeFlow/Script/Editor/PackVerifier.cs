@@ -20,10 +20,10 @@ namespace FreeFlow.GamePlay
     public static class PackVerifier
     {
         [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 6x6 pack")]
-        public static void VerifyAdvanced6x6() { Verify("Assets/Resources/Levels/Advanced/6x6", 100); }
+        public static void VerifyAdvanced6x6() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/6x6", 100); }
 
         [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 7x7 pack")]
-        public static void VerifyAdvanced7x7() { Verify("Assets/Resources/Levels/Advanced/7x7", 100); }
+        public static void VerifyAdvanced7x7() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/7x7", 100); }
 
         public static void Verify(string folder, int count)
         {
