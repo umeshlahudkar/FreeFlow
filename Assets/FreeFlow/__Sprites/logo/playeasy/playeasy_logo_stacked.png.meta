@@ -1,31 +1,34 @@
 fileFormatVersion: 2
-guid: 28e8254b4302c9349bb0a824fb830c62
+guid: 9a9fa7fc186b05a4f96fe0a4e1150e9c
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -274603843442801258
-    second: pathza_wordmark_0
+      213: -6158816988801038279
+    second: playeasy_logo_stacked_0
   - first:
-      213: -1825721112291844626
-    second: pathza_wordmark_1
+      213: -2512560735330042929
+    second: playeasy_logo_stacked_1
   - first:
-      213: 7241929648109596192
-    second: pathza_wordmark_2
+      213: -6734144374771525018
+    second: playeasy_logo_stacked_2
   - first:
-      213: -7971090030080093958
-    second: pathza_wordmark_3
+      213: -3331841003899948661
+    second: playeasy_logo_stacked_3
   - first:
-      213: -5248997668632309497
-    second: pathza_wordmark_4
+      213: -7888964188467575629
+    second: playeasy_logo_stacked_4
   - first:
-      213: -4875194480263504904
-    second: pathza_wordmark_5
+      213: 3704851607174749179
+    second: playeasy_logo_stacked_5
   - first:
-      213: -5920335256528739099
-    second: pathza_wordmark_6
+      213: 3301984756995768878
+    second: playeasy_logo_stacked_6
   - first:
-      213: -4555067878219683254
-    second: pathza_wordmark_7
+      213: 6521387766536664768
+    second: playeasy_logo_stacked_7
+  - first:
+      213: 9044426216536254690
+    second: playeasy_logo_stacked_8
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -93,10 +96,10 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 4
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 512
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 0
+    textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -119,7 +122,7 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: Android
-    maxTextureSize: 512
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: 50
     textureCompression: 1
@@ -145,7 +148,7 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: iOS
-    maxTextureSize: 512
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: 50
     textureCompression: 1
@@ -160,13 +163,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: pathza_wordmark_0
+      name: playeasy_logo_stacked_0
       rect:
         serializedVersion: 2
-        x: 8
-        y: 0
-        width: 175
-        height: 198
+        x: 227
+        y: 273
+        width: 560
+        height: 619
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -175,20 +178,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 69582a16249603cf0800000000000000
-      internalID: -274603843442801258
+      spriteID: 9388fd9549c778aa0800000000000000
+      internalID: -6158816988801038279
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_1
+      name: playeasy_logo_stacked_1
       rect:
         serializedVersion: 2
-        x: 159
-        y: 0
-        width: 197
-        height: 198
+        x: 15
+        y: 55
+        width: 131
+        height: 173
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -197,20 +200,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: eedd9ea425cb9a6e0800000000000000
-      internalID: -1825721112291844626
+      spriteID: fcbfe06c257912dd0800000000000000
+      internalID: -2512560735330042929
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_2
+      name: playeasy_logo_stacked_2
       rect:
         serializedVersion: 2
-        x: 325
-        y: 0
-        width: 155
-        height: 198
+        x: 162
+        y: 55
+        width: 45
+        height: 176
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -219,20 +222,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 02e21f345a0808460800000000000000
-      internalID: 7241929648109596192
+      spriteID: 66a5c83ce538b82a0800000000000000
+      internalID: -6734144374771525018
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_3
+      name: playeasy_logo_stacked_3
       rect:
         serializedVersion: 2
-        x: 481
-        y: 0
-        width: 153
-        height: 198
+        x: 222
+        y: 55
+        width: 126
+        height: 133
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -241,20 +244,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: af01b6ca9dff06190800000000000000
-      internalID: -7971090030080093958
+      spriteID: b817672824ce2c1d0800000000000000
+      internalID: -3331841003899948661
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_4
+      name: playeasy_logo_stacked_4
       rect:
         serializedVersion: 2
-        x: 634
-        y: 168
-        width: 8
-        height: 10
+        x: 351
+        y: 15
+        width: 125
+        height: 173
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -263,20 +266,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 70151564e60d727b0800000000000000
-      internalID: -5248997668632309497
+      spriteID: 3b4cc9c3ed4c48290800000000000000
+      internalID: -7888964188467575629
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_5
+      name: playeasy_logo_stacked_5
       rect:
         serializedVersion: 2
-        x: 639
-        y: 0
-        width: 157
-        height: 198
+        x: 490
+        y: 58
+        width: 135
+        height: 170
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -285,20 +288,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 8fbd2f83374d75cb0800000000000000
-      internalID: -4875194480263504904
+      spriteID: bfb9f2758e64a6330800000000000000
+      internalID: 3704851607174749179
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_6
+      name: playeasy_logo_stacked_6
       rect:
         serializedVersion: 2
-        x: 791
-        y: 0
-        width: 194
-        height: 198
+        x: 633
+        y: 55
+        width: 126
+        height: 133
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -307,20 +310,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 5e42263937eb6dda0800000000000000
-      internalID: -5920335256528739099
+      spriteID: e22cc7e44a103dd20800000000000000
+      internalID: 3301984756995768878
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: pathza_wordmark_7
+      name: playeasy_logo_stacked_7
       rect:
         serializedVersion: 2
-        x: 639
-        y: 44
-        width: 6
-        height: 6
+        x: 769
+        y: 55
+        width: 114
+        height: 133
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -329,8 +332,30 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: a4a6ce606e529c0c0800000000000000
-      internalID: -4555067878219683254
+      spriteID: 0c6fef23f9f908a50800000000000000
+      internalID: 6521387766536664768
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: playeasy_logo_stacked_8
+      rect:
+        serializedVersion: 2
+        x: 886
+        y: 15
+        width: 123
+        height: 173
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 2e8afd979b1448d70800000000000000
+      internalID: 9044426216536254690
       vertices: []
       indices: 
       edges: []
@@ -349,14 +374,15 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      pathza_wordmark_0: -274603843442801258
-      pathza_wordmark_1: -1825721112291844626
-      pathza_wordmark_2: 7241929648109596192
-      pathza_wordmark_3: -7971090030080093958
-      pathza_wordmark_4: -5248997668632309497
-      pathza_wordmark_5: -4875194480263504904
-      pathza_wordmark_6: -5920335256528739099
-      pathza_wordmark_7: -4555067878219683254
+      playeasy_logo_stacked_0: -6158816988801038279
+      playeasy_logo_stacked_1: -2512560735330042929
+      playeasy_logo_stacked_2: -6734144374771525018
+      playeasy_logo_stacked_3: -3331841003899948661
+      playeasy_logo_stacked_4: -7888964188467575629
+      playeasy_logo_stacked_5: 3704851607174749179
+      playeasy_logo_stacked_6: 3301984756995768878
+      playeasy_logo_stacked_7: 6521387766536664768
+      playeasy_logo_stacked_8: 9044426216536254690
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
