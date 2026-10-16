@@ -56,6 +56,8 @@ public class SettingPage : Page
     [SerializeField] private RectTransform privacyRow;
     [SerializeField] private RectTransform privacyDivider;
 
+    private const string PrivacyPolicyUrl = "https://playeasygames.github.io/PrivacyPolicy/";
+
     // Upper case to match the other rows on this screen ("SHARE PATHZA", "PRIVACY POLICY").
     private const string ResetPromptText = "RESET ALL PROGRESS";
     private const string ResetConfirmText = "TAP AGAIN TO CONFIRM";
@@ -255,6 +257,17 @@ public class SettingPage : Page
         AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
 
         FreeFlow.Share.ShareService.Instance.ShareGame();
+    }
+
+    /// <summary>The General card's Privacy Policy row: opens the policy page in the player's
+    /// browser. The row is hidden on a host that cannot leave the game (see HideUnavailableRows),
+    /// so this is only reachable where Application.OpenURL does something.</summary>
+    public void OnPrivacyPolicyClick()
+    {
+        if (!FreeFlow.Input.InputManager.Instance.CanInput()) { return; }
+        AudioManager.Instance.PlaySFX(SoundType.ButtonClick);
+
+        Application.OpenURL(PrivacyPolicyUrl);
     }
 
     /// <summary>
