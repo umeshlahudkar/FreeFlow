@@ -1,3 +1,6 @@
+// Store builds only: kept out of the YouTube Playables (web) build.
+#if !YOUTUBE_PLAYABLES
+
 using System;
 using FreeFlow.Core.Services;
 
@@ -21,3 +24,5 @@ namespace FreeFlow.Platform.Mobile
 #pragma warning restore 0067
     }
 }
+
+#endif

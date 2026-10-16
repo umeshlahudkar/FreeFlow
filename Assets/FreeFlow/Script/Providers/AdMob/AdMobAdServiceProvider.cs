@@ -1,3 +1,6 @@
+// Store builds only: the AdMob SDK is not in the YouTube Playables (web) build.
+#if !YOUTUBE_PLAYABLES
+
 using FreeFlow.Core.Services;
 using UnityEngine;
 
@@ -78,3 +81,5 @@ namespace FreeFlow.Ads.AdMob
         }
     }
 }
+
+#endif

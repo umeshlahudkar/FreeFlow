@@ -1,3 +1,6 @@
+// YouTube Playables build only.
+#if YOUTUBE_PLAYABLES
+
 using System;
 using System.Collections.Generic;
 using FreeFlow.Core.Services;
@@ -187,3 +190,5 @@ namespace FreeFlow.Platform.YouTube
 #endif
     }
 }
+
+#endif

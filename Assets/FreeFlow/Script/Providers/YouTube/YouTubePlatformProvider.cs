@@ -1,3 +1,6 @@
+// YouTube Playables build only.
+#if YOUTUBE_PLAYABLES
+
 using FreeFlow.Core.Services;
 using UnityEngine;
 
@@ -12,3 +15,5 @@ namespace FreeFlow.Platform.YouTube
         }
     }
 }
+
+#endif

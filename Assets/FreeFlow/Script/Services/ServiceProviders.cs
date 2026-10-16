@@ -4,8 +4,9 @@ namespace FreeFlow.Core.Services
 {
     // A provider is an asset: it carries its own settings (ad unit IDs, say) and builds the service
     // at startup. ServiceConfig points at one provider asset per service. The concrete provider
-    // classes live in their own assemblies (FreeFlow.Ads.AdMob, FreeFlow.Platform.Mobile, ...), so
-    // FreeFlow.Core never references an SDK -- it only knows these base types.
+    // classes live under Providers/, each file wrapped in #if YOUTUBE_PLAYABLES or its opposite so a
+    // build only compiles its own providers' SDK code. The rest of the game never references an SDK
+    // -- it only knows these base types.
 
     public abstract class AdServiceProvider : ScriptableObject
     {

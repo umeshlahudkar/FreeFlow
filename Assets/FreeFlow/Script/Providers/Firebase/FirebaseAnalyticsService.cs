@@ -1,3 +1,6 @@
+// Store builds only: the Firebase SDK is not in the YouTube Playables (web) build.
+#if !YOUTUBE_PLAYABLES
+
 using System;
 using Firebase;
 using Firebase.Analytics;
@@ -95,3 +98,5 @@ namespace FreeFlow.Analytics.Firebase
         }
     }
 }
+
+#endif

@@ -187,15 +187,15 @@ Played in a local browser (Chromium, served from `127.0.0.1`) to check High stri
 
 ## Approach
 
-Game code talks only to service interfaces. Each platform's SDK code lives in its own assembly, switched on or off by the build profile's define, and a config asset per build picks which compiled-in provider serves each interface. Adding a provider later (another ad network, another web portal) means a new assembly and a config entry, with no change to the game code. Google's wrapper and template are used as shipped.
+Game code talks only to service interfaces. Each platform's SDK code lives in its own folder under `Providers/`, every file wrapped in `#if` on the build profile's define, and a config asset per build picks which compiled-in provider serves each interface. Adding a provider later (another ad network, another web portal) means a new provider folder with the right `#if` and a config entry, with no change to the game code. Google's wrapper and template are used as shipped.
 
 ```mermaid
 flowchart TD
-    core["<b>FreeFlow.Core (every build)</b><br/>Puzzle, levels, UI, ad rules; each manager holds its own service<br/>IAdService, IAnalyticsService, ISaveStorage, IPlatformService, IShareService, IHapticsService"]
+    core["<b>Game code (every build)</b><br/>Puzzle, levels, UI, ad rules; each manager holds its own service<br/>IAdService, IAnalyticsService, ISaveStorage, IPlatformService, IShareService, IHapticsService"]
     config["Config asset per build: picks the compiled-in providers and holds settings such as ads on/off"]
-    android["<b>Android / iOS build</b><br/>FreeFlow.Ads.AdMob<br/>FreeFlow.Analytics.Firebase<br/>FreeFlow.Platform.Mobile<br/><i>define: none</i>"]
-    youtube["<b>YouTube build</b><br/>FreeFlow.Platform.YouTube<br/>lifecycle, cloud save,<br/>pause, mute, error log<br/><i>define: YOUTUBE_PLAYABLES</i>"]
-    future["<b>Next platform or provider</b><br/>its own assembly<br/>its own define<br/>its own config asset<br/><i>no change to FreeFlow.Core</i>"]
+    android["<b>Android / iOS build</b><br/>Providers/AdMob<br/>Providers/Firebase<br/>Providers/Mobile<br/><i>#if !YOUTUBE_PLAYABLES</i>"]
+    youtube["<b>YouTube build</b><br/>Providers/YouTube<br/>lifecycle, cloud save,<br/>pause, mute, error log<br/><i>#if YOUTUBE_PLAYABLES</i>"]
+    future["<b>Next platform or provider</b><br/>its own provider folder<br/>its own define<br/>its own config asset<br/><i>no change to the game code</i>"]
     msdk["Google Mobile Ads,<br/>Firebase, NativeShare"]
     ysdk["Google YTGameWrapper<br/>then YouTube SDK"]
 
@@ -207,20 +207,19 @@ flowchart TD
     youtube --> ysdk
 ```
 
-Assemblies (Unity assembly definitions), and when each is compiled:
+All of the game's code compiles into Unity's default assemblies (`Assembly-CSharp`, and `Assembly-CSharp-Editor` for `Editor` folders). The game's own assembly definitions were removed on 2026-10-16. The provider folders are kept out of the wrong build by an `#if` around each whole file, not by assembly define constraints. A new file in a provider folder needs the same `#if`. Without it the Android build still compiles but the YouTube build fails, because the mobile SDK DLLs are excluded from WebGL.
 
-| Assembly | Holds | Compiled |
+| Code | Holds | Compiled |
 | --- | --- | --- |
-| `FreeFlow.Core` | Gameplay, UI, levels, ad rules, the service interfaces, the managers that each own one service (ADManager, AnalyticsManager, ProfileManager, ShareService, Haptics, PlatformManager), config types, null providers, device-file save storage | Always |
-| `FreeFlow.Editor` | The tools in `Assets/FreeFlow/Script/Editor` (level generator, pack verifier and others) | Editor only |
-| `FreeFlow.Ads.AdMob` | `IAdService` on Google Mobile Ads | Without `YOUTUBE_PLAYABLES` |
-| `FreeFlow.Analytics.Firebase` | `IAnalyticsService` on Firebase Analytics and Crashlytics | Without `YOUTUBE_PLAYABLES` |
-| `FreeFlow.Platform.Mobile` | `IShareService` (NativeShare), `IHapticsService` (Android and iOS vibration), `IPlatformService` | Without `YOUTUBE_PLAYABLES` |
-| `FreeFlow.Platform.YouTube` | `IPlatformService`, `ISaveStorage` (cloud save), `IAnalyticsService` (error log), all on Google's wrapper | With `YOUTUBE_PLAYABLES` |
-| DOTween Modules | DOTween's module scripts, so Core can still use tweens such as `DOFade` | Always |
-| Google's wrapper | `YTGameWrapper.cs`, unmodified, with an `.asmdef` file added beside it | Always (its own code keeps the SDK calls to web builds; only `FreeFlow.Platform.YouTube` references it) |
+| Game code (`Assets/FreeFlow/Script`) | Gameplay, UI, levels, ad rules, the service interfaces, the managers that each own one service (ADManager, AnalyticsManager, ProfileManager, ShareService, Haptics, PlatformManager), config types, null providers, device-file save storage | Always |
+| `Assets/FreeFlow/Script/Editor` | The tools (level generator, pack verifier and others) | Editor only |
+| `Providers/AdMob` | `IAdService` on Google Mobile Ads | `#if !YOUTUBE_PLAYABLES` |
+| `Providers/Firebase` | `IAnalyticsService` on Firebase Analytics and Crashlytics | `#if !YOUTUBE_PLAYABLES` |
+| `Providers/Mobile` | `IShareService` (NativeShare), `IHapticsService` (Android and iOS vibration), `IPlatformService` | `#if !YOUTUBE_PLAYABLES` |
+| `Providers/YouTube` | `IPlatformService`, `ISaveStorage` (cloud save), `IAnalyticsService` (error log), all on Google's wrapper | `#if YOUTUBE_PLAYABLES` |
+| Google's wrapper | `YTGameWrapper.cs`, unmodified | Always (its own code keeps the SDK calls to web builds) |
 
-The last two exist because code inside an assembly definition cannot reference loose scripts: DOTween's modules and Google's wrapper are both loose today. DOTween's setup panel can create its modules assembly; Google's files would only gain a new file next to them (Q13).
+DOTween's modules still have the `DOTween.Modules` assembly that DOTween's setup panel created. It is auto-referenced, so the game code uses it as is.
 
 Which provider serves each interface:
 
@@ -238,14 +237,14 @@ Rules that keep the design extensible and the Android build unchanged:
 1. **Refactor first, then add YouTube.** The Android build moves onto the interfaces with no change in behaviour before any YouTube code lands.
 2. **Rules live in Core, providers only deliver.** The interstitial cadence (3 levels, 120 s), when a rewarded ad is offered and what it pays stay in Core; an ad provider only loads, shows and reports the result.
 3. **The UI asks services, not platforms.** For example the Share row shows only when `IShareService` says sharing is available, so a new platform needs no UI change.
-4. **Google's files stay as Google ships them.** Gaps found in their source (fake save results, no load timeout, Editor reward stub, pause that stops nothing) are handled inside `FreeFlow.Platform.YouTube`.
+4. **Google's files stay as Google ships them.** Gaps found in their source (fake save results, no load timeout, Editor reward stub, pause that stops nothing) are handled inside `Providers/YouTube`.
 5. **One save format.** The same progress and settings JSON goes to device files on Android and to YouTube cloud save on the web.
 6. **Plugin import settings, not deletions.** Mobile SDK DLLs are excluded from WebGL in their import settings; no package is removed.
 7. **Check Android before each commit** with an Android build and a quick play-through.
 
 Each build finds its config through one asset per define, loaded from Resources. Google's `YTGameWrapper` object sits in StartScene, where saves are loaded, and stays alive into MainScene (the wrapper's default).
 
-**Edit each config on its own build profile.** A provider asset's script lives in its provider assembly, so while the other profile is active that script is not compiled and the Inspector shows the provider fields as None. The references are still on disk. `ServiceConfig_Mobile` and the assets in `Assets/FreeFlow/Settings/Services/Mobile` are edited with the Android or iOS profile active; `ServiceConfig_YouTube` and `Assets/FreeFlow/Settings/Services/YouTube` with the YouTube Playables profile active.
+**Edit each config on its own build profile.** A provider asset's script is wrapped in its profile's `#if`, so while the other profile is active that script's class is not compiled and the Inspector shows the provider fields as None. The references are still on disk. `ServiceConfig_Mobile` and the assets in `Assets/FreeFlow/Settings/Services/Mobile` are edited with the Android or iOS profile active; `ServiceConfig_YouTube` and `Assets/FreeFlow/Settings/Services/YouTube` with the YouTube Playables profile active.
 
 ## Work plan
 
@@ -308,9 +307,9 @@ All questions are answered except the one below. Decisions recorded on 2026-10-0
 | --- | --- |
 | Branch | Same branch as the Android game |
 | Wrapper and template | Google's wrapper and Google's WebGL template, both unmodified (its page title and Unity logo included) |
-| Code structure | Interfaces for ads, analytics, save storage, platform lifecycle, share and haptics; one assembly definition per provider; providers chosen by build profile plus a config asset |
+| Code structure | Interfaces for ads, analytics, save storage, platform lifecycle, share and haptics; one folder per provider, each file wrapped in `#if` on the build define (replaced the one-assembly-per-provider setup on 2026-10-16); providers chosen by build profile plus a config asset |
 | Config selection (Q12) | One config asset per define, loaded from Resources |
-| Wrapper assembly (Q13) | Add an `.asmdef` beside Google's wrapper files; their files untouched |
+| Wrapper assembly (Q13) | Was an `.asmdef` beside Google's wrapper files; removed on 2026-10-16 with the other assemblies, so the wrapper is a loose script again. Their files are untouched |
 | Wrapper object (Q2) | `YTGameWrapper` as a scene object in StartScene |
 | Pause (Q3) | Freeze time, audio and input, save, then stop Unity's frame loop with its built-in `pauseMainLoop` (a two-line `.jslib`); on resume restart the loop and turn input back on a frame later |
 | Ads (Q4) | No ads in the YouTube build for v1 |
