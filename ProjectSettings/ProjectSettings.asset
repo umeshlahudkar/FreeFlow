@@ -12,7 +12,7 @@ PlayerSettings:
   targetDevice: 2
   useOnDemandResources: 0
   accelerometerFrequency: 0
-  companyName: PlayEasy Games
+  companyName: PlayEasy
   productName: Connect The Path
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
@@ -821,7 +821,8 @@ PlayerSettings:
   webGLCloseOnQuit: 0
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
-  scriptingDefineSymbols: {}
+  scriptingDefineSymbols:
+    Android: FINAL_BUILD
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
