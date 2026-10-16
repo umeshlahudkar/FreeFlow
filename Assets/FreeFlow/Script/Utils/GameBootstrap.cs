@@ -28,6 +28,9 @@ namespace FreeFlow.Util
         [Tooltip("Loaded once every entry above has finished initializing.")]
         [SerializeField] private string mainSceneName = "MainScene";
 
+        [Tooltip("Optional. When set, MainScene loads in the background and is only shown once the splash logo has finished.")]
+        [SerializeField] private FreeFlow.UI.SplashScreen splash;
+
         /// <summary>Whether every entry in <see cref="initializationOrder"/> has finished. False
         /// for the entire lifetime of a build that never wires this component into a scene.</summary>
         public bool IsReady { get; private set; }
@@ -61,7 +64,21 @@ namespace FreeFlow.Util
 
             IsReady = true;
             OnReady?.Invoke();
-            SceneManager.LoadScene(mainSceneName);
+
+            if (splash == null)
+            {
+                SceneManager.LoadScene(mainSceneName);
+                yield break;
+            }
+
+            // Load behind the splash, but hold the switch until the logo has had its moment.
+            // Activation stops progress at 0.9: that is "loaded, waiting to be shown".
+            AsyncOperation load = SceneManager.LoadSceneAsync(mainSceneName);
+            load.allowSceneActivation = false;
+            yield return new WaitUntil(() => load.progress >= 0.9f);
+            splash.SceneReady = true;
+            yield return new WaitUntil(() => splash.LogoFinished);
+            load.allowSceneActivation = true;
         }
     }
 }
