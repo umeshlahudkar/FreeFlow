@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:376376210506:android:c11d8ae628743907a422b3",
+        "mobilesdk_app_id": "1:376376210506:android:68770320cb14ded8a422b3",
         "android_client_info": {
-          "package_name": "com.PlayEasy.Pathza"
+          "package_name": "com.PlayEasy.ConnectPath"
         }
       },
       "oauth_client": [],
