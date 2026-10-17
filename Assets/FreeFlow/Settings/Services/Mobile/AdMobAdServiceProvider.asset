@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 166ec3dcd60949f43b952baa1cdd083f, type: 3}
   m_Name: AdMobAdServiceProvider
   m_EditorClassIdentifier: FreeFlow.Ads.AdMob::FreeFlow.Ads.AdMob.AdMobAdServiceProvider
-  androidLiveRewardedAdUnitId: 
-  androidLiveInterstitialAdUnitId: 
+  androidLiveRewardedAdUnitId: ca-app-pub-3331509321658713/8818603293
+  androidLiveInterstitialAdUnitId: ca-app-pub-3331509321658713/5858142891
   iosLiveRewardedAdUnitId: 
   iosLiveInterstitialAdUnitId: 
   androidTestRewardedAdUnitId: ca-app-pub-3940256099942544/5224354917
