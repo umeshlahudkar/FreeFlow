@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 80efac514d334034c846b9be75e28c54
+guid: b2db3f0482b2a6c4cb2eba799bb781f3
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -9160838518354332552
-    second: daily_ribbon_tails_0
+      213: -1956968333277499071
+    second: menu_card_shadow_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -52,7 +52,7 @@ TextureImporter:
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
   spritePixelsToUnits: 100
-  spriteBorder: {x: 48, y: 0, z: 48, w: 0}
+  spriteBorder: {x: 100, y: 100, z: 100, w: 100}
   spriteGenerateFallbackPhysicsShape: 1
   alphaUsage: 1
   alphaIsTransparency: 1
@@ -139,13 +139,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: daily_ribbon_tails_0
+      name: menu_card_shadow_0
       rect:
         serializedVersion: 2
         x: 0
         y: 0
-        width: 512
-        height: 128
+        width: 256
+        height: 256
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -154,8 +154,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 87436cc57e92ed080800000000000000
-      internalID: -9160838518354332552
+      spriteID: 1417e4a5ba377d4e0800000000000000
+      internalID: -1956968333277499071
       vertices: []
       indices: 
       edges: []
@@ -174,7 +174,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      daily_ribbon_tails_0: -9160838518354332552
+      menu_card_shadow_0: -1956968333277499071
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

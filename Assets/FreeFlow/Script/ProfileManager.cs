@@ -409,6 +409,22 @@ public struct PlayerProgress
 
         completedDayIndices.RemoveAll(d => d < cutoffDayIndex);
     }
+
+    /// <summary>How many days of one calendar month have their daily challenge solved -- what the
+    /// Daily page's day card, its month shelf and the main menu's Daily card all fill their rings
+    /// with.</summary>
+    /// <param name="month">1 = January.</param>
+    public int CompletedDaysInMonth(int year, int month)
+    {
+        int solved = 0;
+        int days = System.DateTime.DaysInMonth(year, month);
+        for (int d = 1; d <= days; d++)
+        {
+            System.DateTime date = new System.DateTime(year, month, d, 0, 0, 0, System.DateTimeKind.Utc);
+            if (IsDayCompleted(FreeFlow.GamePlay.DailyChallengeCalendar.AbsoluteDayIndexFor(date))) { solved++; }
+        }
+        return solved;
+    }
 }
 
 /// <summary>Everything remembered about one pack: how far the player got.</summary>

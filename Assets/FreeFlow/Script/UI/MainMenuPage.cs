@@ -13,10 +13,12 @@ namespace FreeFlow.UI
 {
     /// <summary>
     /// Owns behavior local to the main menu screen itself: the header's hint balance, and the
-    /// three stacked cards -- Classic, Advanced, Daily challenge -- each of which is one button
-    /// (there is no separate PLAY button inside a card). Cross-screen flow (which screen is
-    /// active, level loading) stays in UIController/PageManager; this only owns what belongs to
-    /// this one screen.
+    /// three stacked cards -- Daily challenge, Classic, Advanced -- each of which is one button
+    /// (there is no separate PLAY button inside a card). Classic and Advanced are fixed colour
+    /// cards; the Daily card takes this month's colour from the same palette the Daily Challenge
+    /// page uses, and its ring fills with the days solved this month. Layout is authored in the
+    /// scene -- this only sets text, colours, fills and which bits are shown. Cross-screen flow
+    /// (which screen is active, level loading) stays in UIController/PageManager.
     /// </summary>
     public class MainMenuPage : Page
     {
@@ -33,11 +35,9 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI advancedProgressText;
         [SerializeField] private Slider advancedProgressSlider;
 
-        // The completed count in each card's "37 / 500 levels" line is drawn in that card's own
-        // accent. Darker than the bar fill on purpose: small text needs 4.5:1 against white, which
-        // the fill colours do not reach.
-        [SerializeField] private Color classicAccent = new Color32(11, 122, 105, 255);
-        [SerializeField] private Color advancedAccent = new Color32(180, 50, 40, 255);
+        // "START HERE" pill on the Classic card, shown only while nothing has been played in
+        // either mode, so a brand-new player is not left choosing between three equal cards.
+        [SerializeField] private GameObject classicStartHere;
 
         // How long each card's number counts up over, from zero to the real count, every time the
         // card is shown -- see AnimateProgressText.
@@ -63,13 +63,36 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI dailyDateText;
         [SerializeField] private TextMeshProUGUI dailyBoardText;
 
-        // One pill with two states: NEW until today's board is solved, SOLVED after.
+        // One pill with two states: NEW until today's board is solved, SOLVED after. NEW's text
+        // is a darker shade of this month's colour, so it matches the card it sits on.
         [SerializeField] private Image dailyBadgeImage;
         [SerializeField] private TextMeshProUGUI dailyBadgeText;
-        [SerializeField] private Color newBadgeColor = new Color32(255, 228, 168, 255);
-        [SerializeField] private Color newBadgeTextColor = new Color32(125, 78, 0, 255);
-        [SerializeField] private Color solvedBadgeColor = new Color32(218, 244, 238, 255);
+        [SerializeField] private Color newBadgeColor = Color.white;
+        [SerializeField] private Color solvedBadgeColor = Color.white;
         [SerializeField] private Color solvedBadgeTextColor = new Color32(11, 122, 105, 255);
+
+        // The card takes this month's colour, from the palette the Daily Challenge page also uses.
+        [SerializeField] private DailyMonthPalette monthPalette;
+        [SerializeField] private Image dailyCardImage;
+        // Coloured shadow under the card: a darker shade of the month colour at this alpha.
+        [SerializeField] private Image dailyCardShadow;
+        [SerializeField] private float dailyShadowShade = 0.55f;
+        [SerializeField] private float dailyShadowAlpha = 0.45f;
+
+        // White ring around a white dot, filled by this month's solved days, with the count inside.
+        [SerializeField] private Image dailyMonthRingFill;
+        [SerializeField] private TextMeshProUGUI dailyMonthCountText;
+        [SerializeField] private TextMeshProUGUI dailyMonthCountSubText;
+
+        // Everything drawn straight on the card (title, date, board/countdown line, arrow): white
+        // on most month colours, dark on the light ones (lime, yellow).
+        [SerializeField] private Graphic[] dailyCardForeground;
+
+        // While today is solved, the board-size line becomes a countdown to the next puzzle --
+        // refreshed once a second, which also catches the day rolling over while the menu is open.
+        private bool dailySolvedShown;
+        private int dailyShownDay = -1;
+        private float dailyPollTimer;
 
         [Header("Card reveal")]
         // Tab_Classic, Tab_Advanced, Button_dailyChallenge -- in the order they should pop in.
@@ -155,9 +178,28 @@ namespace FreeFlow.UI
 
             if (hintCountText != null) { hintCountText.text = data.hintsRemaining.ToString(); }
 
-            AnimateProgressText(classicProgressText, classicProgressSlider, classicAccent, classicProgress, data, ui, GameMode.Classic);
-            AnimateProgressText(advancedProgressText, advancedProgressSlider, advancedAccent, advancedProgress, data, ui, GameMode.Advanced);
+            int classicCompleted = AnimateProgressText(classicProgressText, classicProgressSlider, classicProgress, data, ui, GameMode.Classic);
+            int advancedCompleted = AnimateProgressText(advancedProgressText, advancedProgressSlider, advancedProgress, data, ui, GameMode.Advanced);
+            if (classicStartHere != null) { classicStartHere.SetActive(classicCompleted == 0 && advancedCompleted == 0); }
+
             SetDailyChallengeCard(data);
+        }
+
+        /// <summary>Keeps the solved-today countdown ticking, and rebuilds the Daily card if the day
+        /// rolls over while the menu is open -- polled once a second, not every frame.</summary>
+        private void Update()
+        {
+            dailyPollTimer -= Time.unscaledDeltaTime;
+            if (dailyPollTimer > 0f) { return; }
+            dailyPollTimer = 1f;
+
+            System.DateTime now = System.DateTime.UtcNow;
+            if (DailyChallengeSelector.DayIndex(now) != dailyShownDay)
+            {
+                if (ProfileManager.Instance != null) { SetDailyChallengeCard(ProfileManager.Instance.LoadProgress()); }
+                return;
+            }
+            if (dailySolvedShown && dailyBoardText != null) { dailyBoardText.text = NextPuzzleText(now); }
         }
 
         /// <summary>
@@ -168,27 +210,70 @@ namespace FreeFlow.UI
         /// </summary>
         private void SetDailyChallengeCard(PlayerProgress data)
         {
-            int today = DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+            System.DateTime now = System.DateTime.UtcNow;
+            int today = DailyChallengeSelector.DayIndex(now);
             bool solvedToday = data.IsDayCompleted(today);
+            System.DateTime todayDate = DailyChallengeSelector.EpochUtc.AddDays(today);
+            dailyShownDay = today;
+            dailySolvedShown = solvedToday;
+
+            Color monthColour = monthPalette != null ? monthPalette.Colour(todayDate.Month) : Color.white;
+            bool lightMonth = monthPalette != null && monthPalette.IsLight(monthColour);
+            Color foreground = monthPalette != null ? monthPalette.TextOn(monthColour) : Color.white;
+
+            if (dailyCardImage != null) { dailyCardImage.color = monthColour; }
+            if (dailyCardShadow != null)
+            {
+                Color shadow = DailyMonthPalette.Shade(monthColour, dailyShadowShade);
+                shadow.a = dailyShadowAlpha;
+                dailyCardShadow.color = shadow;
+            }
+            if (dailyCardForeground != null)
+            {
+                for (int i = 0; i < dailyCardForeground.Length; i++)
+                {
+                    if (dailyCardForeground[i] != null) { dailyCardForeground[i].color = foreground; }
+                }
+            }
+
+            int daysInMonth = System.DateTime.DaysInMonth(todayDate.Year, todayDate.Month);
+            int solvedThisMonth = data.CompletedDaysInMonth(todayDate.Year, todayDate.Month);
+            if (dailyMonthRingFill != null) { dailyMonthRingFill.fillAmount = (float)solvedThisMonth / daysInMonth; }
+            if (dailyMonthCountText != null)
+            {
+                dailyMonthCountText.text = solvedThisMonth.ToString();
+                dailyMonthCountText.color = DailyMonthPalette.Shade(monthColour, lightMonth ? 0.6f : 0.9f);
+            }
+            if (dailyMonthCountSubText != null)
+            {
+                dailyMonthCountSubText.text = "OF " + daysInMonth + " DAYS";
+                dailyMonthCountSubText.color = DailyMonthPalette.Shade(monthColour, lightMonth ? 0.45f : 0.7f);
+            }
 
             if (dailyDateText != null)
             {
-                dailyDateText.text = DailyChallengeSelector.EpochUtc.AddDays(today)
-                    .ToString("dddd, MMMM d", CultureInfo.InvariantCulture);
+                dailyDateText.text = todayDate.ToString("dddd, MMMM d", CultureInfo.InvariantCulture);
             }
 
             if (dailyBoardText != null)
             {
                 int size = DailyChallengeCalendar.LevelForAbsoluteDay(today).packSize;
-                dailyBoardText.text = size + "×" + size + " board";
+                dailyBoardText.text = solvedToday ? NextPuzzleText(now) : size + "×" + size + " board";
             }
 
             if (dailyBadgeText != null)
             {
                 dailyBadgeText.text = solvedToday ? "SOLVED" : "NEW";
-                dailyBadgeText.color = solvedToday ? solvedBadgeTextColor : newBadgeTextColor;
+                dailyBadgeText.color = solvedToday ? solvedBadgeTextColor : DailyMonthPalette.Shade(monthColour, lightMonth ? 0.55f : 0.8f);
             }
             if (dailyBadgeImage != null) { dailyBadgeImage.color = solvedToday ? solvedBadgeColor : newBadgeColor; }
+        }
+
+        private static string NextPuzzleText(System.DateTime utcNow)
+        {
+            System.TimeSpan left = DailyChallengeSelector.TimeUntilNextDay(utcNow);
+            int hours = (int)left.TotalHours;
+            return hours > 0 ? "Next in " + hours + "h " + left.Minutes + "m" : "Next in " + Mathf.Max(1, left.Minutes) + "m";
         }
 
         /// <summary>Summed across every pack size in the mode (e.g. Classic's 5x5 + 6x6 + 7x7 +
@@ -199,12 +284,13 @@ namespace FreeFlow.UI
         /// displayed last visit. An earlier version animated from the last-shown count instead, so
         /// two visits in a row with no level finished in between produced a correct but invisible
         /// zero-distance "animation", which read as broken. The bar fills in step with the number,
-        /// from the same displayed value, so the two can never disagree mid-count.</summary>
-        private void AnimateProgressText(TextMeshProUGUI text, Slider slider, Color accent, ProgressReadout readout,
+        /// from the same displayed value, so the two can never disagree mid-count.
+        ///
+        /// Returns the mode's real completed count, so Refresh can tell a brand-new player apart
+        /// without summing the packs a second time.</summary>
+        private int AnimateProgressText(TextMeshProUGUI text, Slider slider, ProgressReadout readout,
             PlayerProgress data, UIController ui, GameMode mode)
         {
-            if (text == null && slider == null) { return; }
-
             int completed = 0;
             int total = 0;
             int[] sizes = ui.PackSizesFor(mode);
@@ -214,17 +300,20 @@ namespace FreeFlow.UI
                 total += ui.PackLevelCountFor(sizes[i]);
             }
 
+            if (text == null && slider == null) { return completed; }
+
             if (readout.routine != null) { StopCoroutine(readout.routine); }
-            readout.routine = StartCoroutine(CountProgress(text, slider, accent, readout, completed, total));
+            readout.routine = StartCoroutine(CountProgress(text, slider, readout, completed, total));
+            return completed;
         }
 
         /// <summary>Eases <paramref name="readout"/>'s displayed count from zero up to
         /// <paramref name="completed"/> over <see cref="progressAnimSeconds"/>.</summary>
-        private IEnumerator CountProgress(TextMeshProUGUI text, Slider slider, Color accent, ProgressReadout readout,
+        private IEnumerator CountProgress(TextMeshProUGUI text, Slider slider, ProgressReadout readout,
             int completed, int total)
         {
             readout.displayed = 0f;
-            SetProgress(text, slider, accent, 0f, total);
+            SetProgress(text, slider, 0f, total);
 
             // One frame set aside before timing anything: this coroutine is started synchronously
             // from the middle of a page transition (Instantiate/Destroy, layout rebuilds), and
@@ -247,21 +336,22 @@ namespace FreeFlow.UI
                 float eased = 1f - ((1f - t) * (1f - t));
 
                 readout.displayed = Mathf.LerpUnclamped(from, completed, eased);
-                SetProgress(text, slider, accent, readout.displayed, total);
+                SetProgress(text, slider, readout.displayed, total);
                 yield return null;
             }
 
             readout.displayed = completed;
-            SetProgress(text, slider, accent, completed, total);
+            SetProgress(text, slider, completed, total);
             readout.routine = null;
         }
 
-        private static void SetProgress(TextMeshProUGUI text, Slider slider, Color accent, float completed, int total)
+        // The count is bold rather than a separate accent colour: these lines now sit on solid
+        // colour cards in white, where a coloured number would not read.
+        private static void SetProgress(TextMeshProUGUI text, Slider slider, float completed, int total)
         {
             if (text != null)
             {
-                text.text = "<color=#" + ColorUtility.ToHtmlStringRGB(accent) + ">" + Mathf.RoundToInt(completed)
-                    + "</color> / " + total + " levels";
+                text.text = "<b>" + Mathf.RoundToInt(completed) + "</b> / " + total + " levels";
             }
             if (slider != null) { slider.value = total > 0 ? completed / total : 0f; }
         }

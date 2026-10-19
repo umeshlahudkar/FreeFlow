@@ -12,13 +12,13 @@ using FreeFlow.Enums;
 namespace FreeFlow.UI
 {
     /// <summary>
-    /// Populates the Daily Challenge hub: a month badge at the top (<see cref="monthBadge"/>, the
-    /// shown month's colour dot, its solved-days ring and ribbon), a shelf of the most recent months
-    /// (<see cref="monthChips"/>), a nav row (title + prev/next), a masked viewport holding TWO
-    /// calendar blocks
+    /// Populates the Daily Challenge hub: a day card at the top (<see cref="dayCard"/>, the chosen
+    /// day in its month's colour, with that month's solved-days ring), a shelf of the most recent
+    /// months (<see cref="monthChips"/>), a nav row (title + prev/next), a masked viewport holding
+    /// TWO calendar blocks
     /// (<see cref="blockA"/>/<see cref="blockB"/>, each its own weekday header + 6x7 day grid),
-    /// and a footer with a Play button. The badge always describes whichever month the calendar
-    /// is showing, so paging with the arrows or tapping a shelf month updates both together.
+    /// and a footer with a Play button. The day card follows the chosen day, the same day the
+    /// Play button describes; the shelf highlights whichever month the calendar is showing.
     ///
     /// A day now holds exactly ONE curated level (see DailyChallengeCalendar) rather than several
     /// drawn from the packs, so there is no "N of 5" concept left anywhere on this screen: a cell
@@ -107,35 +107,15 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI playButtonText;
         [SerializeField] private TextMeshProUGUI playButtonSubtitleText;
 
-        [Header("Month badge and shelf (pre-built scene objects)")]
-        [SerializeField] private DailyMonthBadge monthBadge;
+        [Header("Day card and month shelf (pre-built scene objects)")]
+        [SerializeField] private DailyDayCard dayCard;
 
         // Oldest month first, the current month last -- see RefreshMonthSummary. Never shows a
         // month older than maxMonthsBack allows, so every chip is a month the calendar can page to.
         [SerializeField] private List<DailyMonthChip> monthChips = new List<DailyMonthChip>();
 
-        // One colour per calendar month, January first. These are the game's own 12 pair colours
-        // (PairColorData), so each month's dot looks like one of the board's dots.
-        [SerializeField] private Color[] monthColours =
-        {
-            new Color(0.108f, 0.5019f, 0.9426f, 1f),  // Jan, blue
-            new Color(1f, 0.5333f, 0.6657f, 1f),      // Feb, pink
-            new Color(0.0704f, 0.5689f, 0.0216f, 1f), // Mar, green
-            new Color(0.6405f, 0.9973f, 0.097f, 1f),  // Apr, lime
-            new Color(1f, 0.7632f, 0.0906f, 1f),      // May, yellow
-            new Color(0.1129f, 0.7212f, 0.7257f, 1f), // Jun, cyan
-            new Color(0.7509f, 0f, 0.2232f, 1f),      // Jul, red
-            new Color(0.7522f, 0.0262f, 1f, 1f),      // Aug, purple
-            new Color(0.052f, 0.3842f, 0.3769f, 1f),  // Sep, dark teal
-            new Color(0.9984f, 0.3961f, 0.04f, 1f),   // Oct, orange
-            new Color(0.4246f, 0.2804f, 0.0238f, 1f), // Nov, brown
-            new Color(0.0432f, 0.1229f, 0.5012f, 1f), // Dec, navy
-        };
-
-        // A month colour brighter than this (relative luminance) gets darkText on it instead of
-        // white -- white on lime or yellow is unreadable.
-        [SerializeField] private float lightColourLuminance = 0.7f;
-        [SerializeField] private Color darkText = new Color(0.06f, 0.12f, 0.18f, 1f);
+        // One colour per calendar month, shared with the main menu's Daily card.
+        [SerializeField] private DailyMonthPalette monthPalette;
 
         // The nav/footer buttons are pre-built scene Buttons, wired to these handlers once (not
         // per-button-press) the first time this page refreshes -- see EnsureListenersWired. Day
@@ -351,6 +331,31 @@ namespace FreeFlow.UI
             {
                 playButtonText.text = future ? "LOCKED" : (completed ? "SOLVED" : "PLAY");
             }
+
+            RefreshDayCard(data);
+        }
+
+        /// <summary>Fills the top card for the chosen day -- the same day the Play button
+        /// describes, so it runs from RefreshFooter, whenever the selection changes. Coloured by
+        /// the chosen day's own month, which is not always the month the calendar is showing.</summary>
+        private void RefreshDayCard(PlayerProgress data)
+        {
+            if (dayCard == null || selectedAbsoluteDay == int.MinValue) { return; }
+
+            DateTime date = DailyChallengeSelector.EpochUtc.AddDays(selectedAbsoluteDay);
+            bool isToday = selectedAbsoluteDay == shownDayIndex;
+            bool completed = data.IsDayCompleted(selectedAbsoluteDay);
+            int size = DailyChallengeCalendar.LevelForAbsoluteDay(selectedAbsoluteDay).packSize;
+            Color colour = MonthColour(date.Month);
+
+            dayCard.SetDay(
+                date.ToString("dddd, MMM d", CultureInfo.InvariantCulture).ToUpperInvariant(),
+                completed ? "Solved" : isToday ? "Today's puzzle" : "Catch-up puzzle",
+                completed ? "SOLVED" : isToday ? "NEW" : "MISSED",
+                completed,
+                size + "×" + size + " board",
+                colour, TextColourOn(colour), monthPalette != null && monthPalette.IsLight(colour),
+                data.CompletedDaysInMonth(date.Year, date.Month), DateTime.DaysInMonth(date.Year, date.Month));
         }
 
         private void OnPrevMonthClick()
@@ -467,18 +472,11 @@ namespace FreeFlow.UI
 
         // ---- month badge and shelf -------------------------------------------------------------
 
-        /// <summary>Points the badge at the displayed month and lays the shelf out as the most
-        /// recent months, oldest first, the current month last. Called whenever the displayed month
-        /// changes, so the badge and the highlighted shelf chip always match the calendar.</summary>
+        /// <summary>Lays the shelf out as the most recent months, oldest first, the current month
+        /// last, highlighting the displayed one. Called whenever the displayed month changes, so
+        /// the highlighted chip always matches the calendar.</summary>
         private void RefreshMonthSummary(PlayerProgress data)
         {
-            if (monthBadge != null)
-            {
-                Color colour = MonthColour(displayedMonth);
-                monthBadge.SetMonth(MonthLabel(displayedYear, displayedMonth, "MMMM"), colour, TextColourOn(colour),
-                    SolvedDaysIn(displayedYear, displayedMonth, data), DateTime.DaysInMonth(displayedYear, displayedMonth));
-            }
-
             if (monthChips == null) { return; }
 
             DateTime today = DailyChallengeSelector.EpochUtc.AddDays(shownDayIndex);
@@ -500,7 +498,7 @@ namespace FreeFlow.UI
                 DateTime month = currentMonth.AddMonths(-monthsBack);
                 Color colour = MonthColour(month.Month);
                 chip.SetDetails(MonthLabel(month.Year, month.Month, "MMM"), colour, TextColourOn(colour),
-                    SolvedDaysIn(month.Year, month.Month, data), DateTime.DaysInMonth(month.Year, month.Month),
+                    data.CompletedDaysInMonth(month.Year, month.Month), DateTime.DaysInMonth(month.Year, month.Month),
                     month.Year == displayedYear && month.Month == displayedMonth);
 
                 int chipYear = month.Year;
@@ -521,18 +519,6 @@ namespace FreeFlow.UI
             SlideToMonth(year, month, delta > 0 ? 1 : -1);
         }
 
-        private static int SolvedDaysIn(int year, int month, PlayerProgress data)
-        {
-            int solved = 0;
-            int days = DateTime.DaysInMonth(year, month);
-            for (int d = 1; d <= days; d++)
-            {
-                DateTime date = new DateTime(year, month, d, 0, 0, 0, DateTimeKind.Utc);
-                if (data.IsDayCompleted(DailyChallengeCalendar.AbsoluteDayIndexFor(date))) { solved++; }
-            }
-            return solved;
-        }
-
         private static string MonthLabel(int year, int month, string format)
         {
             return new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -541,14 +527,12 @@ namespace FreeFlow.UI
 
         private Color MonthColour(int month)
         {
-            if (monthColours == null || month < 1 || month > monthColours.Length) { return Color.white; }
-            return monthColours[month - 1];
+            return monthPalette != null ? monthPalette.Colour(month) : Color.white;
         }
 
         private Color TextColourOn(Color colour)
         {
-            float luminance = 0.2126f * colour.r + 0.7152f * colour.g + 0.0722f * colour.b;
-            return luminance > lightColourLuminance ? darkText : Color.white;
+            return monthPalette != null ? monthPalette.TextOn(colour) : Color.white;
         }
 
         private void OnPlaySelectedDayClicked()

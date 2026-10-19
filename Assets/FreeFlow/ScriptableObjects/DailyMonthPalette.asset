@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: acefe9abfe20a4544a97832da8d09c36, type: 3}
+  m_Name: DailyMonthPalette
+  m_EditorClassIdentifier: Assembly-CSharp::FreeFlow.UI.DailyMonthPalette
+  monthColours:
+  - {r: 0.108, g: 0.5019, b: 0.9426, a: 1}
+  - {r: 1, g: 0.5333, b: 0.6657, a: 1}
+  - {r: 0.0704, g: 0.5689, b: 0.0216, a: 1}
+  - {r: 0.6405, g: 0.9973, b: 0.097, a: 1}
+  - {r: 1, g: 0.7632, b: 0.0906, a: 1}
+  - {r: 0.1129, g: 0.7212, b: 0.7257, a: 1}
+  - {r: 0.7509, g: 0, b: 0.2232, a: 1}
+  - {r: 0.7522, g: 0.0262, b: 1, a: 1}
+  - {r: 0.052, g: 0.3842, b: 0.3769, a: 1}
+  - {r: 0.9984, g: 0.3961, b: 0.04, a: 1}
+  - {r: 0.4246, g: 0.2804, b: 0.0238, a: 1}
+  - {r: 0.0432, g: 0.1229, b: 0.5012, a: 1}
+  lightColourLuminance: 0.7
+  darkText: {r: 0.06, g: 0.12, b: 0.18, a: 1}
