@@ -12,10 +12,13 @@ using FreeFlow.Enums;
 namespace FreeFlow.UI
 {
     /// <summary>
-    /// Populates the Daily Challenge hub: a nav row (title + prev/next), a masked viewport
-    /// holding TWO calendar blocks
+    /// Populates the Daily Challenge hub: a month badge at the top (<see cref="monthBadge"/>, the
+    /// shown month's colour dot, its solved-days ring and ribbon), a shelf of the most recent months
+    /// (<see cref="monthChips"/>), a nav row (title + prev/next), a masked viewport holding TWO
+    /// calendar blocks
     /// (<see cref="blockA"/>/<see cref="blockB"/>, each its own weekday header + 6x7 day grid),
-    /// and a footer with a Play button.
+    /// and a footer with a Play button. The badge always describes whichever month the calendar
+    /// is showing, so paging with the arrows or tapping a shelf month updates both together.
     ///
     /// A day now holds exactly ONE curated level (see DailyChallengeCalendar) rather than several
     /// drawn from the packs, so there is no "N of 5" concept left anywhere on this screen: a cell
@@ -104,6 +107,36 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI playButtonText;
         [SerializeField] private TextMeshProUGUI playButtonSubtitleText;
 
+        [Header("Month badge and shelf (pre-built scene objects)")]
+        [SerializeField] private DailyMonthBadge monthBadge;
+
+        // Oldest month first, the current month last -- see RefreshMonthSummary. Never shows a
+        // month older than maxMonthsBack allows, so every chip is a month the calendar can page to.
+        [SerializeField] private List<DailyMonthChip> monthChips = new List<DailyMonthChip>();
+
+        // One colour per calendar month, January first. These are the game's own 12 pair colours
+        // (PairColorData), so each month's dot looks like one of the board's dots.
+        [SerializeField] private Color[] monthColours =
+        {
+            new Color(0.108f, 0.5019f, 0.9426f, 1f),  // Jan, blue
+            new Color(1f, 0.5333f, 0.6657f, 1f),      // Feb, pink
+            new Color(0.0704f, 0.5689f, 0.0216f, 1f), // Mar, green
+            new Color(0.6405f, 0.9973f, 0.097f, 1f),  // Apr, lime
+            new Color(1f, 0.7632f, 0.0906f, 1f),      // May, yellow
+            new Color(0.1129f, 0.7212f, 0.7257f, 1f), // Jun, cyan
+            new Color(0.7509f, 0f, 0.2232f, 1f),      // Jul, red
+            new Color(0.7522f, 0.0262f, 1f, 1f),      // Aug, purple
+            new Color(0.052f, 0.3842f, 0.3769f, 1f),  // Sep, dark teal
+            new Color(0.9984f, 0.3961f, 0.04f, 1f),   // Oct, orange
+            new Color(0.4246f, 0.2804f, 0.0238f, 1f), // Nov, brown
+            new Color(0.0432f, 0.1229f, 0.5012f, 1f), // Dec, navy
+        };
+
+        // A month colour brighter than this (relative luminance) gets darkText on it instead of
+        // white -- white on lime or yellow is unreadable.
+        [SerializeField] private float lightColourLuminance = 0.7f;
+        [SerializeField] private Color darkText = new Color(0.06f, 0.12f, 0.18f, 1f);
+
         // The nav/footer buttons are pre-built scene Buttons, wired to these handlers once (not
         // per-button-press) the first time this page refreshes -- see EnsureListenersWired. Day
         // cells are the exception: each needs its OWN date captured in a closure (SetClickOverride),
@@ -164,6 +197,7 @@ namespace FreeFlow.UI
             EnsureListenersWired();
             UpdateMonthTitleAndNav();
             PopulateBlock(ActiveBlock, displayedYear, displayedMonth, data);
+            RefreshMonthSummary(data);
             ParkBlocksAtRest();
             RefreshFooter(data);
 
@@ -339,23 +373,36 @@ namespace FreeFlow.UI
             StepMonth(1);
         }
 
-        /// <summary>Advances <see cref="displayedMonth"/>/<see cref="displayedYear"/> by
-        /// <paramref name="direction"/> (+1 or -1), fills the INACTIVE block with that month, and
-        /// slides it into view while the current one slides out -- <paramref name="direction"/>
-        /// also picks which side each block enters/exits from, so Next always feels like paging
-        /// forward and Prev like paging back.</summary>
+        /// <summary>Pages the calendar one month by <paramref name="direction"/> (+1 or -1) -- see
+        /// <see cref="SlideToMonth"/>.</summary>
         private void StepMonth(int direction)
         {
-            displayedMonth += direction;
-            if (displayedMonth < 1) { displayedMonth = 12; displayedYear--; }
-            else if (displayedMonth > 12) { displayedMonth = 1; displayedYear++; }
+            int year = displayedYear;
+            int month = displayedMonth + direction;
+            if (month < 1) { month = 12; year--; }
+            else if (month > 12) { month = 1; year++; }
+
+            SlideToMonth(year, month, direction);
+        }
+
+        /// <summary>Makes (<paramref name="year"/>, <paramref name="month"/>) the displayed month,
+        /// fills the INACTIVE block with it, and slides it into view while the current one slides
+        /// out -- <paramref name="direction"/> (+1 or -1) picks which side each block enters/exits
+        /// from, so a later month always feels like paging forward and an earlier one like paging
+        /// back, however many months apart they are.</summary>
+        private void SlideToMonth(int year, int month, int direction)
+        {
+            displayedYear = year;
+            displayedMonth = month;
 
             UpdateMonthTitleAndNav();
 
             CalendarBlock outgoing = ActiveBlock;
             CalendarBlock incoming = InactiveBlock;
 
-            PopulateBlock(incoming, displayedYear, displayedMonth, ProfileManager.Instance.LoadProgress());
+            PlayerProgress data = ProfileManager.Instance.LoadProgress();
+            PopulateBlock(incoming, displayedYear, displayedMonth, data);
+            RefreshMonthSummary(data);
 
             float width = ViewportWidth();
             if (incoming.root != null) { incoming.root.anchoredPosition = new Vector2(direction * width, 0f); }
@@ -416,6 +463,92 @@ namespace FreeFlow.UI
             DateTime firstOfCurrentMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             DateTime earliest = firstOfCurrentMonth.AddMonths(-(Mathf.Max(1, maxMonthsBack) - 1));
             return displayedYear == earliest.Year && displayedMonth == earliest.Month;
+        }
+
+        // ---- month badge and shelf -------------------------------------------------------------
+
+        /// <summary>Points the badge at the displayed month and lays the shelf out as the most
+        /// recent months, oldest first, the current month last. Called whenever the displayed month
+        /// changes, so the badge and the highlighted shelf chip always match the calendar.</summary>
+        private void RefreshMonthSummary(PlayerProgress data)
+        {
+            if (monthBadge != null)
+            {
+                Color colour = MonthColour(displayedMonth);
+                monthBadge.SetMonth(MonthLabel(displayedYear, displayedMonth, "MMMM"), colour, TextColourOn(colour),
+                    SolvedDaysIn(displayedYear, displayedMonth, data), DateTime.DaysInMonth(displayedYear, displayedMonth));
+            }
+
+            if (monthChips == null) { return; }
+
+            DateTime today = DailyChallengeSelector.EpochUtc.AddDays(shownDayIndex);
+            DateTime currentMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            // A chip older than the calendar's own paging floor would show a month the arrows can't
+            // reach, so any chips beyond maxMonthsBack are hidden rather than shown.
+            int shownChips = Mathf.Min(monthChips.Count, Mathf.Max(1, maxMonthsBack));
+
+            for (int i = 0; i < monthChips.Count; i++)
+            {
+                DailyMonthChip chip = monthChips[i];
+                if (chip == null) { continue; }
+
+                int monthsBack = monthChips.Count - 1 - i;
+                bool visible = monthsBack < shownChips;
+                chip.gameObject.SetActive(visible);
+                if (!visible) { continue; }
+
+                DateTime month = currentMonth.AddMonths(-monthsBack);
+                Color colour = MonthColour(month.Month);
+                chip.SetDetails(MonthLabel(month.Year, month.Month, "MMM"), colour, TextColourOn(colour),
+                    SolvedDaysIn(month.Year, month.Month, data), DateTime.DaysInMonth(month.Year, month.Month),
+                    month.Year == displayedYear && month.Month == displayedMonth);
+
+                int chipYear = month.Year;
+                int chipMonth = month.Month;
+                chip.SetClickOverride(() => OnMonthChipClicked(chipYear, chipMonth));
+            }
+        }
+
+        /// <summary>A shelf chip was tapped -- DailyMonthChip.OnButtonClick has already gated on
+        /// CanInput and played the click, so this must not gate again.</summary>
+        private void OnMonthChipClicked(int year, int month)
+        {
+            if (isTransitioning) { return; }
+
+            int delta = (year - displayedYear) * 12 + (month - displayedMonth);
+            if (delta == 0) { return; }
+
+            SlideToMonth(year, month, delta > 0 ? 1 : -1);
+        }
+
+        private static int SolvedDaysIn(int year, int month, PlayerProgress data)
+        {
+            int solved = 0;
+            int days = DateTime.DaysInMonth(year, month);
+            for (int d = 1; d <= days; d++)
+            {
+                DateTime date = new DateTime(year, month, d, 0, 0, 0, DateTimeKind.Utc);
+                if (data.IsDayCompleted(DailyChallengeCalendar.AbsoluteDayIndexFor(date))) { solved++; }
+            }
+            return solved;
+        }
+
+        private static string MonthLabel(int year, int month, string format)
+        {
+            return new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc)
+                .ToString(format, CultureInfo.InvariantCulture).ToUpperInvariant();
+        }
+
+        private Color MonthColour(int month)
+        {
+            if (monthColours == null || month < 1 || month > monthColours.Length) { return Color.white; }
+            return monthColours[month - 1];
+        }
+
+        private Color TextColourOn(Color colour)
+        {
+            float luminance = 0.2126f * colour.r + 0.7152f * colour.g + 0.0722f * colour.b;
+            return luminance > lightColourLuminance ? darkText : Color.white;
         }
 
         private void OnPlaySelectedDayClicked()
