@@ -1,34 +1,34 @@
 fileFormatVersion: 2
-guid: 9a9fa7fc186b05a4f96fe0a4e1150e9c
+guid: 476267f86d63af847b920051ced92d83
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -6158816988801038279
-    second: playeasy_logo_stacked_0
+      213: 7910048935703332897
+    second: playeasy_logo_horizontal_dark_0
   - first:
-      213: -2512560735330042929
-    second: playeasy_logo_stacked_1
+      213: -4755395912022050383
+    second: playeasy_logo_horizontal_dark_1
   - first:
-      213: -6734144374771525018
-    second: playeasy_logo_stacked_2
+      213: -5295135552062717027
+    second: playeasy_logo_horizontal_dark_2
   - first:
-      213: -3331841003899948661
-    second: playeasy_logo_stacked_3
+      213: -6431851320187595898
+    second: playeasy_logo_horizontal_dark_3
   - first:
-      213: -7888964188467575629
-    second: playeasy_logo_stacked_4
+      213: 2175240701720265975
+    second: playeasy_logo_horizontal_dark_4
   - first:
-      213: 3704851607174749179
-    second: playeasy_logo_stacked_5
+      213: 6239070966276363257
+    second: playeasy_logo_horizontal_dark_5
   - first:
-      213: 3301984756995768878
-    second: playeasy_logo_stacked_6
+      213: -2457102790577793330
+    second: playeasy_logo_horizontal_dark_6
   - first:
-      213: 6521387766536664768
-    second: playeasy_logo_stacked_7
+      213: -4966021034348171276
+    second: playeasy_logo_horizontal_dark_7
   - first:
-      213: 9044426216536254690
-    second: playeasy_logo_stacked_8
+      213: -8838252570140096285
+    second: playeasy_logo_horizontal_dark_8
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -96,10 +96,10 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 4
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 1024
+    maxTextureSize: 4096
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 1
+    textureCompression: 2
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -163,13 +163,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: playeasy_logo_stacked_0
+      name: playeasy_logo_horizontal_dark_0
       rect:
         serializedVersion: 2
-        x: 227
-        y: 273
-        width: 560
-        height: 619
+        x: 23
+        y: 23
+        width: 514
+        height: 514
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -178,20 +178,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 9388fd9549c778aa0800000000000000
-      internalID: -6158816988801038279
+      spriteID: 128cd88099326cd60800000000000000
+      internalID: 7910048935703332897
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_1
+      name: playeasy_logo_horizontal_dark_1
       rect:
         serializedVersion: 2
-        x: 15
-        y: 55
-        width: 131
-        height: 173
+        x: 637
+        y: 150
+        width: 195
+        height: 261
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -200,20 +200,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: fcbfe06c257912dd0800000000000000
-      internalID: -2512560735330042929
+      spriteID: 1b9b499fc90710eb0800000000000000
+      internalID: -4755395912022050383
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_2
+      name: playeasy_logo_horizontal_dark_2
       rect:
         serializedVersion: 2
-        x: 162
-        y: 55
-        width: 45
-        height: 176
+        x: 864
+        y: 150
+        width: 54
+        height: 263
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -222,20 +222,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 66a5c83ce538b82a0800000000000000
-      internalID: -6734144374771525018
+      spriteID: d9382cd2546e386b0800000000000000
+      internalID: -5295135552062717027
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_3
+      name: playeasy_logo_horizontal_dark_3
       rect:
         serializedVersion: 2
-        x: 222
-        y: 55
-        width: 126
-        height: 133
+        x: 948
+        y: 150
+        width: 186
+        height: 197
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -244,20 +244,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: b817672824ce2c1d0800000000000000
-      internalID: -3331841003899948661
+      spriteID: 683571c3d497db6a0800000000000000
+      internalID: -6431851320187595898
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_4
+      name: playeasy_logo_horizontal_dark_4
       rect:
         serializedVersion: 2
-        x: 351
-        y: 15
-        width: 125
-        height: 173
+        x: 1145
+        y: 84
+        width: 183
+        height: 263
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -266,20 +266,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 3b4cc9c3ed4c48290800000000000000
-      internalID: -7888964188467575629
+      spriteID: 7f4020fa4e1003e10800000000000000
+      internalID: 2175240701720265975
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_5
+      name: playeasy_logo_horizontal_dark_5
       rect:
         serializedVersion: 2
-        x: 490
-        y: 58
-        width: 135
-        height: 170
+        x: 1358
+        y: 155
+        width: 200
+        height: 256
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -288,20 +288,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: bfb9f2758e64a6330800000000000000
-      internalID: 3704851607174749179
+      spriteID: 9f31b51ecf1a59650800000000000000
+      internalID: 6239070966276363257
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_6
+      name: playeasy_logo_horizontal_dark_6
       rect:
         serializedVersion: 2
-        x: 633
-        y: 55
-        width: 126
-        height: 133
+        x: 1577
+        y: 150
+        width: 186
+        height: 197
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -310,20 +310,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: e22cc7e44a103dd20800000000000000
-      internalID: 3301984756995768878
+      spriteID: ec65dfeb70e96edd0800000000000000
+      internalID: -2457102790577793330
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_7
+      name: playeasy_logo_horizontal_dark_7
       rect:
         serializedVersion: 2
-        x: 769
-        y: 55
-        width: 114
-        height: 133
+        x: 1785
+        y: 150
+        width: 167
+        height: 197
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -332,20 +332,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 0c6fef23f9f908a50800000000000000
-      internalID: 6521387766536664768
+      spriteID: 4ff2f8c2e26251bb0800000000000000
+      internalID: -4966021034348171276
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: playeasy_logo_stacked_8
+      name: playeasy_logo_horizontal_dark_8
       rect:
         serializedVersion: 2
-        x: 886
-        y: 15
-        width: 123
-        height: 173
+        x: 1963
+        y: 84
+        width: 181
+        height: 263
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -354,8 +354,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 2e8afd979b1448d70800000000000000
-      internalID: 9044426216536254690
+      spriteID: 3e8cd915d18385580800000000000000
+      internalID: -8838252570140096285
       vertices: []
       indices: 
       edges: []
@@ -374,15 +374,15 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      playeasy_logo_stacked_0: -6158816988801038279
-      playeasy_logo_stacked_1: -2512560735330042929
-      playeasy_logo_stacked_2: -6734144374771525018
-      playeasy_logo_stacked_3: -3331841003899948661
-      playeasy_logo_stacked_4: -7888964188467575629
-      playeasy_logo_stacked_5: 3704851607174749179
-      playeasy_logo_stacked_6: 3301984756995768878
-      playeasy_logo_stacked_7: 6521387766536664768
-      playeasy_logo_stacked_8: 9044426216536254690
+      playeasy_logo_horizontal_dark_0: 7910048935703332897
+      playeasy_logo_horizontal_dark_1: -4755395912022050383
+      playeasy_logo_horizontal_dark_2: -5295135552062717027
+      playeasy_logo_horizontal_dark_3: -6431851320187595898
+      playeasy_logo_horizontal_dark_4: 2175240701720265975
+      playeasy_logo_horizontal_dark_5: 6239070966276363257
+      playeasy_logo_horizontal_dark_6: -2457102790577793330
+      playeasy_logo_horizontal_dark_7: -4966021034348171276
+      playeasy_logo_horizontal_dark_8: -8838252570140096285
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

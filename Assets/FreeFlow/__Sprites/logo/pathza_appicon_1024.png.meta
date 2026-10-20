@@ -1,13 +1,10 @@
 fileFormatVersion: 2
-guid: 293bf6e1000d87b4b9b37a72fca8b4cd
+guid: 97f42e44206d8da4f8f0e4441d6eca5e
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -2379244413423335244
-    second: pathza_logomark_0
-  - first:
-      213: 2084233740407943891
-    second: pathza_logomark_1
+      213: -2692773414100123407
+    second: pathza_appicon_1024_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -75,10 +72,10 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 4
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 512
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 0
+    textureCompression: 2
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -101,7 +98,7 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: Android
-    maxTextureSize: 512
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: 50
     textureCompression: 1
@@ -127,14 +124,14 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: iOS
-    maxTextureSize: 512
+    maxTextureSize: 2048
     resizeAlgorithm: 0
-    textureFormat: 50
+    textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
-    overridden: 1
+    overridden: 0
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
@@ -142,13 +139,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: pathza_logomark_0
+      name: pathza_appicon_1024_0
       rect:
         serializedVersion: 2
-        x: 37
-        y: 34
-        width: 950
-        height: 953
+        x: 0
+        y: 0
+        width: 1024
+        height: 1024
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -157,30 +154,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 4b8c110dfc93bfed0800000000000000
-      internalID: -2379244413423335244
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: pathza_logomark_1
-      rect:
-        serializedVersion: 2
-        x: 37
-        y: 33
-        width: 755
-        height: 568
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: 3d236ed4b8facec10800000000000000
-      internalID: 2084233740407943891
+      spriteID: 1f042f7c8d851aad0800000000000000
+      internalID: -2692773414100123407
       vertices: []
       indices: 
       edges: []
@@ -199,8 +174,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      pathza_logomark_0: -2379244413423335244
-      pathza_logomark_1: 2084233740407943891
+      pathza_appicon_1024_0: -2692773414100123407
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

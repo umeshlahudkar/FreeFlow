@@ -1,25 +1,10 @@
 fileFormatVersion: 2
-guid: 40f3bf29ef642054ba1cf999cc9939ea
+guid: 03a2db0003509ec49af861e2c1283d7f
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 6007171047086261506
-    second: playeasy_wordmark_0
-  - first:
-      213: 1698010137423807760
-    second: playeasy_wordmark_1
-  - first:
-      213: -8424807620815691125
-    second: playeasy_wordmark_2
-  - first:
-      213: -8165646541598753896
-    second: playeasy_wordmark_3
-  - first:
-      213: -8697554483016571882
-    second: playeasy_wordmark_4
-  - first:
-      213: -3811468621646844293
-    second: playeasy_wordmark_5
+      213: -4130035012010046638
+    second: playeasy_mark_1024_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -90,7 +75,7 @@ TextureImporter:
     maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 1
+    textureCompression: 2
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -113,14 +98,14 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: Android
-    maxTextureSize: 1024
+    maxTextureSize: 2048
     resizeAlgorithm: 0
-    textureFormat: 50
+    textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
-    overridden: 1
+    overridden: 0
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
@@ -139,14 +124,14 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: iOS
-    maxTextureSize: 1024
+    maxTextureSize: 2048
     resizeAlgorithm: 0
-    textureFormat: 50
+    textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
-    overridden: 1
+    overridden: 0
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
@@ -154,13 +139,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: playeasy_wordmark_0
+      name: playeasy_mark_1024_0
       rect:
         serializedVersion: 2
-        x: 150
-        y: 458
-        width: 149
-        height: 125
+        x: 0
+        y: 0
+        width: 1024
+        height: 1024
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -169,118 +154,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 205869e6d32cd5350800000000000000
-      internalID: 6007171047086261506
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: playeasy_wordmark_1
-      rect:
-        serializedVersion: 2
-        x: 312
-        y: 253
-        width: 353
-        height: 430
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: 015882a393b809710800000000000000
-      internalID: 1698010137423807760
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: playeasy_wordmark_2
-      rect:
-        serializedVersion: 2
-        x: 668
-        y: 459
-        width: 145
-        height: 126
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: b82e64cfa12151b80800000000000000
-      internalID: -8424807620815691125
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: playeasy_wordmark_3
-      rect:
-        serializedVersion: 2
-        x: 142
-        y: 322
-        width: 152
-        height: 120
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: 89bfb9edbbbcdae80800000000000000
-      internalID: -8165646541598753896
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: playeasy_wordmark_4
-      rect:
-        serializedVersion: 2
-        x: 667
-        y: 323
-        width: 149
-        height: 120
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: 614e03187441c4780800000000000000
-      internalID: -8697554483016571882
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: playeasy_wordmark_5
-      rect:
-        serializedVersion: 2
-        x: 15
-        y: 15
-        width: 994
-        height: 301
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: b7e213e8b71fa1bc0800000000000000
-      internalID: -3811468621646844293
+      spriteID: 25b0737d90b2fa6c0800000000000000
+      internalID: -4130035012010046638
       vertices: []
       indices: 
       edges: []
@@ -299,12 +174,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      playeasy_wordmark_0: 6007171047086261506
-      playeasy_wordmark_1: 1698010137423807760
-      playeasy_wordmark_2: -8424807620815691125
-      playeasy_wordmark_3: -8165646541598753896
-      playeasy_wordmark_4: -8697554483016571882
-      playeasy_wordmark_5: -3811468621646844293
+      playeasy_mark_1024_0: -4130035012010046638
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
