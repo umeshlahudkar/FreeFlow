@@ -43,6 +43,13 @@ public class ADManager : Singleton<ADManager>, IInitializable
         get { return ServiceConfig.Current.MinSecondsBetweenInterstitials; }
     }
 
+    /// <summary>How long the "Ad Break" notice sits on the level-complete sheet before the
+    /// interstitial covers it, and -- because input is off for exactly this long -- how long the
+    /// player cannot tap anything. Three seconds at the user's own call: long enough that the
+    /// notice is read rather than glimpsed, and that a thumb already travelling towards Next has
+    /// landed and been ignored well before the ad arrives.</summary>
+    private const float AdBreakNoticeSeconds = 3f;
+
     /// <summary>Fires <paramref name="callback"/> two frames from now instead of immediately. The
     /// SDK's own closed/failed callbacks land the moment the native ad overlay hands control back to
     /// Unity, before a frame has actually rendered on top of it -- calling straight back into
@@ -108,6 +115,42 @@ public class ADManager : Singleton<ADManager>, IInitializable
 
         levelsCompletedSinceLastInterstitial = 0;
         lastInterstitialShownRealtime = Time.realtimeSinceStartup;
+
+        // Announced before it lands, never sprung -- see AnnounceThenShowInterstitial. The gates
+        // are consumed here rather than in the coroutine so a second completion arriving during
+        // the notice (it cannot, input is off, but the gates are cheap insurance) cannot queue a
+        // second ad behind this one.
+        StartCoroutine(AnnounceThenShowInterstitial());
+    }
+
+    /// <summary>Puts the "Ad Break" notice up, waits it out, then shows the interstitial.
+    ///
+    /// Input is off for the length of the notice. Without that, the notice is purely decorative:
+    /// the level-complete sheet underneath it keeps its Next/Retry/Home buttons live, so a player
+    /// already reaching for Next taps through the warning and meets the ad on the next board
+    /// instead -- which is the ambush the notice exists to prevent, just moved one screen along.
+    /// Enabled again before the ad is asked for, so an ad that turns out not to show (nothing is
+    /// guaranteed past IsInterstitialReady) still hands the sheet back working.
+    ///
+    /// Unscaled wait, like everything else that runs over a finished board: the board behind the
+    /// sheet has stopped, and a scaled wait would stop with it and never reach the ad.
+    ///
+    /// The notice is reached through UIController -- the one place that owns what the screens say
+    /// (see its AdBreakMessage) -- rather than through a reference of this class's own, and every
+    /// step of it is null-guarded so an ad never fails to show merely because the UI was not
+    /// standing where this expected it.</summary>
+    private IEnumerator AnnounceThenShowInterstitial()
+    {
+        FreeFlow.UI.UIController ui = FreeFlow.UI.UIController.Instance;
+        if (ui != null) { ui.ShowWarning(ui.AdBreakMessage, AdBreakNoticeSeconds); }
+
+        FreeFlow.Input.InputManager input = FreeFlow.Input.InputManager.Instance;
+        if (input != null) { input.DisableInput(); }
+
+        yield return new WaitForSecondsRealtime(AdBreakNoticeSeconds);
+
+        if (input != null) { input.EnableInput(); }
+
         ShowInterstitialAd(null, null);
     }
 

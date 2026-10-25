@@ -335,6 +335,13 @@ namespace FreeFlow.UI
                     // lifetime, which is what made the game seem stuck once the ad closed.
                     InputManager.Instance.EnableInput();
 
+                    // Time spent watching an ad is not time spent solving the board, so the
+                    // attempt clock stops here and is started again by BOTH callbacks below --
+                    // see GamePlayController.PauseAttemptClock. Paused at the call site rather
+                    // than inside ADManager so that class stays what it is: the ad RULES, with no
+                    // knowledge of a board or of how long one has been open.
+                    GamePlayController.Instance.PauseAttemptClock();
+
                     // An empty balance now offers a rewarded ad instead of just refusing the tap --
                     // ADManager.ShowRewardedAd calls back on whichever of the two actually
                     // happened, never both.
@@ -354,6 +361,8 @@ namespace FreeFlow.UI
         /// banked" -- the same balance a manual tap would have left, minus the pair it drew.</summary>
         private void OnHintAdCompleted()
         {
+            GamePlayController.Instance.ResumeAttemptClock();
+
             UIController.Instance.GrantHint(1);
             GamePlayController.Instance.TryApplyHint();
             RefreshHintButton();
@@ -363,6 +372,8 @@ namespace FreeFlow.UI
         /// player closed it early. Same notice style as the empty-balance refusal it replaced.</summary>
         private void OnHintAdFailed()
         {
+            GamePlayController.Instance.ResumeAttemptClock();
+
             Haptics.Play(HapticType.Warning);
             UIController.Instance.ShowWarning(UIController.Instance.AdNotAvailableMessage);
         }

@@ -121,12 +121,29 @@ public class SettingPage : Page
             SetToggleVisual(showHintButtonTrackImage, showHintButtonKnob, settings.showHintButton);
         }
 
-        if (versionText != null)
-        {
-            versionText.text = "PATHZA " + Application.version;
-        }
+        RefreshVersionLine();
         ResetConfirmState();
         RefreshDeveloperSection();
+    }
+
+    /// <summary>Writes the footer line from Player Settings rather than from anything authored
+    /// here: <see cref="Application.productName"/> is the Product Name field and
+    /// <see cref="Application.version"/> is the Version field, both read live. The name used to be
+    /// the literal "PATHZA" in this method, so renaming the game in Project Settings changed the
+    /// store listing, the launcher icon and the title bar while this one line went on claiming the
+    /// old name.
+    ///
+    /// Called from OnEnable, so it is re-read every time the screen opens -- in the Editor that
+    /// means a name changed in Project Settings shows correctly on the very next open, with no
+    /// domain reload needed.</summary>
+    private void RefreshVersionLine()
+    {
+        if (versionText == null) { return; }
+
+        // Upper case to match every other label on this screen. ToUpperInvariant, not
+        // ToUpper: the product name is not the player's text and must not be folded by whatever
+        // locale the device happens to be in (the Turkish dotless i being the standard example).
+        versionText.text = Application.productName.ToUpperInvariant() + " " + Application.version;
     }
 
     /// <summary>Shows the row that opens the developer tools, or -- in a build that defines

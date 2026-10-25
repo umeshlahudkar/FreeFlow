@@ -25,6 +25,13 @@ namespace FreeFlow.UI
         // player has finished deciding what to do instead.
         [SerializeField] private float visibleSeconds = 1.5f;
 
+        // What THIS showing is staying up for, when the caller asked for something other than the
+        // authored default -- the ad-break notice, which has to last exactly as long as the wait
+        // in front of the interstitial it announces. Negative means "use visibleSeconds", and
+        // SetMessage writes it on every showing, so one caller's longer notice can never be
+        // inherited by the next plain warning.
+        private float visibleSecondsThisShowing = -1f;
+
         // The pop: scaled from nothing up to its own resting scale on Open, back down on Close.
         // Read at Awake -- almost certainly (1, 1, 1) -- rather than assumed, so this still works
         // if this notifier is ever reused somewhere already scaled down in its prefab.
@@ -47,9 +54,10 @@ namespace FreeFlow.UI
 
         /// <summary>The message this notifier shows when it is next opened. Set before opening it,
         /// not instead of opening it: only PageManager puts a page on screen.</summary>
-        public void SetMessage(string message)
+        public void SetMessage(string message, float seconds = -1f)
         {
             if (messageText != null) { messageText.text = message; }
+            visibleSecondsThisShowing = seconds;
         }
 
         public override void Open()
@@ -82,7 +90,8 @@ namespace FreeFlow.UI
         {
             // Unscaled: the level-complete sheet sits on top of a board that has stopped, and a
             // notice that froze with it would stay on screen until play resumed.
-            yield return new WaitForSecondsRealtime(visibleSeconds);
+            float seconds = visibleSecondsThisShowing > 0f ? visibleSecondsThisShowing : visibleSeconds;
+            yield return new WaitForSecondsRealtime(seconds);
 
             hideRoutine = null;
             PageManager.Instance.CloseOverlay(PageType.Warning);

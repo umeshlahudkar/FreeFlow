@@ -234,12 +234,12 @@ namespace FreeFlow.UI
         /// it take itself away again (see WarningNotifier). Composed here, the same way this class
         /// owns every other piece of wording the screens show, so the same situation cannot be
         /// described two different ways on two different screens.</summary>
-        public void ShowWarning(string message)
+        public void ShowWarning(string message, float seconds = -1f)
         {
             WarningNotifier notifier = PageManager.Instance.Get<WarningNotifier>(PageType.Warning);
             if (notifier == null) { return; }
 
-            notifier.SetMessage(message);
+            notifier.SetMessage(message, seconds);
             PageManager.Instance.OpenAsOverlay(PageType.Warning);
         }
 
@@ -279,6 +279,13 @@ namespace FreeFlow.UI
         /// <summary>What the hint button says when the rewarded ad it offered instead of a
         /// balance could not be shown.</summary>
         public string AdNotAvailableMessage { get { return "Ad Not Available. Try Again Later."; } }
+
+        /// <summary>The heads-up shown on the level-complete sheet just before an interstitial
+        /// covers it (see ADManager.TryShowInterstitialIfDue). An ad that arrives with no warning
+        /// at the exact moment the player is reaching for Next reads as the game having been
+        /// hijacked -- and often eats that tap. Naming it first makes it a break rather than an
+        /// ambush.</summary>
+        public string AdBreakMessage { get { return "Ad Break. Game Resumes Shortly."; } }
 
         // ---- header text -------------------------------------------------------------------
         //

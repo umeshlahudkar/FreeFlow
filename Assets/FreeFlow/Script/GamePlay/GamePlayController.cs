@@ -100,6 +100,17 @@ namespace FreeFlow.GamePlay
         /// <summary>Unscaled time the current attempt began; see <see cref="BeginAttempt"/>.</summary>
         private float attemptStartTime;
 
+        /// <summary>Seconds already subtracted from this attempt because the player was not
+        /// playing -- see <see cref="PauseAttemptClock"/>. Reset per attempt, like the start time
+        /// it is measured against.</summary>
+        private float attemptPausedSeconds;
+
+        /// <summary>Whether the attempt clock is stopped right now, and the unscaled time it
+        /// stopped at. Kept as a flag plus a stamp rather than a nullable float so the running
+        /// pause can be included in <see cref="AttemptSeconds"/> while it is still open.</summary>
+        private bool attemptClockPaused;
+        private float attemptPauseBegan;
+
         /// <summary>Hints taken since <see cref="BeginAttempt"/> reset it, incremented by
         /// <see cref="RecordHintUsed"/>. Runtime-only -- only needs to survive for the length of
         /// one attempt, so nothing about it is persisted.</summary>
@@ -871,6 +882,53 @@ namespace FreeFlow.GamePlay
             selectedBlocks.RemoveAt(selectedBlocks.Count - 1);
         }
 
+        /// <summary>How long this attempt has actually been in the player's hands: wall-clock
+        /// since <see cref="BeginAttempt"/>, minus every stretch <see cref="PauseAttemptClock"/>
+        /// took out of it. This -- not the raw difference -- is what the level-complete sheet
+        /// reports, and what any future best-time would be judged on.</summary>
+        private float AttemptSeconds
+        {
+            get
+            {
+                float paused = attemptPausedSeconds;
+                if (attemptClockPaused) { paused += Time.unscaledTime - attemptPauseBegan; }
+                return Mathf.Max(0f, Time.unscaledTime - attemptStartTime - paused);
+            }
+        }
+
+        /// <summary>Stops the attempt clock for something that is not the player solving the
+        /// board -- a rewarded ad, today the only caller (see GameplayPage's hint flow).
+        ///
+        /// A rewarded ad is a full-screen native overlay the player may sit through for thirty
+        /// seconds, and Unity keeps running underneath it: every one of those seconds used to land
+        /// on the completion time the level-complete sheet then reported, so watching an ad for a
+        /// hint made the solve look half a minute slower than it was. Unscaled time is what the
+        /// clock is measured in deliberately (a stopped board must not stop it), which is exactly
+        /// why Time.timeScale cannot be what handles this.
+        ///
+        /// Idempotent: a second call while already paused is ignored rather than restarting the
+        /// stamp, so a pause that is somehow raised twice cannot lose the first stretch.</summary>
+        public void PauseAttemptClock()
+        {
+            if (attemptClockPaused) { return; }
+
+            attemptClockPaused = true;
+            attemptPauseBegan = Time.unscaledTime;
+        }
+
+        /// <summary>Starts the attempt clock again and banks however long it was stopped for.
+        /// Safe to call when it was never paused -- the ad callbacks that call it fire on paths
+        /// that may not have paused anything (an ad that was never ready fails synchronously),
+        /// and both of them calling it unconditionally is what keeps the clock from being left
+        /// stopped for the rest of the attempt.</summary>
+        public void ResumeAttemptClock()
+        {
+            if (!attemptClockPaused) { return; }
+
+            attemptClockPaused = false;
+            attemptPausedSeconds += Time.unscaledTime - attemptPauseBegan;
+        }
+
         /// <summary>
         /// Records that the current level has been started once more, and starts its clock.
         /// Called from <see cref="ResetGameplay"/>, so a restart counts as a fresh attempt -- which
@@ -883,6 +941,8 @@ namespace FreeFlow.GamePlay
         private void BeginAttempt()
         {
             attemptStartTime = Time.unscaledTime;
+            attemptPausedSeconds = 0f;
+            attemptClockPaused = false;
             hintsUsedThisAttempt = 0;
 
             // Cleared before the early returns below, so a new attempt can always bank a
@@ -931,7 +991,7 @@ namespace FreeFlow.GamePlay
             bool isDailyChallenge = UIController.Instance.IsDailyChallenge;
             int dailyDayIndex = UIController.Instance.DailyDayIndex;
 
-            lastCompletionSeconds = Time.unscaledTime - attemptStartTime;
+            lastCompletionSeconds = AttemptSeconds;
             lastCompletionOldCompletedLevel = ProfileManager.Instance.LoadProgress().CompletedLevelForKey(key);
             lastCompletionHintsUsed = hintsUsedThisAttempt;
 

@@ -70,8 +70,12 @@ namespace FreeFlow.UI
             if (iconImage != null) { iconImage.sprite = ThumbSpriteFor(packSize); }
             if (sizeText != null) { sizeText.text = packSize + "×" + packSize; }
 
-            // Writes the subtitle as well as the tag -- the colour range lives in the same
-            // authored entry as the tier, so both are set in one place or neither is.
+            // The cell count this pack's boards actually have. Computed, never authored: the
+            // template in the scene carries "36 cells" as its placeholder, and because nothing
+            // here used to overwrite it EVERY card -- 5x5 through 9x9 -- claimed 36, the 6x6
+            // figure, regardless of the size written directly above it.
+            if (subtitleText != null) { subtitleText.text = (packSize * packSize) + " cells"; }
+
             ApplyDifficultyTag(mode, packSize);
 
             // PLAY shown throughout the reveal regardless of the pack's real state -- a fully
