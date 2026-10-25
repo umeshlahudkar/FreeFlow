@@ -107,8 +107,32 @@ namespace FreeFlow.UI
         [SerializeField] private TextMeshProUGUI playButtonText;
         [SerializeField] private TextMeshProUGUI playButtonSubtitleText;
 
-        [Header("Day card and month shelf (pre-built scene objects)")]
+        [Header("Day strip and month shelf (pre-built scene objects)")]
         [SerializeField] private DailyDayCard dayCard;
+
+        // Shown ONLY when today is already solved and the page has walked back to an older
+        // unsolved day, so that the strip and the Play button are both describing a catch-up --
+        // see RefreshFooter. It keeps a permanent slot in the layout rather than pushing the strip
+        // down when it appears: nothing on this screen moves a transform at runtime.
+        [SerializeField] private GameObject todaySolvedBanner;
+        [SerializeField] private TextMeshProUGUI todaySolvedText;
+
+        // The bar under the month title, and the "12 / 31" beside it. A real Slider driven by its
+        // value, laid out and animated the same way the main menu's mode cards drive theirs -- see
+        // CountMonthProgress.
+        [SerializeField] private Slider monthProgressSlider;
+        [SerializeField] private TextMeshProUGUI monthProgressText;
+
+        // How long the bar and the number take to count up from zero, every time the month on
+        // screen changes. Matches MainMenuPage's own progressAnimSeconds.
+        [SerializeField] private float progressAnimSeconds = 0.35f;
+
+        // The count currently drawn (mid-count or settled) and the coroutine drawing it. Hand-
+        // rolled rather than DOTween for the reason MainMenuPage gives at its own ProgressReadout:
+        // a DOTween tween on this project's build registered correctly but never advanced past its
+        // start value.
+        private float progressDisplayed;
+        private Coroutine progressRoutine;
 
         // Oldest month first, the current month last -- see RefreshMonthSummary. Never shows a
         // month older than maxMonthsBack allows, so every chip is a month the calendar can page to.
@@ -127,6 +151,11 @@ namespace FreeFlow.UI
         // Throttles the day-rollover check in Update() to once a second rather than every frame.
         private float dayRolloverPollTimer;
 
+        // Whether the Play button's subtitle is currently a countdown rather than a date -- see
+        // RefreshFooter, which is the only thing that decides it, and TickCountdowns, which may
+        // only overwrite that subtitle while it is true.
+        private bool footerShowsCountdown;
+
         // The calendar day this screen's "today" state (lock/complete state on the grid) was built
         // for -- see Update, which rebuilds everything on roll-over.
         private int shownDayIndex = -1;
@@ -141,17 +170,11 @@ namespace FreeFlow.UI
             shownDayIndex = DailyChallengeSelector.DayIndex(DateTime.UtcNow);
             PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
-            // shownDayIndex (and every "locked"/"today" decision the grid makes) is derived from
-            // DailyChallengeSelector's UTC day index -- the header must show the SAME day, not
-            // System.DateTime.Now (local time), or the two can disagree near midnight in any
-            // timezone ahead of UTC (e.g. header reads "27 SEP" while the grid still treats the
-            // 27th as locked, because it's UTC-today is still the 26th).
-            DateTime headerDate = DailyChallengeSelector.EpochUtc.AddDays(shownDayIndex);
-            if (topPanel != null)
-            {
-                string date = headerDate.ToString("ddd d MMM", CultureInfo.InvariantCulture).ToUpperInvariant();
-                topPanel.SetTopPanel("DAILY CHALLENGE", date);
-            }
+            // No subtitle. The header used to repeat the date ("SUN 25 OCT") directly above a
+            // card that said "SUNDAY, OCT 25", above a calendar circling the 25th, above a Play
+            // button reading "Sunday, Oct 25" -- one fact, four times, on a screen with nowhere
+            // near enough room for it. The strip below says it once; this names the screen.
+            if (topPanel != null) { topPanel.SetTopPanel("DAILY CHALLENGE", ""); }
 
             // Re-picks the selected day EVERY time this page opens (not just the first time, or
             // after a day rollover) -- finishing today's challenge and coming straight back here
@@ -185,17 +208,46 @@ namespace FreeFlow.UI
         }
 
         /// <summary>Rebuilds the whole screen the moment the day it was built for actually rolls
-        /// over -- polled once a second rather than every frame.</summary>
+        /// over, and in between keeps whichever countdown is on screen honest -- both polled once
+        /// a second rather than every frame.</summary>
         private void Update()
         {
             dayRolloverPollTimer -= Time.unscaledDeltaTime;
             if (dayRolloverPollTimer > 0f) { return; }
             dayRolloverPollTimer = 1f;
 
-            if (DailyChallengeSelector.DayIndex(DateTime.UtcNow) != shownDayIndex)
+            DateTime now = DateTime.UtcNow;
+            if (DailyChallengeSelector.DayIndex(now) != shownDayIndex)
             {
                 Refresh();
+                return;
             }
+
+            TickCountdowns(now);
+        }
+
+        /// <summary>Re-reads the clock into whichever "next puzzle in ..." line is currently
+        /// showing. A countdown that was written once when the screen opened and then sat still is
+        /// worse than no countdown: a player who leaves the page open watches a number that is
+        /// quietly wrong. Only ever one of the two is up at a time (the banner is for a chosen
+        /// catch-up day, the footer for a chosen solved one), but both are checked rather than
+        /// tracked, so there is no flag to get out of step with what is actually on screen.</summary>
+        private void TickCountdowns(DateTime utcNow)
+        {
+            if (todaySolvedBanner != null && todaySolvedBanner.activeSelf && todaySolvedText != null)
+            {
+                todaySolvedText.text = TodaySolvedText(utcNow);
+            }
+
+            if (footerShowsCountdown && playButtonSubtitleText != null)
+            {
+                playButtonSubtitleText.text = DailyMonthPalette.NextPuzzleText(utcNow);
+            }
+        }
+
+        private static string TodaySolvedText(DateTime utcNow)
+        {
+            return "Today solved · " + DailyMonthPalette.NextPuzzleText(utcNow);
         }
 
         // ---- month calendar --------------------------------------------------------------------
@@ -324,6 +376,7 @@ namespace FreeFlow.UI
 
             bool future = selectedAbsoluteDay > shownDayIndex;
             bool completed = data.IsDayCompleted(selectedAbsoluteDay);
+            DateTime now = DateTime.UtcNow;
 
             // A completed day is a closed record, not replayable -- same rule as the grid cells.
             if (playButton != null) { playButton.interactable = !future && !completed; }
@@ -331,6 +384,29 @@ namespace FreeFlow.UI
             {
                 playButtonText.text = future ? "LOCKED" : (completed ? "SOLVED" : "PLAY");
             }
+
+            // Under a Play button that cannot be pressed, the date it names is the least useful
+            // thing the subtitle could carry -- the player can already see which day it is, and
+            // cannot act on it. The wait is what they came back to find out, so a solved day's
+            // subtitle counts down to the next puzzle instead, and keeps counting (TickCountdowns).
+            footerShowsCountdown = completed;
+            if (playButtonSubtitleText != null)
+            {
+                DateTime selDate = DailyChallengeSelector.EpochUtc.AddDays(selectedAbsoluteDay);
+                playButtonSubtitleText.text = completed
+                    ? DailyMonthPalette.NextPuzzleText(now)
+                    : selDate.ToString("dddd, MMM d", CultureInfo.InvariantCulture);
+            }
+
+            // The banner answers one situation and no other: today's puzzle IS done, but Refresh
+            // walked the selection back to an older unsolved day, so the strip, the Play button and
+            // its subtitle are all describing a catch-up -- and without this, finishing today and
+            // coming straight back here would show a screen headed "MISSED" with nothing anywhere
+            // on it acknowledging what was just solved.
+            bool todayDone = data.IsDayCompleted(shownDayIndex);
+            bool showBanner = todayDone && selectedAbsoluteDay != shownDayIndex;
+            if (todaySolvedBanner != null) { todaySolvedBanner.SetActive(showBanner); }
+            if (showBanner && todaySolvedText != null) { todaySolvedText.text = TodaySolvedText(now); }
 
             RefreshDayCard(data);
         }
@@ -346,16 +422,23 @@ namespace FreeFlow.UI
             bool isToday = selectedAbsoluteDay == shownDayIndex;
             bool completed = data.IsDayCompleted(selectedAbsoluteDay);
             int size = DailyChallengeCalendar.LevelForAbsoluteDay(selectedAbsoluteDay).packSize;
-            Color colour = MonthColour(date.Month);
+            string board = size + "×" + size + " board";
 
+            // The month's solved count is no longer passed: it lives on the bar inside the
+            // calendar card now (see RefreshMonthSummary), under the month it actually counts.
             dayCard.SetDay(
-                date.ToString("dddd, MMM d", CultureInfo.InvariantCulture).ToUpperInvariant(),
-                completed ? "Solved" : isToday ? "Today's puzzle" : "Catch-up puzzle",
+                date.ToString("ddd", CultureInfo.InvariantCulture).ToUpperInvariant(),
+                date.Day.ToString(CultureInfo.InvariantCulture),
+                completed ? (isToday ? "TODAY'S PUZZLE SOLVED" : "PUZZLE SOLVED")
+                    : isToday ? "TODAY'S PUZZLE" : "CATCH-UP PUZZLE",
+                completed ? board
+                    : isToday ? board + " · not solved yet"
+                    : board + " · missed on " + date.ToString("MMM d", CultureInfo.InvariantCulture),
                 completed ? "SOLVED" : isToday ? "NEW" : "MISSED",
-                completed,
-                size + "×" + size + " board",
-                colour, TextColourOn(colour), monthPalette != null && monthPalette.IsLight(colour),
-                data.CompletedDaysInMonth(date.Year, date.Month), DateTime.DaysInMonth(date.Year, date.Month));
+                completed ? DailyDayCard.DayState.Solved
+                    : isToday ? DailyDayCard.DayState.Today
+                    : DailyDayCard.DayState.Missed,
+                MonthColour(date.Month));
         }
 
         private void OnPrevMonthClick()
@@ -504,6 +587,96 @@ namespace FreeFlow.UI
                 int chipYear = month.Year;
                 int chipMonth = month.Month;
                 chip.SetClickOverride(() => OnMonthChipClicked(chipYear, chipMonth));
+            }
+
+            RefreshMonthProgress(data);
+        }
+
+        /// <summary>The bar under the month title: how much of the month on screen is solved.
+        ///
+        /// Counts the DISPLAYED month, not the month the selected day belongs to. The bar sits
+        /// inside the calendar card directly beneath that month's name, so it has to answer for
+        /// what is actually being looked at -- paging back to September must show September's
+        /// count even while the Play button still offers an October day. Paging calls back through
+        /// RefreshMonthSummary, so it follows on its own.
+        ///
+        /// Against the whole month, including days not yet reachable: it is the same figure the
+        /// ring on the old hero card showed ("0 OF 31 DAYS"), and the month chips still show, so
+        /// all three would otherwise disagree about what "the month" means mid-month.</summary>
+        private void RefreshMonthProgress(PlayerProgress data)
+        {
+            int solvedInMonth = data.CompletedDaysInMonth(displayedYear, displayedMonth);
+            int daysInMonth = DateTime.DaysInMonth(displayedYear, displayedMonth);
+
+            if (monthProgressSlider == null && monthProgressText == null) { return; }
+
+            if (progressRoutine != null) { StopCoroutine(progressRoutine); progressRoutine = null; }
+
+            // Refresh runs from OnEnable, so the page is active by the time this is reached -- but
+            // StartCoroutine throws on an inactive GameObject, and a bar left mid-count because
+            // the page closed under it would come back wrong. Snap to the final figure instead
+            // whenever there is nothing running to animate on.
+            if (!isActiveAndEnabled)
+            {
+                progressDisplayed = solvedInMonth;
+                SetMonthProgress(solvedInMonth, daysInMonth);
+                return;
+            }
+
+            progressRoutine = StartCoroutine(CountMonthProgress(solvedInMonth, daysInMonth));
+        }
+
+        /// <summary>Counts the bar and the number up from zero together, the same way the main
+        /// menu's mode cards do (MainMenuPage.CountProgress) -- unscaled, ease-out quad, over
+        /// <see cref="progressAnimSeconds"/>.
+        ///
+        /// Always FROM zero rather than from whatever the last month showed: paging from a solved
+        /// month to an empty one would otherwise animate downwards, which reads as progress being
+        /// taken away rather than a different month being counted.
+        ///
+        /// The frame set aside before timing starts is not a stylistic pause. This is started from
+        /// the middle of a page transition or a month slide, and Time.unscaledDeltaTime on that
+        /// same frame reflects however long that took rather than an ordinary frame -- counting
+        /// from that sample let one hitch consume the whole animation in a single invisible jump.
+        /// MainMenuPage hit exactly this and solved it the same way.</summary>
+        private IEnumerator CountMonthProgress(int solved, int daysInMonth)
+        {
+            progressDisplayed = 0f;
+            SetMonthProgress(0f, daysInMonth);
+
+            yield return null;
+
+            float elapsed = 0f;
+            while (elapsed < progressAnimSeconds)
+            {
+                elapsed += Time.unscaledDeltaTime;
+
+                float t = Mathf.Clamp01(elapsed / progressAnimSeconds);
+                float eased = 1f - ((1f - t) * (1f - t));
+
+                progressDisplayed = Mathf.LerpUnclamped(0f, solved, eased);
+                SetMonthProgress(progressDisplayed, daysInMonth);
+                yield return null;
+            }
+
+            progressDisplayed = solved;
+            SetMonthProgress(solved, daysInMonth);
+            progressRoutine = null;
+        }
+
+        /// <summary>Draws one solved-days count across the bar and the number beside it. Takes the
+        /// raw (possibly fractional, mid-count) value rather than an int: the bar fills
+        /// continuously off it while the number rounds itself, so the figure stays whole while the
+        /// bar under it still moves.</summary>
+        private void SetMonthProgress(float solved, int daysInMonth)
+        {
+            if (monthProgressSlider != null)
+            {
+                monthProgressSlider.value = daysInMonth > 0 ? Mathf.Clamp01(solved / daysInMonth) : 0f;
+            }
+            if (monthProgressText != null)
+            {
+                monthProgressText.text = Mathf.RoundToInt(solved) + " / " + daysInMonth;
             }
         }
 

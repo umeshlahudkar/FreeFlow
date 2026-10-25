@@ -57,5 +57,26 @@ namespace FreeFlow.UI
         {
             return new Color(colour.r * factor, colour.g * factor, colour.b * factor, colour.a);
         }
+
+        /// <summary>How long until the next daily puzzle unlocks, as something to read -- "Next in
+        /// 7h 12m". Shown wherever a player has already solved today and the only answer to "what
+        /// now" is a wait: the main menu's Daily card, and the Daily page's own footer and
+        /// today-solved banner.
+        ///
+        /// Lives here rather than on either page because both say it, and two copies would be two
+        /// chances to word or round it differently. Minutes are floored by TimeSpan, so the last
+        /// minute would otherwise read "Next in 0m" -- it is clamped to 1 instead, since a
+        /// countdown that has reached zero while the puzzle is still locked reads as broken.
+        ///
+        /// Takes the time rather than reading the clock itself, so a caller ticking this once a
+        /// second measures every line it draws against one instant.</summary>
+        public static string NextPuzzleText(System.DateTime utcNow)
+        {
+            System.TimeSpan left = FreeFlow.GamePlay.DailyChallengeSelector.TimeUntilNextDay(utcNow);
+            int hours = (int)left.TotalHours;
+            return hours > 0
+                ? "Next in " + hours + "h " + left.Minutes + "m"
+                : "Next in " + Mathf.Max(1, left.Minutes) + "m";
+        }
     }
 }

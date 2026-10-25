@@ -269,11 +269,12 @@ namespace FreeFlow.UI
             if (dailyBadgeImage != null) { dailyBadgeImage.color = solvedToday ? solvedBadgeColor : newBadgeColor; }
         }
 
+        // Moved to DailyMonthPalette, which the Daily page now says the same line from (its
+        // footer and its today-solved banner). Two copies would be two chances to word or round
+        // the same countdown differently on two screens a tap apart.
         private static string NextPuzzleText(System.DateTime utcNow)
         {
-            System.TimeSpan left = DailyChallengeSelector.TimeUntilNextDay(utcNow);
-            int hours = (int)left.TotalHours;
-            return hours > 0 ? "Next in " + hours + "h " + left.Minutes + "m" : "Next in " + Mathf.Max(1, left.Minutes) + "m";
+            return DailyMonthPalette.NextPuzzleText(utcNow);
         }
 
         /// <summary>Summed across every pack size in the mode (e.g. Classic's 5x5 + 6x6 + 7x7 +
