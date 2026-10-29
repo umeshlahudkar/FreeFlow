@@ -50,6 +50,48 @@ namespace FreeFlow.GamePlay
         // gives each branch a stable identity to be replaced or cleared by.
         private Dictionary<int, List<List<Block>>> pairSegments;
 
+        // Every OTHER pair's drawn path as it stood when the current drag began, beside the live
+        // list each one is still drawn from. The cut a drag makes in another pair's line is
+        // provisional for as long as the finger is down: it is re-derived from these copies after
+        // every step instead of being applied destructively, so backing off a stolen cell puts the
+        // stolen tail straight back. Nothing here outlives the gesture -- OnPointerUp drops it, and
+        // whatever is drawn at that moment is what the board keeps.
+        // A POOL, not a fresh list per drag: it only ever grows to the most segments any one
+        // board has held, and every touch after that reuses what is already here. The entries in
+        // use this gesture are [0, gestureSnapshotCount), and the rest are spent ones kept for
+        // their capacity. A touch is the one moment in this game that must not stutter, and
+        // allocating a CutSnapshot plus a Block list per drawn pair on every finger-down is a
+        // steady drip of garbage straight into the frame the player is pressing.
+        private readonly List<CutSnapshot> gestureSnapshot = new List<CutSnapshot>();
+        private int gestureSnapshotCount;
+
+        // Which cells the current drag is standing on, rebuilt at the top of every recompute and
+        // reused (HashSet.Clear keeps its buckets, so this allocates once for the session).
+        //
+        // It exists for one reason: without it, "is this cell under the finger" is a linear scan
+        // of selectedBlocks, run once per cell of every other pair's path, once per step. On a
+        // 14x14 board that is six figures of comparisons per step, and a fast swipe commits a
+        // dozen steps in a single frame. Keyed by row/column rather than by Block so membership
+        // means exactly what IsEqual means everywhere else in this file.
+        private readonly HashSet<int> dragCellKeys = new HashSet<int>();
+
+        /// <summary>
+        /// One other pair's segment for the duration of a drag. <see cref="Live"/> is the very list
+        /// instance held by <see cref="pairSegments"/>, so trimming or regrowing it IS the board
+        /// changing; <see cref="Full"/> is a copy of its contents from before the drag touched
+        /// anything, and is never written to.
+        ///
+        /// Pooled, so neither this nor <see cref="Full"/>'s backing array is reallocated between
+        /// drags -- <see cref="Full"/> is cleared and refilled, which keeps the capacity it has
+        /// already grown to.
+        /// </summary>
+        private class CutSnapshot
+        {
+            public int PairId;
+            public List<Block> Live;
+            public readonly List<Block> Full = new List<Block>();
+        }
+
         // The source and target dot a hint drew, per pair, so a later edit touching that pair can
         // find the two cells wearing the hint bulb and turn it back off. Populated once
         // DrawHintPathOverTime finishes and cleared the moment anything mutates that pair's
@@ -306,6 +348,10 @@ namespace FreeFlow.GamePlay
 
                     if(isClicked)
                     {
+                        // Before the drag moves anywhere: from here on the board other pairs are
+                        // drawn from is this copy, not what is on screen.
+                        CaptureGestureSnapshot();
+
                         AudioManager.Instance.PlaySFX(SoundType.PathStart);
                         Haptics.Play(HapticType.Selection);
 
@@ -455,6 +501,12 @@ namespace FreeFlow.GamePlay
                             // committed has no owner, so without this it's left stuck on-screen.
                             ClearDragPreview();
                             ResetBlockToRemove(selectedBlocks, targetIndex);
+
+                            // The retreat has just freed every cell between here and where the
+                            // path head was, so anything cut back to make room for them grows
+                            // again. Order matters: the drag's own bars come off first, above,
+                            // and only then is the other pair's line redrawn over those cells.
+                            RecomputeCutPaths(null);
                         }
                     }
                     else if (block != null
@@ -597,6 +649,10 @@ namespace FreeFlow.GamePlay
                 }
             }
 
+            // Last word on the cuts this gesture made. The 50% rule above can hand a cell back,
+            // and a line cut to make room for a step that has just been undone is owed its tail.
+            RecomputeCutPaths(null);
+
             if (selectedBlocks.Count > 0)
             {
                 AddSelectedBlocksToCompletedPairs();
@@ -628,6 +684,10 @@ namespace FreeFlow.GamePlay
             hasSelectExistingFromMiddle = false;
             hasSelectExistingFromLast = false;
             selectedBlocks.Clear();
+
+            // The finger is up, so what is drawn now is simply the board: the pre-drag copies stop
+            // being the truth about anything and every cut this gesture made is permanent.
+            ReleaseGestureSnapshot();
 
             CheckForLevelComplete();
         }
@@ -1294,30 +1354,14 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private void ProcessBlockStep(Block block, Direction dir)
         {
-            // checks for the selected block is intersect with the another highlighted blocks (completed or incompleted highlighted pair)
-            // -- shareable cells (Bridge, shared destination) are exempt: they're meant to be
-            // shared, not
-            // stolen from another pair. Entry terms are enforced before the step gets here.
-            if (!block.IsShareable && block.HighlightedPairId != selectedBlocks[0].HighlightedPairId)
-            {
-                List<Block> blocks = SegmentContaining(block.HighlightedPairId, block);
-
-                if (blocks != null)
-                {
-                    int indexToRemove = GetBlockIndex(blocks, block);
-                    indexToRemove--;
-                    if (indexToRemove <= -1) { indexToRemove = -1; }
-
-                    if (indexToRemove != -1)
-                    {
-                        // The stolen pair's own line is being cut back, in place, without going
-                        // through DetachSegment/ClearPairDrawing -- so this is the one mutation
-                        // ClearHintMarkers is not already reached by one of those.
-                        ClearHintMarkers(block.HighlightedPairId);
-                        ResetBlockToRemove(blocks, indexToRemove);
-                    }
-                }
-            }
+            // Bring every other pair's line in line with where this drag now reaches, the cell
+            // about to be stepped into included -- it is not in selectedBlocks yet, which is why
+            // RecomputeCutPaths is told about it separately.
+            //
+            // This has to run BEFORE the step's own bars go down below. ResetHighlightDirection
+            // clears a direction whoever owns it, so a cut made afterwards can erase the bar this
+            // step has just drawn on the cell it is taking.
+            RecomputeCutPaths(block);
 
             PairColorType type;
             int pairId;
@@ -1834,6 +1878,203 @@ namespace FreeFlow.GamePlay
 
             segments.Remove(segment);
             if (segments.Count == 0) { pairSegments.Remove(pairId); }
+        }
+
+        /// <summary>
+        /// Copies every other pair's drawn path at the moment a drag begins, so the rest of the
+        /// gesture can keep re-deriving those paths from something the drag has not touched
+        /// instead of destroying them a cell at a time.
+        /// </summary>
+        private void CaptureGestureSnapshot()
+        {
+            ReleaseGestureSnapshot();
+
+            int dragPairId = selectedBlocks.Count > 0 ? selectedBlocks[0].PairId : -1;
+
+            foreach (KeyValuePair<int, List<List<Block>>> pair in pairSegments)
+            {
+                // A pair is never cut by its own drag -- CanSelectToAdd refuses entry into its own
+                // line in the first place -- and the segment actually being resumed has already
+                // been detached into selectedBlocks by the time this runs.
+                if (pair.Key == dragPairId) { continue; }
+
+                for (int i = 0; i < pair.Value.Count; i++)
+                {
+                    List<Block> live = pair.Value[i];
+
+                    // One CutSnapshot is minted per slot the pool has never needed before, and
+                    // never again after that -- a board with four drawn pairs allocates four, on
+                    // the first drag of the first level, and none for the rest of the session.
+                    if (gestureSnapshotCount == gestureSnapshot.Count)
+                    {
+                        gestureSnapshot.Add(new CutSnapshot());
+                    }
+
+                    CutSnapshot snapshot = gestureSnapshot[gestureSnapshotCount];
+                    gestureSnapshotCount++;
+
+                    snapshot.PairId = pair.Key;
+                    snapshot.Live = live;
+
+                    // Clear + AddRange rather than a new list: both keep the array Full already
+                    // has, and AddRange copies straight out of a List<Block> in one block.
+                    snapshot.Full.Clear();
+                    snapshot.Full.AddRange(live);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Hands this gesture's snapshot entries back to the pool. The entries themselves stay --
+        /// that is the whole point -- but every Block they were holding is dropped, because a
+        /// pooled entry outlives the board it was taken from and would otherwise keep a whole
+        /// level's worth of destroyed cells reachable until the next drag happened to overwrite
+        /// that slot.
+        /// </summary>
+        private void ReleaseGestureSnapshot()
+        {
+            for (int i = 0; i < gestureSnapshotCount; i++)
+            {
+                CutSnapshot snapshot = gestureSnapshot[i];
+
+                snapshot.PairId = 0;
+                snapshot.Live = null;
+                snapshot.Full.Clear();
+            }
+
+            gestureSnapshotCount = 0;
+        }
+
+        /// <summary>
+        /// Brings every other pair's line back in line with where this drag currently sits: cut
+        /// back to the first of its own cells the drag has taken, or grown out again to its full
+        /// pre-drag length once the drag is off those cells.
+        ///
+        /// It is written as a re-derivation rather than as an edit, and that is the whole trick.
+        /// Trimming in place -- which is what ProcessBlockStep used to do -- throws the stolen tail
+        /// away, so a finger that backs off the cell it stole has nothing left to put back. Running
+        /// each line out from its pre-drag copy every step instead means the restore needs no code
+        /// of its own: the collision simply stops being found, and the line is drawn long again.
+        ///
+        /// <paramref name="alsoTaken"/> is a cell a step is about to be drawn into but which is not
+        /// in selectedBlocks yet; pass null when there isn't one.
+        /// </summary>
+        private void RecomputeCutPaths(Block alsoTaken)
+        {
+            // A snapshot left over from a gesture that never got its pointer-up (the board was
+            // swapped out mid-drag, say) describes a board that is no longer on screen. Acting on
+            // one would redraw lines the player has since cut for good.
+            if (!isClicked || gestureSnapshotCount == 0) { return; }
+
+            int dragPairId = selectedBlocks.Count > 0 ? selectedBlocks[0].PairId : -1;
+
+            // Once per recompute, not once per cell examined.
+            dragCellKeys.Clear();
+            for (int i = 0; i < selectedBlocks.Count; i++)
+            {
+                dragCellKeys.Add(CellKey(selectedBlocks[i]));
+            }
+            if (alsoTaken != null) { dragCellKeys.Add(CellKey(alsoTaken)); }
+
+            for (int i = 0; i < gestureSnapshotCount; i++)
+            {
+                CutSnapshot snapshot = gestureSnapshot[i];
+
+                if (snapshot.PairId == dragPairId || snapshot.Live.Count == 0) { continue; }
+
+                // A segment that has left pairSegments since the snapshot was taken is not this
+                // drag's to redraw any more.
+                List<List<Block>> segments = SegmentsOf(snapshot.PairId);
+                if (segments == null || !segments.Contains(snapshot.Live)) { continue; }
+
+                int collision = FirstDragCollision(snapshot.Full);
+
+                // Zero would mean the drag is standing on this pair's own dot, which CanSelectToAdd
+                // does not allow. Read as "no cut" rather than as "erase the line", which is what
+                // the old in-place trim did with the same case.
+                if (collision == 0) { continue; }
+
+                int target = collision < 0 ? snapshot.Full.Count : collision;
+
+                if (snapshot.Live.Count > target)
+                {
+                    // Another pair's line being cut back in place, without going through
+                    // DetachSegment/ClearPairDrawing -- so this is the one mutation
+                    // ClearHintMarkers is not already reached by one of those.
+                    ClearHintMarkers(snapshot.PairId);
+                    ResetBlockToRemove(snapshot.Live, target - 1);
+                }
+                else if (snapshot.Live.Count < target)
+                {
+                    RegrowSegmentTo(snapshot, target);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The index of the first cell of <paramref name="full"/> the current drag is standing on,
+        /// or -1 if it is standing on none of them -- so the surviving stub is exactly that many
+        /// cells long, counted from the pair's own dot.
+        ///
+        /// Reads <see cref="dragCellKeys"/>, which the caller has already filled for this
+        /// recompute -- including the cell a step is about to be drawn into.
+        ///
+        /// Shareable cells (a bridge, a shared destination) are skipped: two pairs are meant to be
+        /// in those at once, so a drag passing through one steals nothing and cuts nothing.
+        /// </summary>
+        private int FirstDragCollision(List<Block> full)
+        {
+            for (int i = 0; i < full.Count; i++)
+            {
+                Block cell = full[i];
+                if (cell.IsShareable) { continue; }
+
+                if (dragCellKeys.Contains(CellKey(cell))) { return i; }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// A cell's identity as one number, for set membership. Same notion of "the same cell" as
+        /// <see cref="IsEqual"/> -- row and column, not object identity -- so a lookup here and a
+        /// comparison there can never disagree.
+        /// </summary>
+        private static int CellKey(Block cell)
+        {
+            return cell.Row_ID * 1000 + cell.Coloum_ID;
+        }
+
+        /// <summary>
+        /// Draws <paramref name="snapshot"/>'s line back out to <paramref name="target"/> cells, a
+        /// step at a time from wherever it currently ends, reading the cells off the copy taken
+        /// before the drag started. <see cref="CutSnapshot.Live"/> is always a prefix of
+        /// <see cref="CutSnapshot.Full"/> -- the only two things that happen to it are a trim from
+        /// the far end and this -- so where to carry on from is just its current length.
+        ///
+        /// Bars go down fully connected rather than growing from an edge: this is a line being put
+        /// back the way it was, not a step the player is making now.
+        /// </summary>
+        private void RegrowSegmentTo(CutSnapshot snapshot, int target)
+        {
+            // Segment[0] is always one of the pair's dots, so the colour to redraw in is right
+            // there -- the same reasoning GetCurrentDragColorAndPairId leans on, and the reason a
+            // mid-path cell's own occupant identity is not what gets asked.
+            PairColorType type = snapshot.Full[0].PairColorType;
+
+            while (snapshot.Live.Count < target)
+            {
+                Block from = snapshot.Live[snapshot.Live.Count - 1];
+                Block to = snapshot.Full[snapshot.Live.Count];
+
+                Direction forward = AdjacentDirection(from, to);
+                if (forward == Direction.None) { break; }
+
+                from.HighlightBlockDirection(forward, type, snapshot.PairId);
+                to.HighlightBlockDirection(OppositeDirection(forward), type, snapshot.PairId);
+
+                snapshot.Live.Add(to);
+            }
         }
 
 
@@ -2595,6 +2836,7 @@ namespace FreeFlow.GamePlay
 
             selectedBlocks.Clear();
             pairSegments.Clear();
+            ReleaseGestureSnapshot();
             highlightedBlock.Clear();
 
             // The blocks these pointed at are about to be destroyed by ResetBlocks below; nothing
