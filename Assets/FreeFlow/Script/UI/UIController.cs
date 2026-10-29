@@ -536,7 +536,7 @@ namespace FreeFlow.UI
                 // rule as HasPrevLevel above.
                 if (currentSource == LevelSource.Daily)
                 {
-                    if (dailyPicksDay < 0 || dailyPicksDay >= DailyChallengeSelector.DayIndex(System.DateTime.UtcNow)) { return false; }
+                    if (dailyPicksDay < 0 || dailyPicksDay >= DailyChallengeSelector.TodayIndex) { return false; }
                     return !ProfileManager.Instance.LoadProgress().IsDayCompleted(dailyPicksDay + 1);
                 }
 
@@ -659,7 +659,7 @@ namespace FreeFlow.UI
         /// the calendar hub's default selection when it first opens.</summary>
         public void LoadTodaysDailyChallenge()
         {
-            LoadDailyChallengeForDay(DailyChallengeSelector.DayIndex(System.DateTime.UtcNow));
+            LoadDailyChallengeForDay(DailyChallengeSelector.TodayIndex);
         }
 
         /// <summary>Opens the single Classic level the calendar assigns to

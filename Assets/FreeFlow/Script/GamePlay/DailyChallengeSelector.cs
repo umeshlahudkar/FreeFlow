@@ -46,12 +46,38 @@ namespace FreeFlow.GamePlay
         // An arbitrary fixed reference in the past -- never move this once shipped, or every
         // existing player's day index (and therefore their cached pick and streak) shifts under
         // them. It does not need to mean anything; it only needs to never change.
-        private static readonly System.DateTime Epoch = new System.DateTime(2020, 1, 1, 0, 0, 0, System.DateTimeKind.Utc);
+        // Unspecified rather than Utc, deliberately: a day index is a DATE LABEL, not an instant.
+        // This is only ever subtracted from a wall-clock date to count whole days, and marking it
+        // Utc invites a timezone conversion somewhere that must never happen.
+        private static readonly System.DateTime Epoch = new System.DateTime(2020, 1, 1, 0, 0, 0, System.DateTimeKind.Unspecified);
 
         /// <summary>Public accessor for <see cref="Epoch"/> -- needed by DailyChallengeCalendar's
         /// date math and by any UI that displays the calendar date a given absolute day index
-        /// refers to. Read-only; the constant itself never changes (see Epoch's own comment).</summary>
+        /// refers to. Read-only; the constant itself never changes (see Epoch's own comment).
+        ///
+        /// The "Utc" in the name is historical and no longer accurate: day indices count the
+        /// PLAYER'S local calendar days now, so what this anchors is a date, with no timezone
+        /// attached. Kept as-is only because renaming it touches every daily file for no
+        /// behaviour change.</summary>
         public static System.DateTime EpochUtc { get { return Epoch; } }
+
+        /// <summary>Today, as the player's own calendar reckons it. The index every daily caller
+        /// should use -- it reads <see cref="FreeFlow.Util.TimeManager.Now"/>, so the day turns
+        /// over at the player's midnight.
+        ///
+        /// This used to be UTC midnight, which meant anyone west of Greenwich was served the next
+        /// day's puzzle all evening while their phone still showed today's date.</summary>
+        public static int TodayIndex
+        {
+            get { return DayIndex(FreeFlow.Util.TimeManager.Now); }
+        }
+
+        /// <summary>How long until the player's next local midnight -- the countdown the daily
+        /// card and the calendar footer draw.</summary>
+        public static System.TimeSpan UntilNextDay
+        {
+            get { return TimeUntilNextDay(FreeFlow.Util.TimeManager.Now); }
+        }
 
 #if !FINAL_BUILD
         /// <summary>
@@ -109,42 +135,49 @@ namespace FreeFlow.GamePlay
             }
         }
 
-        /// <summary>Whole calendar days (UTC) since <see cref="Epoch"/>. The stable identity of
-        /// "today" everything else here keys off -- DailyChallengeData stores this directly
-        /// rather than a date string, so streak comparisons are integer arithmetic, not
-        /// calendar-aware parsing.
+        /// <summary>Whole calendar days since <see cref="Epoch"/>, counted in the PLAYER'S OWN
+        /// timezone -- pass <see cref="FreeFlow.Util.TimeManager.Now"/>, or just read
+        /// <see cref="TodayIndex"/>. The stable identity of "today" everything else here keys off
+        /// -- DailyChallengeData stores this directly rather than a date string, so streak
+        /// comparisons are integer arithmetic, not calendar-aware parsing.
+        ///
+        /// Because the index names a DATE and not an instant, it survives the player changing
+        /// timezone: "day 2305" means the 15th of March wherever they are standing.
         ///
         /// Outside a FINAL_BUILD a developer can compress a "day" to a handful of seconds (see
         /// <see cref="DebugDayLengthSeconds"/>); the index then counts those periods instead. It
         /// is still a whole number that advances by one per period, which is all any caller
         /// assumes about it.</summary>
-        public static int DayIndex(System.DateTime utcNow)
+        public static int DayIndex(System.DateTime now)
         {
 #if !FINAL_BUILD
+            // The compressed debug clock counts periods, not dates, so the local offset simply
+            // shifts where the periods start -- it still advances by one per period, which is all
+            // any caller assumes.
             int compressed = DebugDayLengthSeconds;
             if (compressed > 0)
             {
-                return (int)((utcNow - Epoch).TotalSeconds / compressed);
+                return (int)((now - Epoch).TotalSeconds / compressed);
             }
 #endif
-            return (int)(utcNow.Date - Epoch).TotalDays;
+            return (int)(now.Date - Epoch).TotalDays;
         }
 
-        /// <summary>How long until the next daily reset -- until UTC midnight normally, or until
-        /// the next compressed period when the developer override is on. Lives here rather
-        /// than on the screen that displays it so the countdown can never disagree with the
-        /// <see cref="DayIndex"/> it is counting down to.</summary>
-        public static System.TimeSpan TimeUntilNextDay(System.DateTime utcNow)
+        /// <summary>How long until the next daily reset -- until the player's own midnight
+        /// normally, or until the next compressed period when the developer override is on. Lives
+        /// here rather than on the screen that displays it so the countdown can never disagree
+        /// with the <see cref="DayIndex"/> it is counting down to.</summary>
+        public static System.TimeSpan TimeUntilNextDay(System.DateTime now)
         {
 #if !FINAL_BUILD
             int compressed = DebugDayLengthSeconds;
             if (compressed > 0)
             {
-                double elapsed = (utcNow - Epoch).TotalSeconds % compressed;
+                double elapsed = (now - Epoch).TotalSeconds % compressed;
                 return System.TimeSpan.FromSeconds(compressed - elapsed);
             }
 #endif
-            return utcNow.Date.AddDays(1) - utcNow;
+            return now.Date.AddDays(1) - now;
         }
 
         public struct Pick

@@ -8,6 +8,7 @@ using DG.Tweening;
 using FreeFlow.Enums;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
+using FreeFlow.Util;
 
 namespace FreeFlow.UI
 {
@@ -57,8 +58,9 @@ namespace FreeFlow.UI
         }
 
         [Header("Daily challenge card")]
-        // Today's date, from the same UTC day index the Daily Challenge page and the save file use
-        // -- never DateTime.Now, which can already be tomorrow ahead of UTC.
+        // Today's date, from the same day index the Daily Challenge page and the save file use --
+        // always via TimeManager, never DateTime.UtcNow. The index counts the PLAYER'S calendar
+        // days, so this card and their phone's clock agree on what day it is.
         [FormerlySerializedAs("dailySubtitleText")]
         [SerializeField] private TextMeshProUGUI dailyDateText;
         [SerializeField] private TextMeshProUGUI dailyBoardText;
@@ -193,7 +195,7 @@ namespace FreeFlow.UI
             if (dailyPollTimer > 0f) { return; }
             dailyPollTimer = 1f;
 
-            System.DateTime now = System.DateTime.UtcNow;
+            System.DateTime now = TimeManager.Now;
             if (DailyChallengeSelector.DayIndex(now) != dailyShownDay)
             {
                 if (ProfileManager.Instance != null) { SetDailyChallengeCard(ProfileManager.Instance.LoadProgress()); }
@@ -210,7 +212,7 @@ namespace FreeFlow.UI
         /// </summary>
         private void SetDailyChallengeCard(PlayerProgress data)
         {
-            System.DateTime now = System.DateTime.UtcNow;
+            System.DateTime now = TimeManager.Now;
             int today = DailyChallengeSelector.DayIndex(now);
             bool solvedToday = data.IsDayCompleted(today);
             System.DateTime todayDate = DailyChallengeSelector.EpochUtc.AddDays(today);

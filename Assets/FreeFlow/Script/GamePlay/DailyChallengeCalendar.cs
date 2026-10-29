@@ -139,9 +139,9 @@ namespace FreeFlow.GamePlay
         /// override is meant only for "what is today RIGHT NOW", and would otherwise make a
         /// literal calendar date (e.g. a month a player has paged forward to) read as some
         /// arbitrary compressed period instead of the real day it is.</summary>
-        public static int AbsoluteDayIndexFor(DateTime utcDate)
+        public static int AbsoluteDayIndexFor(DateTime date)
         {
-            return (int)(utcDate.Date - DailyChallengeSelector.EpochUtc).TotalDays;
+            return (int)(date.Date - DailyChallengeSelector.EpochUtc).TotalDays;
         }
     }
 }

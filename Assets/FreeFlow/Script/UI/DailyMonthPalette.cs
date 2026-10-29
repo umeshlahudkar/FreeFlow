@@ -70,9 +70,9 @@ namespace FreeFlow.UI
         ///
         /// Takes the time rather than reading the clock itself, so a caller ticking this once a
         /// second measures every line it draws against one instant.</summary>
-        public static string NextPuzzleText(System.DateTime utcNow)
+        public static string NextPuzzleText(System.DateTime now)
         {
-            System.TimeSpan left = FreeFlow.GamePlay.DailyChallengeSelector.TimeUntilNextDay(utcNow);
+            System.TimeSpan left = FreeFlow.GamePlay.DailyChallengeSelector.TimeUntilNextDay(now);
             int hours = (int)left.TotalHours;
             return hours > 0
                 ? "Next in " + hours + "h " + left.Minutes + "m"

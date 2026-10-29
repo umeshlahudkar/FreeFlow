@@ -248,7 +248,7 @@ public struct PlayerProgress
     // same pattern GAME_EXPANSION_PLAN §4.4 established for LevelData), so schemaVersion 0->1
     // is a no-op migration. The seam exists so the NEXT structural change has a real place to
     // convert old data instead of inventing versioning under pressure. See PlayerProgress.Migrate.
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
     public int schemaVersion;
 
     /// <summary>Brings a save from whatever <see cref="schemaVersion"/> it was written at up to
@@ -260,6 +260,13 @@ public struct PlayerProgress
         // 0 -> 1: added schemaVersion itself, per-mechanic skill tracking, and per-level hint
         // counts. All three are additive fields JsonUtility already defaulted to null/0/false on
         // load, so there is nothing to transform -- only the version number itself needs setting.
+
+        // 5 -> 6: completedDayIndices changed frame. They used to count whole days since the epoch
+        // in UTC; they now count the player's own local calendar days. Entries written before this
+        // are DELIBERATELY left alone. Correcting one needs the player's UTC offset at the moment
+        // that day was solved, and only the current offset is knowable -- guessing would corrupt
+        // the entries that are already right. A player who solved a day inside their offset window
+        // may see that one cell's state shift by a day, once. Nothing is lost and nothing breaks.
 
         data.schemaVersion = CurrentSchemaVersion;
     }
@@ -401,7 +408,7 @@ public struct PlayerProgress
     {
         if (completedDayIndices == null || completedDayIndices.Count == 0) { return; }
 
-        int todayIndex = FreeFlow.GamePlay.DailyChallengeSelector.DayIndex(System.DateTime.UtcNow);
+        int todayIndex = FreeFlow.GamePlay.DailyChallengeSelector.TodayIndex;
         System.DateTime today = FreeFlow.GamePlay.DailyChallengeSelector.EpochUtc.AddDays(todayIndex);
         System.DateTime firstOfCurrentMonth = new System.DateTime(today.Year, today.Month, 1, 0, 0, 0, System.DateTimeKind.Utc);
         System.DateTime earliestKeptMonth = firstOfCurrentMonth.AddMonths(-(DailyChallengeRetentionMonths - 1));

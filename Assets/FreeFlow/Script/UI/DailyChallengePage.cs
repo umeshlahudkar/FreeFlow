@@ -8,6 +8,7 @@ using TMPro;
 using FreeFlow.GamePlay;
 using FreeFlow.Input;
 using FreeFlow.Enums;
+using FreeFlow.Util;
 
 namespace FreeFlow.UI
 {
@@ -167,7 +168,7 @@ namespace FreeFlow.UI
 
         public void Refresh()
         {
-            shownDayIndex = DailyChallengeSelector.DayIndex(DateTime.UtcNow);
+            shownDayIndex = DailyChallengeSelector.TodayIndex;
             PlayerProgress data = ProfileManager.Instance.LoadProgress();
 
             // No subtitle. The header used to repeat the date ("SUN 25 OCT") directly above a
@@ -216,7 +217,7 @@ namespace FreeFlow.UI
             if (dayRolloverPollTimer > 0f) { return; }
             dayRolloverPollTimer = 1f;
 
-            DateTime now = DateTime.UtcNow;
+            DateTime now = TimeManager.Now;
             if (DailyChallengeSelector.DayIndex(now) != shownDayIndex)
             {
                 Refresh();
@@ -376,7 +377,7 @@ namespace FreeFlow.UI
 
             bool future = selectedAbsoluteDay > shownDayIndex;
             bool completed = data.IsDayCompleted(selectedAbsoluteDay);
-            DateTime now = DateTime.UtcNow;
+            DateTime now = TimeManager.Now;
 
             // A completed day is a closed record, not replayable -- same rule as the grid cells.
             if (playButton != null) { playButton.interactable = !future && !completed; }
