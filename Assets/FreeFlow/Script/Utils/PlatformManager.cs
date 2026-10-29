@@ -117,12 +117,6 @@ namespace FreeFlow.Util
             if (!paused) { return; }
             paused = false;
 
-            // The clock snapshot is now however old this pause was, and anything the device
-            // learned meanwhile -- a timezone the player flew into, a DST flip, NTP correcting a
-            // wrong clock -- is invisible to it until this call. It matters more than it looks:
-            // a scheduled notification fires against the DEVICE clock, so the two must agree.
-            TimeManager.Resync();
-
             Time.timeScale = timeScaleBeforePause;
             AudioListener.pause = false;
             PlatformRunner.Instance.StartCoroutine(EnableInputNextFrame());
