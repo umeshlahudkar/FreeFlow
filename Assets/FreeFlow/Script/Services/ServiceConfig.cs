@@ -32,6 +32,8 @@ namespace FreeFlow.Core.Services
         [SerializeField] private PlatformServiceProvider platform;
         [SerializeField] private ShareServiceProvider share;
         [SerializeField] private HapticsServiceProvider haptics;
+        [Tooltip("Empty = no reminders are ever posted.")]
+        [SerializeField] private NotificationServiceProvider notifications;
 
         // Both conditions must hold before an interstitial is due -- see ADManager. Here rather than
         // on an ad provider because they are the game's rules, not a network's: a different network
@@ -44,6 +46,21 @@ namespace FreeFlow.Core.Services
 
         // A build with no rewarded ad (YouTube v1) has no other way to earn hints, so it pays some
         // for the daily challenge instead. 0 = none, as on Android and iOS.
+        // The game's reminder rules, not a platform's -- a different notification backend would
+        // nag at the same moments. Hours are on the PLAYER'S clock.
+        [Header("Reminders")]
+        [Tooltip("Hour of the day a daily-challenge reminder is aimed at, 0-23. The puzzle "
+            + "unlocks at 00:00 local, but nobody wants to hear about it then.")]
+        [Range(0, 23)]
+        [SerializeField] private int reminderHour = 12;
+
+        [Tooltip("Minutes past Reminder Hour.")]
+        [Range(0, 59)]
+        [SerializeField] private int reminderMinute = 30;
+
+        [Tooltip("How long after the player leaves a win-back reminder is aimed at. 0 = none.")]
+        [SerializeField] private float winBackHours = 6f;
+
         [Header("Hints")]
         [Tooltip("Hints granted the first time each day's daily challenge is solved. 0 = none.")]
         [SerializeField] private int dailyFirstSolveHints = 0;
@@ -74,12 +91,21 @@ namespace FreeFlow.Core.Services
         public float MinSecondsBetweenInterstitials { get { return minSecondsBetweenInterstitials; } }
         public int DailyFirstSolveHints { get { return dailyFirstSolveHints; } }
 
+        /// <summary>The time of day a daily reminder aims for, on the player's own clock.</summary>
+        public System.TimeSpan ReminderTimeOfDay
+        {
+            get { return new System.TimeSpan(reminderHour, reminderMinute, 0); }
+        }
+
+        public float WinBackHours { get { return winBackHours; } }
+
         public IAdService CreateAdService() { return ads != null ? ads.Create() : new NullAdService(); }
         public IAnalyticsService CreateAnalyticsService() { return analytics != null ? analytics.Create() : new NullAnalyticsService(); }
         public ISaveStorage CreateSaveStorage() { return saveStorage != null ? saveStorage.Create() : new FileSaveStorage(); }
         public IPlatformService CreatePlatformService() { return platform != null ? platform.Create() : new NullPlatformService(); }
         public IShareService CreateShareService() { return share != null ? share.Create() : new NullShareService(); }
         public IHapticsService CreateHapticsService() { return haptics != null ? haptics.Create() : new NullHapticsService(); }
+        public INotificationService CreateNotificationService() { return notifications != null ? notifications.Create() : new NullNotificationService(); }
 
         // Forgets the loaded config before each play session, so a project with domain reload turned
         // off never carries one session's config into the next.

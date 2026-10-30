@@ -14,6 +14,10 @@ namespace FreeFlow.Util
     {
         public void Initialize(Action onComplete)
         {
+            // Its own line, not another link in the chain below: reminders depend on neither the
+            // host nor analytics, and nesting it inside them would say they did.
+            ReminderScheduler.Initialize();
+
             PlatformManager.Initialize(() => AnalyticsManager.Initialize(onComplete));
         }
     }

@@ -18,6 +18,10 @@ MonoBehaviour:
   platform: {fileID: 11400000, guid: f1fdde1c8e64dc643af351f6c1019db9, type: 2}
   share: {fileID: 11400000, guid: cf5ebfadaedc27c4cb3c77167c963fff, type: 2}
   haptics: {fileID: 11400000, guid: caa529600b25d1a49b37b40921b4bdce, type: 2}
+  notifications: {fileID: 11400000, guid: 1d6e15e06d76fcb488c79f0731731381, type: 2}
   levelsBetweenInterstitials: 3
   minSecondsBetweenInterstitials: 120
+  reminderHour: 12
+  reminderMinute: 30
+  winBackHours: 6
   dailyFirstSolveHints: 0
