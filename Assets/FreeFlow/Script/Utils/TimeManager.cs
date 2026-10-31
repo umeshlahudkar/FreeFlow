@@ -16,9 +16,7 @@ namespace FreeFlow.Util
     ///
     /// What one reading CANNOT see is the device clock changing underneath it -- a timezone flown
     /// into, a DST flip, or NTP correcting a clock that was wrong at launch. Those are rare, and
-    /// they heal the next time the app is launched, so nothing re-reads the device here. The one
-    /// place it matters is scheduling a notification: Android's AlarmManager fires against the
-    /// DEVICE clock, so the scheduler must read that directly rather than ask this.
+    /// they heal the next time the app is launched, so nothing re-reads the device here.
     /// </summary>
     public static class TimeManager
     {

@@ -110,20 +110,12 @@ namespace FreeFlow.Util
             // The host may never resume: this is the moment to save.
             ProfileManager profile = UnityEngine.Object.FindAnyObjectByType<ProfileManager>();
             if (profile != null) { profile.FlushSave(); }
-
-            // ...and the only moment the game knows enough to decide what a reminder should say.
-            // Queued AFTER the save, so "is today's puzzle solved" is read from the same state
-            // that just went to disk.
-            ReminderScheduler.OnAppPaused();
         }
 
         private static void OnResumed()
         {
             if (!paused) { return; }
             paused = false;
-
-            // They came back, so every reminder about coming back is now wrong.
-            ReminderScheduler.OnAppResumed();
 
             Time.timeScale = timeScaleBeforePause;
             AudioListener.pause = false;

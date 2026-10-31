@@ -55,16 +55,4 @@ namespace FreeFlow.Core.Services
         public bool IsSupported { get { return false; } }
         public void Play(HapticType type) { }
     }
-
-    /// <summary>Nowhere to post a reminder: scheduling succeeds quietly and nothing ever
-    /// appears. What the web build gets, and the editor.</summary>
-    public sealed class NullNotificationService : INotificationService
-    {
-        public void Initialize() { }
-        public bool IsSupported { get { return false; } }
-        public bool HasPermission { get { return false; } }
-        public void RequestPermission(Action<bool> onGranted) { onGranted?.Invoke(false); }
-        public void Schedule(int id, string title, string body, DateTime fireAtDeviceLocal) { }
-        public void CancelAll() { }
-    }
 }

@@ -37,9 +37,4 @@ namespace FreeFlow.Core.Services
     {
         public abstract IHapticsService Create();
     }
-
-    public abstract class NotificationServiceProvider : ScriptableObject
-    {
-        public abstract INotificationService Create();
-    }
 }

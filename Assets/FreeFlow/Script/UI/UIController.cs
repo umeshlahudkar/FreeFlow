@@ -755,12 +755,6 @@ namespace FreeFlow.UI
             Haptics.Play(HapticType.Success);
             PageManager.Instance.OpenAsOverlay(PageType.LevelComplete);
 
-            // Before the ad call below, deliberately. The two cannot collide today -- ADManager
-            // gates interstitials at every third completion and this only asks on the second --
-            // but an Android permission dialog racing a full-screen ad is not a bug worth
-            // discovering later if that gate ever changes.
-            ReminderScheduler.OnLevelCompleted();
-
             // After the overlay, never before/instead of it -- see NotifyLevelCompleted's own
             // doc comment. Gated internally by ADManager's own level-count/time thresholds, so
             // this fires every completion but only actually shows an ad when due.
