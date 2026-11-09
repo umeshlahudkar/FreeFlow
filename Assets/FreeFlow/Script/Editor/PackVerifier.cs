@@ -25,12 +25,53 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 7x7 pack")]
         public static void VerifyAdvanced7x7() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/7x7", 100); }
 
+        [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 8x8 pack")]
+        public static void VerifyAdvanced8x8() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/8x8", 100); }
+
+        /// <summary>
+        /// Uniqueness budget. 2,000,000 is what verified the shipped 6x6 and 7x7 packs and stays
+        /// exactly that there. 8x8 gets the 8,000,000 its own generator re-proves with -- a loose
+        /// 8x8 board can need more than 2,000,000 steps to EXHAUST the search, and a verifier that
+        /// runs out first reports a correct board as not unique.
+        /// </summary>
+        private static int UniquenessBudgetFor(int size) { return size >= 8 ? 8000000 : 2000000; }
+
+        /// <summary>
+        /// A cell is needed only when that is PROVEN: without it the board is unsolvable, or a
+        /// second solution was actually found. RequiredMechanicValidator alone also says Required
+        /// when the solver merely ran out of steps after one solution -- which is how six shipped
+        /// 7x7 levels (L8, L52, L71, L88, L96, L97) passed generation with a rule cell or wall that a
+        /// finished search shows the board does not need.
+        /// </summary>
+        private static bool ProvenRequired(RequiredMechanicValidator.RequirementResult result)
+        {
+            if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+            PuzzleSolver.SolveResult without = result.WithoutMechanic;
+            return without.Status == PuzzleSolver.SolveStatus.Unsolvable || without.SolutionsFound >= 2;
+        }
+
+        /// <summary>
+        /// Budget for the per-cell necessity check: 8,000,000 at every size.
+        ///
+        /// Deliberately MORE than the generator gave the same check (500,000 below 8x8, 2,000,000
+        /// at 8x8). A verifier needs a conclusive answer, and a bigger budget can only turn
+        /// Inconclusive into a proven verdict -- it never changes a result already proven. Found
+        /// on the shipped 7x7 pack: L64's checkpoint at (1,5) reads Inconclusive at 500,000 steps
+        /// and Required at 8,000,000 (two solutions without it), so the smaller budget reported a
+        /// load-bearing cell as "not needed".
+        /// </summary>
+        private static PuzzleSolver.SolverOptions NecessityBudgetFor(int size)
+        {
+            return new PuzzleSolver.SolverOptions(8000000, 2);
+        }
+
         public static void Verify(string folder, int count)
         {
             StringBuilder sb = new StringBuilder();
             StringBuilder fails = new StringBuilder();
 
             int loaded = 0, unique = 0, storedMatch = 0, hintOk = 0;
+            int ruleLevels = 0, ruleNecessaryOk = 0, floorBad = 0;
             int pairsAll = 0, pairsRouted = 0;
             int ringBad = 0, shortBad = 0, noStored = 0;
             int globalMinPath = int.MaxValue;
@@ -108,7 +149,7 @@ namespace FreeFlow.GamePlay
                 try
                 {
                     PuzzleSolver.SolveResult res = LevelValidator.ValidateSolvability(
-                        grid, rows, cols, new PuzzleSolver.SolverOptions(2000000, 2));
+                        grid, rows, cols, new PuzzleSolver.SolverOptions(UniquenessBudgetFor(size), 2));
 
                     bool proven = res.Status == PuzzleSolver.SolveStatus.Solved
                                   && res.SolutionsFound == 1
@@ -208,6 +249,71 @@ namespace FreeFlow.GamePlay
 
                         if (levelOk) { hintOk++; }
                     }
+
+                    // --- rules: every rule cell / wall load-bearing, and at least the floor of each
+                    // The two Advanced standards the generator enforces and nothing re-checked:
+                    // MechanicRecipe.MinInstances (2 cells of a rule, 3 wall edges) and
+                    // AllCellsOfTypeAreNecessary / AllWallsAreNecessary. Blocked cells are left out
+                    // on purpose -- the warm-up's blocked-only boards never had their holes tested
+                    // for necessity -- and Shared Destination is a dot identity, not a strippable rule.
+                    Dictionary<BlockType, int> ruleCells = new Dictionary<BlockType, int>();
+                    int wallEdges = 0;
+                    bool allNecessary = true;
+                    PuzzleSolver.SolverOptions necessity = NecessityBudgetFor(size);
+                    for (int r = 0; r < rows; r++)
+                    {
+                        for (int c = 0; c < cols; c++)
+                        {
+                            Block cell = grid[r, c];
+                            if (cell == null) { continue; }
+
+                            if (cell.BlockType != BlockType.Normal && cell.BlockType != BlockType.Blocked)
+                            {
+                                int had;
+                                ruleCells.TryGetValue(cell.BlockType, out had);
+                                ruleCells[cell.BlockType] = had + 1;
+
+                                if (allNecessary && !ProvenRequired(RequiredMechanicValidator.CheckBlockTypeMechanicRequired(
+                                        grid, rows, cols, r, c, necessity)))
+                                {
+                                    allNecessary = false;
+                                    fails.Append("L").Append(i).Append(":notneeded(").Append(cell.BlockType)
+                                         .Append('@').Append(r).Append(',').Append(c).Append(") ");
+                                }
+                            }
+
+                            Direction[] dirs = { Direction.Left, Direction.Right, Direction.Up, Direction.Down };
+                            for (int d = 0; d < dirs.Length; d++)
+                            {
+                                if (!cell.HasWall(dirs[d])) { continue; }
+                                wallEdges++;
+                                if (allNecessary && !ProvenRequired(RequiredMechanicValidator.CheckWallRequired(
+                                        grid, rows, cols, r, c, dirs[d], necessity)))
+                                {
+                                    allNecessary = false;
+                                    fails.Append("L").Append(i).Append(":wallnotneeded(").Append(r).Append(',')
+                                         .Append(c).Append(") ");
+                                }
+                            }
+                        }
+                    }
+
+                    if (ruleCells.Count > 0 || wallEdges > 0)
+                    {
+                        ruleLevels++;
+                        if (allNecessary) { ruleNecessaryOk++; }
+
+                        bool underFloor = wallEdges > 0 && wallEdges < 3;
+                        foreach (KeyValuePair<BlockType, int> kv in ruleCells)
+                        {
+                            if (kv.Value < 2) { underFloor = true; }
+                        }
+                        if (underFloor)
+                        {
+                            floorBad++;
+                            fails.Append("L").Append(i).Append(":underfloor ");
+                        }
+                    }
                 }
                 finally { LevelGenerator.DestroyBlockGrid(grid); }
             }
@@ -218,6 +324,10 @@ namespace FreeFlow.GamePlay
             sb.Append("  stored answer == solver : ").Append(storedMatch).Append(" / ").Append(count).AppendLine();
             sb.Append("  hint routes complete    : ").Append(hintOk).Append(" / ").Append(count)
               .Append("   (pairs ").Append(pairsRouted).Append('/').Append(pairsAll).Append(')').AppendLine();
+            sb.Append("  rule cells all needed   : ").Append(ruleNecessaryOk).Append(" / ").Append(ruleLevels)
+              .Append(" levels with a rule").AppendLine();
+            sb.Append("  under the cell floor    : ").Append(floorBad)
+              .Append("   (2 cells of a rule, 3 wall edges)").AppendLine();
             sb.Append("  missing stored answer   : ").Append(noStored).AppendLine();
             sb.Append("  blocked on outer ring   : ").Append(ringBad).AppendLine();
             sb.Append("  levels with path <= 2   : ").Append(shortBad)
@@ -231,7 +341,8 @@ namespace FreeFlow.GamePlay
               .Append(" over ").Append(pathPairs).Append(" pairs").AppendLine();
 
             bool clean = loaded == count && unique == count && storedMatch == count
-                         && hintOk == count && noStored == 0 && ringBad == 0;
+                         && hintOk == count && noStored == 0 && ringBad == 0
+                         && ruleNecessaryOk == ruleLevels && floorBad == 0;
 
             sb.Append(clean
                 ? (shortBad == 0 ? "  RESULT: CLEAN" : "  RESULT: CLEAN except short paths")
@@ -253,13 +364,25 @@ namespace FreeFlow.GamePlay
         {
             if (solved.Solutions == null) { return false; }
 
-            int[,] fromSolver = new int[rows, cols];
+            // EVERY pair covering each cell, not the last one written. A bridge cell carries two
+            // pairs and a shared destination several, while the stored column holds exactly one
+            // colour per cell -- so at those cells the stored colour must be ONE OF the occupants,
+            // and which one is arbitrary. The earlier last-writer-wins comparison made that choice
+            // depend on the order the solver lists its paths, and reported a mismatch on the
+            // shipped 7x7 L34 at precisely its two bridge cells while every other cell agreed.
+            List<int>[,] occupants = new List<int>[rows, cols];
             for (int i = 0; i < solved.Solutions.Count; i++)
             {
                 List<(int Row, int Col)> cells = solved.Solutions[i].Cells;
                 for (int j = 0; j < cells.Count; j++)
                 {
-                    fromSolver[cells[j].Row, cells[j].Col] = solved.Solutions[i].PairId;
+                    List<int> here = occupants[cells[j].Row, cells[j].Col];
+                    if (here == null)
+                    {
+                        here = new List<int>(2);
+                        occupants[cells[j].Row, cells[j].Col] = here;
+                    }
+                    here.Add(solved.Solutions[i].PairId);
                 }
             }
 
@@ -270,7 +393,9 @@ namespace FreeFlow.GamePlay
                 for (int c = 0; c < cols; c++)
                 {
                     int st = c < stored.Length ? stored[c] : 0;
-                    if (st != fromSolver[r, c]) { return false; }
+                    List<int> here = occupants[r, c];
+                    if (here == null) { if (st != 0) { return false; } }
+                    else if (!here.Contains(st)) { return false; }
                 }
             }
             return true;

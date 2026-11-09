@@ -1573,6 +1573,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private static bool AllCellsOfTypeAreNecessary(Block[,] grid, int rowCount, int colCount, BlockType type)
         {
+            PuzzleSolver.SolverOptions budget = NecessityBudgetFor(rowCount);
             for (int r = 0; r < rowCount; r++)
             {
                 for (int c = 0; c < colCount; c++)
@@ -1580,8 +1581,8 @@ namespace FreeFlow.GamePlay
                     if (grid[r, c].BlockType != type) { continue; }
 
                     RequiredMechanicValidator.RequirementResult result =
-                        RequiredMechanicValidator.CheckBlockTypeMechanicRequired(grid, rowCount, colCount, r, c);
-                    if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+                        RequiredMechanicValidator.CheckBlockTypeMechanicRequired(grid, rowCount, colCount, r, c, budget);
+                    if (!IsProvenRequired(result, rowCount)) { return false; }
                 }
             }
             return true;
@@ -1597,6 +1598,7 @@ namespace FreeFlow.GamePlay
         /// </summary>
         private static bool AllWallsAreNecessary(Block[,] grid, int rowCount, int colCount)
         {
+            PuzzleSolver.SolverOptions budget = NecessityBudgetFor(rowCount);
             for (int r = 0; r < rowCount; r++)
             {
                 for (int c = 0; c < colCount; c++)
@@ -1608,8 +1610,8 @@ namespace FreeFlow.GamePlay
                         if (!cell.HasWall(dir)) { continue; }
 
                         RequiredMechanicValidator.RequirementResult result =
-                            RequiredMechanicValidator.CheckWallRequired(grid, rowCount, colCount, r, c, dir);
-                        if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+                            RequiredMechanicValidator.CheckWallRequired(grid, rowCount, colCount, r, c, dir, budget);
+                        if (!IsProvenRequired(result, rowCount)) { return false; }
                     }
                 }
             }
@@ -1620,6 +1622,53 @@ namespace FreeFlow.GamePlay
         {
             Direction.Left, Direction.Right, Direction.Up, Direction.Down
         };
+
+        /// <summary>
+        /// Whether a necessity result counts as "this cell is needed".
+        ///
+        /// Below 8x8 this is exactly RequiredMechanicValidator's own verdict, which built the shipped
+        /// 6x6 and 7x7 packs. At 8x8 and above it additionally demands PROOF: without the cell the
+        /// board must be unsolvable, or a second solution must actually have been found.
+        ///
+        /// <b>Why.</b> The validator classifies "the solver ran out of steps after finding one
+        /// solution" as Required, because that search is not exhausted and so the board is not
+        /// proven unique. Not proven unique is not the same as proven ambiguous. Measured on the
+        /// shipped 7x7 pack (2026-11-09): six levels -- L8, L52, L71, L88, L96, L97 -- each carry a
+        /// rule cell or wall that reads Required at 500,000 steps and NotRequired at 8,000,000, where
+        /// the search finishes and proves the board unique without it. The 8x8 pack is held to the
+        /// standard the check was meant to enforce, not to what a budget happened to allow.
+        /// </summary>
+        private static bool IsProvenRequired(RequiredMechanicValidator.RequirementResult result, int rowCount)
+        {
+            if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+            if (rowCount < PruneRedundantMechanicsFromSize) { return true; }
+
+            PuzzleSolver.SolveResult without = result.WithoutMechanic;
+            return without.Status == PuzzleSolver.SolveStatus.Unsolvable || without.SolutionsFound >= 2;
+        }
+
+        /// <summary>
+        /// Solver budget for the necessity checks above.
+        ///
+        /// Below 8x8 this is <c>default</c>, which RequiredMechanicValidator turns into the solver's
+        /// own 500,000 steps -- exactly what built the shipped 6x6 and 7x7 packs, so nothing changes
+        /// there. At 8x8 and above it is 2,000,000, the same budget Pinned and the builder use.
+        ///
+        /// <b>Why 8x8 needs it.</b> The validator treats "the solver ran out of steps" as Inconclusive,
+        /// and both callers above reject anything short of Required -- so a cell whose removal really
+        /// does open a second solution was rejected as decorative whenever finding that second
+        /// solution took more than 500,000 steps. Stripping a cell leaves a looser board, and a loose
+        /// 8x8 board routinely needs more. The 2026-11-09 probe showed it directly: boards that
+        /// PruneRedundantMechanicCells had just proved needed every remaining cell (at 2,000,000
+        /// steps) were then rejected as decorative by this check. The standard is unchanged -- a cell
+        /// still has to be PROVEN necessary -- the proof is just given room to finish.
+        /// </summary>
+        private static PuzzleSolver.SolverOptions NecessityBudgetFor(int rowCount)
+        {
+            return rowCount >= PruneRedundantMechanicsFromSize
+                ? new PuzzleSolver.SolverOptions(2000000, 2)
+                : default;
+        }
 
         /// <summary>
         /// How many connect-the-pairs arrangements <see cref="EveryPairingCoversTheBoard"/> will
@@ -3922,17 +3971,24 @@ namespace FreeFlow.GamePlay
         /// on structural grounds, and the blend takes 77% of its score from that solver. So the
         /// packs are built on the axis that works, and mechanics supply texture.
         ///
-        /// <b>Bridge and Shared Destination therefore never appear here</b>, and that is deliberate
-        /// rather than an oversight: an unrateable board cannot pass WellFormed, so selection would
-        /// drop it anyway. Both live in the hand-built Advanced 1-45 ladder, which teaches each
-        /// mechanic in turn and is not ranked.
+        /// <b>Bridge and Shared Destination therefore stay out of the ranked ramp.</b> An unrateable
+        /// board cannot pass WellFormed, so selection would drop it. Instead they are built
+        /// separately by <see cref="GatherStructuralMechanics"/> (count / 25 of each, at least
+        /// two -- four of each in a 100-level pack) and placed UNRANKED at evenly spaced slots by
+        /// <see cref="ScheduleAndWriteAdvancedPack"/>: every count / (n + 1) levels, which is
+        /// levels 12, 23, 34 and 45 (Bridge) and 56, 67, 78 and 89 (Shared Destination) in the
+        /// shipped packs. Their stored difficultyScore is 0, meaning "not scored", not "trivial".
         ///
         /// Every mechanic must EARN its place. A candidate is kept only if stripping the mechanic
         /// costs the board its unique solution -- otherwise it is a plain board wearing a costume,
         /// which is what §6.31 found most mechanic boards actually are.
         /// </summary>
+        /// <param name="deficitShift">
+        /// Added to every recipe's colour deficit (1-3). 0 for 6x6 and 7x7, which is how their
+        /// shipped packs were built. See <see cref="Advanced8x8DeficitShift"/>.
+        /// </param>
         private static void BuildAdvancedPack(int size, int count, int shortlistPerLevel,
-            int poolTarget, int cellsPerColour)
+            int poolTarget, int cellsPerColour, int deficitShift = 0)
         {
             string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced/" + size + "x" + size;
             int cells = size * size;
@@ -3953,8 +4009,9 @@ namespace FreeFlow.GamePlay
             };
 
             recipeList.Add(new MechanicRecipe(BlockType.Normal, holes, 0));
-            for (int d = 1; d <= 3; d++)
+            for (int d0 = 1; d0 <= 3; d0++)
             {
+                int d = d0 + deficitShift;
                 for (int i = 0; i < rules.Length; i++)
                 {
                     // Blocked-plus-rule boards are entered TWICE against the bare form's once.
@@ -4032,13 +4089,33 @@ namespace FreeFlow.GamePlay
             // measured, hence ~12h if the pool never fills. Correctness over time is the standing
             // instruction here (§6.44 step 1), and a cap that halts the gather short of the pool
             // the scheduling logic is designed around is the exact failure this already hit once.
-            const int advancedMaxAttempts = 3000000;
+            //
+            // 8x8 gets its own ceiling. An 8x8 attempt costs ~0.12 s against 7x7's ~0.015 s
+            // (2026-11-09 probes, with redundant-cell removal), so 3,000,000 would be a ~100-hour
+            // worst case. The same probes put a 900 pool at roughly 390,000 attempts; 1,000,000 is
+            // ~2.5x that, a ~33-hour ceiling, and still stops the moment the pool fills.
+            int advancedMaxAttempts = size >= 8 ? 1000000 : 3000000;
+
+            // A line in Editor.log every 25 kept boards and every 50,000 attempts, so a run that
+            // freezes the Editor for hours can be followed from outside it. Logging only -- it reads
+            // counters and touches neither the rng nor any board, so builds are unchanged by it.
+            int lastLoggedKept = 0;
 
             try
             {
                 for (int attempt = 0; attempt < advancedMaxAttempts && survivors.Count < poolTarget; attempt++)
                 {
                     throttle.Tick();
+
+                    if ((attempt > 0 && attempt % 50000 == 0)
+                        || (survivors.Count >= lastLoggedKept + 25))
+                    {
+                        if (survivors.Count >= lastLoggedKept + 25) { lastLoggedKept = survivors.Count; }
+                        Debug.Log("Advanced " + size + "x" + size + " gather: attempt " + attempt
+                            + ", kept " + survivors.Count + "/" + poolTarget
+                            + ", " + duplicates + " dupes, " + unsound + " unsound, " + decorative
+                            + " decorative, " + (total.ElapsedMilliseconds / 60000f).ToString("0.0") + " min");
+                    }
 
                     if ((attempt % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
                             "Building the Advanced " + size + "x" + size + " pack  -  gathering",
@@ -4237,8 +4314,148 @@ namespace FreeFlow.GamePlay
         /// <see cref="StoredSolutionMatchesSolver"/>, which works because
         /// <see cref="BuildPlainLevelData"/> stores the partition it was given.
         /// </summary>
+        /// <summary>
+        /// Where <see cref="TryBuildMechanicDependentBoard"/> gives up, counted. Diagnostic only:
+        /// passed by the colour-ratio probe and null everywhere else, so production builds take
+        /// exactly the path they always did.
+        ///
+        /// It exists because the 8x8 sweep (GAME_EXPANSION_PLAN §6.44c) saw ~99% of attempts never
+        /// produce a board at all, and the method returned a bare false for four different reasons
+        /// -- so the dominant loss was invisible, and the fix could not be chosen.
+        /// </summary>
+        private sealed class BuildDiagnostics
+        {
+            public int PartitionFailed;
+            public int BaseUnsolvable;
+            public int BaseBudget;          // the plain board's solve ran out of steps
+            public int BaseAlreadyUnique;   // nothing left for a mechanic to do
+
+            // Per climb STEP (one instance count tried), not per attempt.
+            public int StepLayFailed;
+            public int StepUnsolvable;
+            public int StepBudget;
+            public int StepWrongSolution;   // unique, but not the intended answer
+            public int StepAmbiguous;       // a second solution actually found
+            public int StepUnproven;        // one found, search cut short by the budget
+
+            // Per attempt that reached the climb and still returned false.
+            public int ClimbExhaustedAmbiguous; // the last step tried was still ambiguous: needs more cells than the ceiling
+            public int ClimbExhaustedBroken;    // the last step tried was broken or could not be laid
+
+            public readonly Dictionary<int, int> PinnedAt = new Dictionary<int, int>();
+
+            // PruneRedundantMechanicCells, at 8x8 and above only.
+            public int PrunedBoards;        // pinned boards that had at least one cell removed
+            public int PrunedCells;         // cells (or wall edges) removed in total
+            public int PrunedBelowFloor;    // left with fewer than MinInstances: rejected, as before
+            public readonly Dictionary<int, int> FinalCells = new Dictionary<int, int>();
+        }
+
+        /// <summary>
+        /// Smallest board size whose pinned boards have their redundant mechanic cells removed.
+        ///
+        /// 8, so 6x6 and 7x7 generation stays bit-for-bit what built the shipped packs: the removal
+        /// shuffles with the same rng, so applying it at any size would change every later attempt
+        /// there too. Measured reason for 8x8 (GAME_EXPANSION_PLAN §6.44c and the 2026-11-09
+        /// breakdown probe): 63 of 79 built 8x8 boards were rejected as decorative, 58 of them on
+        /// rule cells and none on blocked cells.
+        /// </summary>
+        private const int PruneRedundantMechanicsFromSize = 8;
+
+        /// <summary>
+        /// Removes every mechanic cell (or walled edge) the board does not need, keeping it uniquely
+        /// solvable with the intended answer, and returns how many remain.
+        ///
+        /// <b>Why this keeps the standard rather than lowering it.</b> The climb in
+        /// <see cref="TryBuildMechanicDependentBoard"/> lays N cells afresh at each step and stops
+        /// at the first N that pins the board, so some of those N can be redundant -- one later cell
+        /// rules out the same wrong route an earlier one did. AllCellsOfTypeAreNecessary then
+        /// rejects the whole board. Removing the spare cells instead leaves a board where every cell
+        /// still has to matter, and the caller's necessity gate still checks that unchanged.
+        ///
+        /// <b>One greedy pass is enough.</b> Every rule removed here only ever RESTRICTS routes
+        /// (one-way, arrow, forbidden, allowed, checkpoint, wall), so stripping cells can only add
+        /// solutions, never remove them. A cell whose removal opened a second solution while more
+        /// cells were present will still open one after further removals, so a kept cell never
+        /// becomes redundant later in the pass.
+        ///
+        /// A cell is stripped by restoring its columns from <paramref name="plain"/> -- the board
+        /// before any mechanic was laid -- rather than by guessing which columns each rule wrote.
+        /// A removal is kept only when <see cref="Pinned"/> reports Unique; an unproven result
+        /// (solver budget) keeps the cell, so this can only ever err towards a cell too many.
+        /// </summary>
+        private static int PruneRedundantMechanicCells(ref LevelData data, LevelData plain,
+            List<List<(int Row, int Col)>> paths, bool walls, System.Random rng, BuildDiagnostics diag)
+        {
+            int size = (int)data.gridSize;
+
+            // (row, col, wallBit) -- wallBit 0 means a cell rule rather than an edge.
+            List<(int Row, int Col, int Bit)> items = new List<(int, int, int)>();
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++)
+                {
+                    if (walls)
+                    {
+                        int added = data.gridRows[r].wallMask[c] & ~plain.gridRows[r].wallMask[c];
+                        for (int bit = 1; bit <= 8; bit <<= 1)
+                        {
+                            if ((added & bit) != 0) { items.Add((r, c, bit)); }
+                        }
+                    }
+                    else if (data.gridRows[r].blockType[c] != plain.gridRows[r].blockType[c])
+                    {
+                        items.Add((r, c, 0));
+                    }
+                }
+            }
+
+            for (int i = items.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (items[i], items[j]) = (items[j], items[i]);
+            }
+
+            int remaining = items.Count;
+            int removed = 0;
+            for (int i = 0; i < items.Count; i++)
+            {
+                LevelData trial = CloneLevelData(data);
+                (int r, int c, int bit) = items[i];
+                if (bit != 0)
+                {
+                    trial.gridRows[r].wallMask[c] &= ~bit;
+                }
+                else
+                {
+                    GridRow src = plain.gridRows[r];
+                    GridRow dst = trial.gridRows[r];
+                    dst.blockType[c] = src.blockType[c];
+                    dst.pairId[c] = src.pairId[c];
+                    dst.secondPairId[c] = src.secondPairId[c];
+                    dst.requiredEntryDirection[c] = src.requiredEntryDirection[c];
+                    dst.forcedExitDirection[c] = src.forcedExitDirection[c];
+                }
+
+                if (Pinned(trial, paths) == PinState.Unique)
+                {
+                    data = trial;
+                    remaining--;
+                    removed++;
+                }
+            }
+
+            if (diag != null && removed > 0)
+            {
+                diag.PrunedBoards++;
+                diag.PrunedCells += removed;
+            }
+            return remaining;
+        }
+
         private static bool TryBuildMechanicDependentBoard(int size, bool[,] usable, int usableCount,
-            int colours, MechanicRecipe recipe, System.Random rng, out LevelData data)
+            int colours, MechanicRecipe recipe, System.Random rng, out LevelData data,
+            BuildDiagnostics diag = null)
         {
             data = default;
 
@@ -4252,7 +4469,7 @@ namespace FreeFlow.GamePlay
             // colour ratio. See TryGeneratePathPartitionUnbalanced's own doc comment.
             List<List<(int Row, int Col)>> paths =
                 TryGeneratePathPartitionUnbalanced(size, usable, usableCount, deficit, rng);
-            if (paths == null) { return false; }
+            if (paths == null) { if (diag != null) { diag.PartitionFailed++; } return false; }
 
             LevelData candidate = BuildPlainLevelData(size, usable, paths, rng);
 
@@ -4264,10 +4481,21 @@ namespace FreeFlow.GamePlay
 
                 // Unsolvable is a dead end; already unique means the mechanic would be decorative,
                 // which is the whole thing this method exists to avoid.
-                if (before.Status != PuzzleSolver.SolveStatus.Solved) { return false; }
-                if (before.SolutionsFound < 2) { return false; }
+                if (before.Status != PuzzleSolver.SolveStatus.Solved)
+                {
+                    if (diag != null)
+                    {
+                        if (before.Status == PuzzleSolver.SolveStatus.Inconclusive) { diag.BaseBudget++; }
+                        else { diag.BaseUnsolvable++; }
+                    }
+                    return false;
+                }
+                if (before.SolutionsFound < 2) { if (diag != null) { diag.BaseAlreadyUnique++; } return false; }
             }
             finally { DestroyBlockGrid(grid); }
+
+            // Whether the last climb step tried was still ambiguous, for the attempt-level tally.
+            bool lastStepAmbiguous = false;
 
             // Add mechanic cells one at a time until the board is pinned, exactly as refinement
             // adds colours. Guessing a fixed count was the previous version's failure: two or three
@@ -4284,9 +4512,15 @@ namespace FreeFlow.GamePlay
                 step.Instances = instances;
 
                 HashSet<(int Row, int Col)> used = new HashSet<(int, int)>();
-                if (!LayMechanicOnPaths(ref trial, paths, step, rng, used)) { continue; }
+                if (!LayMechanicOnPaths(ref trial, paths, step, rng, used))
+                {
+                    if (diag != null) { diag.StepLayFailed++; }
+                    lastStepAmbiguous = false;
+                    continue;
+                }
 
-                PinState state = Pinned(trial, paths);
+                PinState state = Pinned(trial, paths, diag);
+                lastStepAmbiguous = state == PinState.Ambiguous;
                 if (state == PinState.Broken) { continue; }
 
                 if (state == PinState.Unique)
@@ -4295,6 +4529,27 @@ namespace FreeFlow.GamePlay
                     // success: the second rule would be decorative, which is the thing this whole
                     // construction exists to prevent.
                     if (recipe.SecondType != BlockType.Normal) { continue; }
+                    if (diag != null)
+                    {
+                        diag.PinnedAt.TryGetValue(instances, out int seenAt);
+                        diag.PinnedAt[instances] = seenAt + 1;
+                    }
+
+                    if (size >= PruneRedundantMechanicsFromSize)
+                    {
+                        int kept = PruneRedundantMechanicCells(ref trial, candidate, paths, recipe.UsesWalls, rng, diag);
+                        if (kept < recipe.MinInstances)
+                        {
+                            if (diag != null) { diag.PrunedBelowFloor++; }
+                            return false;
+                        }
+                        if (diag != null)
+                        {
+                            diag.FinalCells.TryGetValue(kept, out int seenFinal);
+                            diag.FinalCells[kept] = seenFinal + 1;
+                        }
+                    }
+
                     data = trial;
                     return true;
                 }
@@ -4324,6 +4579,11 @@ namespace FreeFlow.GamePlay
                 }
             }
 
+            if (diag != null)
+            {
+                if (lastStepAmbiguous) { diag.ClimbExhaustedAmbiguous++; }
+                else { diag.ClimbExhaustedBroken++; }
+            }
             return false;
         }
 
@@ -4334,7 +4594,8 @@ namespace FreeFlow.GamePlay
         /// Those are two different claims when the board started out ambiguous, and only the pair of
         /// them means the mechanic pinned the puzzle the generator meant to build.
         /// </summary>
-        private static PinState Pinned(LevelData data, List<List<(int Row, int Col)>> paths)
+        private static PinState Pinned(LevelData data, List<List<(int Row, int Col)>> paths,
+            BuildDiagnostics diag = null)
         {
             Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
             try
@@ -4342,11 +4603,29 @@ namespace FreeFlow.GamePlay
                 PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
                     new PuzzleSolver.SolverOptions(2000000, 2));
 
-                if (result.Status != PuzzleSolver.SolveStatus.Solved) { return PinState.Broken; }
-                if (result.SolutionsFound > 1 || !result.SearchExhausted) { return PinState.Ambiguous; }
-                return StoredSolutionMatchesSolver(data, result, rows, cols)
-                    ? PinState.Unique
-                    : PinState.Broken;
+                if (result.Status != PuzzleSolver.SolveStatus.Solved)
+                {
+                    if (diag != null)
+                    {
+                        if (result.Status == PuzzleSolver.SolveStatus.Inconclusive) { diag.StepBudget++; }
+                        else { diag.StepUnsolvable++; }
+                    }
+                    return PinState.Broken;
+                }
+                if (result.SolutionsFound > 1 || !result.SearchExhausted)
+                {
+                    if (diag != null)
+                    {
+                        // One answer found but the search not finished is the budget talking, not
+                        // a proven second solution -- kept apart so the two are not confused.
+                        if (result.SolutionsFound > 1) { diag.StepAmbiguous++; }
+                        else { diag.StepUnproven++; }
+                    }
+                    return PinState.Ambiguous;
+                }
+                if (StoredSolutionMatchesSolver(data, result, rows, cols)) { return PinState.Unique; }
+                if (diag != null) { diag.StepWrongSolution++; }
+                return PinState.Broken;
             }
             finally { DestroyBlockGrid(grid); }
         }
@@ -4532,6 +4811,29 @@ namespace FreeFlow.GamePlay
         // ProbeColourRatioSweep7x7 first if this configuration is ever revisited.
         [MenuItem("FreeFlow/Level Generator/Advanced/Build 7x7 pack (100)")]
         public static void BuildAdvancedPack7x7() { BuildAdvancedPack(7, 100, 10, 900, 7); }
+
+        /// <summary>
+        /// Colour-deficit shift for the 8x8 pack: 0 builds at the production deficits 1-3.
+        ///
+        /// Measured 2026-11-09 at cellsPerColour 7, 3000 attempts each, with proven necessity:
+        /// shift 0 kept 6 boards (mean path 7.5), shift +1 kept 3 (mean path 9.6). Starting one
+        /// colour shorter did cut the boards that pin with a single cell (17 under the two-cell
+        /// floor against 29) but pinned fewer boards overall, so it halved the yield.
+        /// </summary>
+        private const int Advanced8x8DeficitShift = 0;
+
+        /// <summary>
+        /// The Advanced 8x8 pack, to the same standards as 6x6 and 7x7. Long: expect roughly 13-20
+        /// hours, freezing the Editor throughout; progress goes to Editor.log (see the gather loop).
+        ///
+        /// cellsPerColour=7 is MEASURED (2026-11-09 breakdown probes, after redundant-cell removal
+        /// and the 8x8 necessity budget): 7 kept from 3000 attempts at ~50 s each and mean path
+        /// 7.8 -- matching Classic 8x8's 7.75 -- against ~2-6 minutes per board at 8-10. Before
+        /// those two fixes the same sweep kept 3 boards from 18,000 attempts (§6.44c).
+        /// Bridge and Shared Destination at 8x8 were probed separately before this was wired.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Advanced/Build 8x8 pack (100)")]
+        public static void BuildAdvancedPack8x8() { BuildAdvancedPack(8, 100, 10, 900, 7, Advanced8x8DeficitShift); }
 
         /// <summary>
         /// Does a TWO-mechanic board exist at a workable rate? The standard escalation in puzzle
@@ -4902,6 +5204,18 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public static void ProbeColourRatioSweep(int size, int[] cellsPerColourValues, int attemptsPerValue)
         {
+            ProbeColourRatioSweep(size, cellsPerColourValues, attemptsPerValue, 0);
+        }
+
+        /// <param name="deficitShift">
+        /// Added to every recipe's colour deficit (normally 1-3). A shift of 1 starts each board one
+        /// colour shorter, so it is more ambiguous and needs more rule cells to pin -- the lever
+        /// for 8x8, where most pinned boards needed only ONE cell and the two-cell floor rejected
+        /// them. 0 reproduces the production recipe list exactly, seed included.
+        /// </param>
+        public static void ProbeColourRatioSweep(int size, int[] cellsPerColourValues, int attemptsPerValue,
+            int deficitShift)
+        {
             int cells = size * size;
             int holes = Mathf.Max(2, cells / 12);
 
@@ -4913,7 +5227,8 @@ namespace FreeFlow.GamePlay
 
             StringBuilder summary = new StringBuilder();
             summary.Append("Colour-ratio sweep, ").Append(size).Append("x").Append(size)
-                .Append(", ").Append(attemptsPerValue).Append(" attempts per value:\n");
+                .Append(", ").Append(attemptsPerValue).Append(" attempts per value")
+                .Append(deficitShift != 0 ? ", deficit shift +" + deficitShift : string.Empty).Append(":\n");
 
             for (int v = 0; v < cellsPerColourValues.Length; v++)
             {
@@ -4921,8 +5236,9 @@ namespace FreeFlow.GamePlay
 
                 List<MechanicRecipe> recipeList = new List<MechanicRecipe>();
                 recipeList.Add(new MechanicRecipe(BlockType.Normal, holes, 0));
-                for (int d = 1; d <= 3; d++)
+                for (int d0 = 1; d0 <= 3; d0++)
                 {
+                    int d = d0 + deficitShift;
                     for (int i = 0; i < rules.Length; i++)
                     {
                         MechanicRecipe withHoles = new MechanicRecipe(rules[i], holes, InstanceCeilingFor(size));
@@ -4950,6 +5266,20 @@ namespace FreeFlow.GamePlay
                 HashSet<string> seen = new HashSet<string>();
                 bool cancelled = false;
 
+                // Where attempts die BEFORE a board exists, and which check calls a built board
+                // decorative. See BuildDiagnostics.
+                BuildDiagnostics diag = new BuildDiagnostics();
+                int blockedOnlyAttempts = 0, refinementFailed = 0, notUnique = 0, storedMismatch = 0;
+                int decRule = 0, decSecond = 0, decWalls = 0, decBlocked = 0;
+                int keptWithHoles = 0, decorativeWithHoles = 0, generatedWithHoles = 0;
+                long buildMs = 0;
+                System.Diagnostics.Stopwatch buildTimer = new System.Diagnostics.Stopwatch();
+
+                // What a PACK needs to know and the totals cannot show: whether every rule yields
+                // enough boards for its teaching run and its later appearances.
+                Dictionary<string, int> keptByRule = new Dictionary<string, int>();
+                Dictionary<int, int> keptByDeficit = new Dictionary<int, int>();
+
                 for (int attempt = 0; attempt < attemptsPerValue; attempt++)
                 {
                     if ((attempt % 50) == 0 && EditorUtility.DisplayCancelableProgressBar(
@@ -4971,17 +5301,27 @@ namespace FreeFlow.GamePlay
                     if (colours > MaxDistinctColors) { continue; }
 
                     LevelData data;
+                    bool built;
+                    buildTimer.Restart();
                     if (recipe.Instances == 0)
                     {
-                        if (!TryGenerateUniqueByRefinement(size, usable, usableCount, colours,
+                        blockedOnlyAttempts++;
+                        built = TryGenerateUniqueByRefinement(size, usable, usableCount, colours,
                                 MaxDistinctColors, 2000000, 3, rng,
-                                out data, out int finalColours, out int splits, colours))
-                        { continue; }
+                                out data, out int finalColours, out int splits, colours);
+                        if (!built) { refinementFailed++; }
                     }
-                    else if (!TryBuildMechanicDependentBoard(size, usable, usableCount, colours,
-                                 recipe, rng, out data))
-                    { continue; }
+                    else
+                    {
+                        built = TryBuildMechanicDependentBoard(size, usable, usableCount, colours,
+                                 recipe, rng, out data, diag);
+                    }
+                    buildTimer.Stop();
+                    buildMs += buildTimer.ElapsedMilliseconds;
+                    if (!built) { continue; }
                     generated++;
+                    bool hasHoles = recipe.BlockedCells > 0;
+                    if (hasHoles) { generatedWithHoles++; }
 
                     Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
                     try
@@ -4993,9 +5333,9 @@ namespace FreeFlow.GamePlay
                             new PuzzleSolver.SolverOptions(8000000, 2));
                         if (solved.Status != PuzzleSolver.SolveStatus.Solved
                             || solved.SolutionsFound != 1 || !solved.SearchExhausted)
-                        { continue; } // not unique -- rare enough by construction not to need its own tally here
+                        { notUnique++; continue; }
 
-                        if (!StoredSolutionMatchesSolver(data, solved, rows, cols)) { continue; }
+                        if (!StoredSolutionMatchesSolver(data, solved, rows, cols)) { storedMismatch++; continue; }
 
                         int liveCells = 0;
                         for (int r = 0; r < rows; r++)
@@ -5017,15 +5357,28 @@ namespace FreeFlow.GamePlay
                         }
 
                         if (recipe.Instances > 0 && recipe.UsesWalls
-                            && !AllWallsAreNecessary(grid, rows, cols)) { decorative++; continue; }
+                            && !AllWallsAreNecessary(grid, rows, cols))
+                        { decorative++; decWalls++; if (hasHoles) { decorativeWithHoles++; } continue; }
                         if (recipe.Instances > 0 && !recipe.UsesWalls
-                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.Type)) { decorative++; continue; }
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.Type))
+                        { decorative++; decRule++; if (hasHoles) { decorativeWithHoles++; } continue; }
                         if (recipe.SecondType != BlockType.Normal
-                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.SecondType)) { decorative++; continue; }
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, recipe.SecondType))
+                        { decorative++; decSecond++; if (hasHoles) { decorativeWithHoles++; } continue; }
                         if (recipe.BlockedCells > 0
-                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked)) { decorative++; continue; }
+                            && !AllCellsOfTypeAreNecessary(grid, rows, cols, BlockType.Blocked))
+                        { decorative++; decBlocked++; if (hasHoles) { decorativeWithHoles++; } continue; }
 
                         kept++;
+                        if (hasHoles) { keptWithHoles++; }
+                        string ruleKey = recipe.Instances == 0 ? "BlockedOnly" : recipe.BaseName;
+                        keptByRule.TryGetValue(ruleKey, out int hadRule);
+                        keptByRule[ruleKey] = hadRule + 1;
+                        if (recipe.Instances > 0)
+                        {
+                            keptByDeficit.TryGetValue(recipe.ColourDeficit, out int hadDeficit);
+                            keptByDeficit[recipe.ColourDeficit] = hadDeficit + 1;
+                        }
                         pathCellsTotal += liveCells;
                         pairsTotal += solved.Solutions.Count;
                     }
@@ -5036,6 +5389,74 @@ namespace FreeFlow.GamePlay
                 int unsound = selfTouch + shortLink + uniformSpread + badCoverage;
                 double msPerKept = kept > 0 ? total.ElapsedMilliseconds / (double)kept : -1;
                 double meanPath = pairsTotal > 0 ? pathCellsTotal / (double)pairsTotal : 0;
+
+                // The breakdown this probe was extended for. Logged per ratio as well as in the
+                // final summary, so a long or cancelled run still shows what it found so far.
+                StringBuilder breakdown = new StringBuilder();
+                breakdown.Append("    no board built: blockedOnly refinement failed ").Append(refinementFailed)
+                    .Append("/").Append(blockedOnlyAttempts)
+                    .Append(" | mechanic builder: partition failed ").Append(diag.PartitionFailed)
+                    .Append(", plain board unsolvable ").Append(diag.BaseUnsolvable)
+                    .Append(", plain board OUT OF BUDGET ").Append(diag.BaseBudget)
+                    .Append(", plain board already unique ").Append(diag.BaseAlreadyUnique)
+                    .Append(", climb hit ceiling still ambiguous ").Append(diag.ClimbExhaustedAmbiguous)
+                    .Append(", climb ended broken ").Append(diag.ClimbExhaustedBroken)
+                    .AppendLine();
+                breakdown.Append("    climb steps: lay failed ").Append(diag.StepLayFailed)
+                    .Append(", unsolvable ").Append(diag.StepUnsolvable)
+                    .Append(", OUT OF BUDGET ").Append(diag.StepBudget)
+                    .Append(", unproven (1 found, budget cut) ").Append(diag.StepUnproven)
+                    .Append(", 2nd solution found ").Append(diag.StepAmbiguous)
+                    .Append(", unique but wrong answer ").Append(diag.StepWrongSolution)
+                    .Append(" | pinned at cells:");
+                List<int> pinKeys = new List<int>(diag.PinnedAt.Keys);
+                pinKeys.Sort();
+                for (int k = 0; k < pinKeys.Count; k++)
+                {
+                    breakdown.Append(' ').Append(pinKeys[k]).Append('x').Append(diag.PinnedAt[pinKeys[k]]);
+                }
+                breakdown.AppendLine();
+                breakdown.Append("    built boards: not unique on 8M re-proof ").Append(notUnique)
+                    .Append(", stored answer mismatch ").Append(storedMismatch)
+                    .Append(" | decorative by: rule cells ").Append(decRule)
+                    .Append(", second rule ").Append(decSecond)
+                    .Append(", walls ").Append(decWalls)
+                    .Append(", blocked cells ").Append(decBlocked)
+                    .Append(" | with holes: generated ").Append(generatedWithHoles)
+                    .Append(", decorative ").Append(decorativeWithHoles)
+                    .Append(", kept ").Append(keptWithHoles)
+                    .Append(" | time building ").Append((buildMs / 1000f).ToString("0"))
+                    .Append("s of ").Append((total.ElapsedMilliseconds / 1000f).ToString("0")).Append("s")
+                    .AppendLine();
+                if (size >= PruneRedundantMechanicsFromSize)
+                {
+                    breakdown.Append("    redundant-cell removal: boards trimmed ").Append(diag.PrunedBoards)
+                        .Append(", cells removed ").Append(diag.PrunedCells)
+                        .Append(", left under the 2-cell floor (rejected) ").Append(diag.PrunedBelowFloor)
+                        .Append(" | cells after removal:");
+                    List<int> finalKeys = new List<int>(diag.FinalCells.Keys);
+                    finalKeys.Sort();
+                    for (int k = 0; k < finalKeys.Count; k++)
+                    {
+                        breakdown.Append(' ').Append(finalKeys[k]).Append('x').Append(diag.FinalCells[finalKeys[k]]);
+                    }
+                    breakdown.AppendLine();
+                }
+                breakdown.Append("    kept by rule:");
+                List<string> ruleKeys = new List<string>(keptByRule.Keys);
+                ruleKeys.Sort();
+                for (int k = 0; k < ruleKeys.Count; k++)
+                {
+                    breakdown.Append(' ').Append(ruleKeys[k]).Append('=').Append(keptByRule[ruleKeys[k]]);
+                }
+                breakdown.Append(" | kept by deficit:");
+                List<int> deficitKeys = new List<int>(keptByDeficit.Keys);
+                deficitKeys.Sort();
+                for (int k = 0; k < deficitKeys.Count; k++)
+                {
+                    breakdown.Append(' ').Append(deficitKeys[k]).Append('=').Append(keptByDeficit[deficitKeys[k]]);
+                }
+                breakdown.AppendLine();
 
                 summary.Append("  cellsPerColour=").Append(cellsPerColour)
                     .Append("  meanPath=").Append(meanPath.ToString("0.0"))
@@ -5052,6 +5473,11 @@ namespace FreeFlow.GamePlay
                     .Append("  time=").Append((total.ElapsedMilliseconds / 1000f).ToString("0"))
                     .Append("s  ms/kept=").Append(msPerKept >= 0 ? msPerKept.ToString("0") : "n/a")
                     .AppendLine();
+                summary.Append(breakdown);
+
+                Debug.Log("Colour-ratio sweep " + size + "x" + size + ", cellsPerColour=" + cellsPerColour
+                    + (cancelled ? " (CANCELLED)" : "") + ": generated " + generated + ", kept " + kept
+                    + ", meanPath " + meanPath.ToString("0.0") + "\n" + breakdown);
 
                 if (cancelled) { summary.Append("  (CANCELLED)\n"); EditorUtility.ClearProgressBar(); break; }
             }
@@ -5082,6 +5508,94 @@ namespace FreeFlow.GamePlay
         public static void ProbeColourRatioSweep8x8()
         {
             ProbeColourRatioSweep(8, new[] { 6, 7, 8, 9, 10, 12 }, 3000);
+        }
+
+        /// <summary>
+        /// The 8x8 failure breakdown: the four ratios that can meet the path-length standard
+        /// (6 is known too easy at mean path 5.4, 12 produced nothing and is the slowest), with
+        /// <see cref="BuildDiagnostics"/> showing where attempts die and how many boards
+        /// redundant-cell removal (<see cref="PruneRedundantMechanicsFromSize"/>) rescues. Deferred to the next editor
+        /// tick so an MCP or CLI caller returns at once instead of blocking for the ~35-minute run;
+        /// results land in the Console / Editor.log, one line per ratio as each finishes.
+        /// </summary>
+        /// <summary>
+        /// Can the 8x8 pack fill its Bridge and Shared Destination slots? Runs the same per-board
+        /// steps as <see cref="GatherStructuralMechanics"/> -- spec pipeline, uniqueness actually
+        /// checked, stored answer filled from the solver, solver-measured minimum path -- but with a
+        /// wall-clock cap per mechanic and a log line per board found, because that pipeline has
+        /// never run at 8x8 and each of its outer attempts can itself run up to 400 inner ones.
+        /// A pack needs <c>max(2, count / 25)</c> = 4 of each.
+        /// </summary>
+        public static void ProbeStructural(int size, int wantedEach, int secondsPerKind)
+        {
+            (string Name, int Bridges, int SharedGoals)[] kinds =
+            {
+                ("Bridge", 2, 0),
+                ("SharedGoal", 0, 2),
+            };
+
+            StringBuilder summary = new StringBuilder();
+            summary.Append("Structural probe ").Append(size).Append('x').Append(size)
+                .Append(", want ").Append(wantedEach).Append(" of each, cap ")
+                .Append(secondsPerKind).Append("s per kind:\n");
+
+            HashSet<string> seen = new HashSet<string>();
+            System.Random rng = new System.Random(20261109 + size);
+            bool cancelled = false;
+
+            for (int k = 0; k < kinds.Length && !cancelled; k++)
+            {
+                System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+                int made = 0, attempts = 0, specFailed = 0, notUnique = 0, noSolution = 0, shortPath = 0;
+                StringBuilder found = new StringBuilder();
+
+                while (made < wantedEach && timer.ElapsedMilliseconds < secondsPerKind * 1000L)
+                {
+                    if (EditorUtility.DisplayCancelableProgressBar(
+                            "Structural probe " + size + "x" + size + "  -  " + kinds[k].Name,
+                            made + "/" + wantedEach + " found  -  attempt " + attempts
+                                + "  -  " + (timer.ElapsedMilliseconds / 1000) + "s",
+                            Mathf.Clamp01(timer.ElapsedMilliseconds / (secondsPerKind * 1000f))))
+                    { cancelled = true; break; }
+
+                    attempts++;
+                    GenerationSpec spec = SpecForStructural(size, kinds[k].Bridges, kinds[k].SharedGoals);
+                    GeneratedLevel built = TryGenerateLevel(spec, rng, seen);
+                    if (built == null) { specFailed++; continue; }
+                    if (built.SolutionsFound != 1 || !built.SearchExhausted) { notUnique++; continue; }
+
+                    LevelData withSolution = built.Data;
+                    if (!FillStoredSolution(ref withSolution, out int shortestPath)) { noSolution++; continue; }
+                    if (shortestPath < StructuralGates.MinPathCells) { shortPath++; continue; }
+
+                    made++;
+                    found.Append("      #").Append(made).Append(" at ")
+                        .Append((timer.ElapsedMilliseconds / 1000f).ToString("0")).Append("s, colours ")
+                        .Append(withSolution.pairCount).Append(", shortest path ").Append(shortestPath)
+                        .AppendLine();
+                    Debug.Log("Structural probe " + size + "x" + size + ": " + kinds[k].Name + " #" + made
+                        + " after " + attempts + " attempts, " + (timer.ElapsedMilliseconds / 1000f).ToString("0")
+                        + "s, colours " + withSolution.pairCount + ", shortest path " + shortestPath);
+                }
+
+                summary.Append("  ").Append(kinds[k].Name).Append(": found ").Append(made).Append('/')
+                    .Append(wantedEach).Append(" in ").Append((timer.ElapsedMilliseconds / 1000f).ToString("0"))
+                    .Append("s, ").Append(attempts).Append(" attempts -- spec gave nothing ").Append(specFailed)
+                    .Append(", not unique ").Append(notUnique).Append(", no stored answer ").Append(noSolution)
+                    .Append(", path under 3 ").Append(shortPath)
+                    .Append(cancelled ? " (CANCELLED)" : "").AppendLine()
+                    .Append(found);
+            }
+
+            EditorUtility.ClearProgressBar();
+            Debug.Log(summary.ToString());
+        }
+
+        [MenuItem("FreeFlow/Level Generator/Advanced/PROBE 8x8 failure breakdown (7-10)")]
+        public static void ProbeAdvanced8x8Breakdown()
+        {
+            EditorApplication.delayCall += () =>
+                ProbeColourRatioSweep(8, new[] { 7, 8, 9, 10 }, 3000);
         }
 
         /// <summary>

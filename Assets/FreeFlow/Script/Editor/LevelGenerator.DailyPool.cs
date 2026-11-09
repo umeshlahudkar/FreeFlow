@@ -8,8 +8,10 @@ using UnityEngine;
 namespace FreeFlow.GamePlay
 {
     /// <summary>
-    /// The daily-challenge pool: 365 Classic boards, one per day of the year, generated into
-    /// <c>Assets/FreeFlow/Resources/Levels/Daily/{N}x{N}</c> and NOT yet read by anything in the game.
+    /// The daily-challenge pool: 366 Classic boards (365 regular days plus one for Feb 29), generated
+    /// into <c>Assets/FreeFlow/Resources/Levels/Daily/{N}x{N}</c>. The game reads them through
+    /// <see cref="DailyChallengeCalendar"/>, which maps each calendar date to one board -- so
+    /// rebuilding a size here changes which puzzle players get on already-assigned dates.
     ///
     /// Same construction as the shipped Classic packs (<see cref="BuildSizePack"/>) -- refinement to
     /// a proven-unique board, the 8M-step re-proof, stored answer checked against the solver,
