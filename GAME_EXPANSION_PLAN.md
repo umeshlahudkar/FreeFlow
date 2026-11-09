@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **Advanced 6x6 and 7x7 are both rebuilt and verified CLEAN — read [§6.44d](#644d-both-advanced-packs-rebuilt-verified-clean-and-two-more-bugs-each-fix-exposed) first; it supersedes §6.44c wherever they disagree.** Both ramps are now monotonic across all ten blocks (6x6 33.4→73.3, 7x7 32.2→82.2), nothing in L1-50 outranks L100, and `PackVerifier` confirms 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, every pair reconstructing a hint route, and no path under 3 cells. Getting there fixed three bugs each of which was invisible until the previous one cleared — most seriously, **every Advanced pack ever built had silently dropped its 8 hardest levels** to a schedule-sizing overflow. **Advanced 8x8 remains NOT viable** (3 kept boards from 18,000 attempts) and is blocked on the necessity test, not on tuning. Two things stay open: 7x7's ForbiddenForPair run lands at 56..68 where the ramp wants 40, because that rule has no easier board to offer; and **neither pack has been played** — every real difficulty finding in this project came from play, never from a generator metric.
+> **Advanced 6x6 and 7x7 are both rebuilt and verified CLEAN — read [§6.44d](#644d-both-advanced-packs-rebuilt-verified-clean-and-two-more-bugs-each-fix-exposed) first; it supersedes §6.44c wherever they disagree.** Both ramps are now monotonic across all ten blocks (6x6 33.4→73.3, 7x7 32.2→82.2), nothing in L1-50 outranks L100, and `PackVerifier` confirms 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, every pair reconstructing a hint route, and no path under 3 cells. Getting there fixed three bugs each of which was invisible until the previous one cleared — most seriously, **every Advanced pack ever built had silently dropped its 8 hardest levels** to a schedule-sizing overflow. **Update 2026-11-09 -- read [§6.45](#645-advanced-8x8-made-viable-9x9-measured-and-a-flaw-in-the-necessity-check----read-this-first-for-8x89x9): Advanced 8x8 is now viable and ready to build** (from 2 to 23 kept boards per 12,000 probe attempts, same standard, 8x8-only code), **9x9 is possible but measured at ~3 days on one core**, and a flaw in the necessity check means **six shipped 7x7 levels (L8, L52, L71, L88, L96, L97) carry a rule cell or wall the board does not need**; 6x6 verifies fully clean. The 8x8 "not viable" verdict below is superseded. Two things stay open from §6.44d: 7x7's ForbiddenForPair run lands at 56..68 where the ramp wants 40, because that rule has no easier board to offer; and **neither pack has been played** — every real difficulty finding in this project came from play, never from a generator metric.
 
 ## Progress Log
 
@@ -2170,6 +2170,11 @@ and above**. 6x6 and 7x7 generation is bit-for-bit unchanged.
 
 ##### Advanced 8x8: measured, and currently not viable
 
+**SUPERSEDED by §6.45 -- 8x8 is now viable at the same standard.** The losses below were redundant
+cells, an under-sized necessity budget and an "unproven counts as Required" flaw, all fixed without the
+"at least K of M" relaxation proposed at the end of this subsection, which would have lowered the
+standard. The original text follows.
+
 Sweep at 3000 attempts per ratio, same six ratios as 7x7 for comparability (menu:
 `FreeFlow/Level Generator/Advanced/PROBE 8x8 colour ratio sweep`). Ran with the raised instance ceiling
 already in effect, which did **not** rescue it:
@@ -2351,13 +2356,231 @@ zigzag. What WOULD have helped: fixing every known code defect before starting a
 validating on the cheap pack first. 6x6 at 1.7h found all three bugs that 7x7 would have hit at 12.1h
 each.
 
+### 6.45 Advanced 8x8 made viable, 9x9 measured, and a flaw in the necessity check -- READ THIS FIRST for 8x8/9x9
+
+**Status (2026-11-09): the Advanced 8x8 pack is ready to build to the same standard as 6x6 and 7x7; the
+build itself has not been run.** §6.44c recorded 8x8 as "not viable" (3 kept boards from 18,000
+attempts). That was right about the code and wrong about the cause: the losses were redundant rule cells,
+an under-sized solver budget, and a flaw in how necessity is classified, not a property of 8x8. Code is in
+commit `8fc7a6b` ("Prepare the Advanced 8x8 pack to the 6x6/7x7 standard"). Every generator change is
+gated on `size >= PruneRedundantMechanicsFromSize` (8), so **6x6 and 7x7 generation is bit-for-bit
+unchanged**.
+
+##### A census of every shipped level first
+
+Read straight from all 1,066 assets (not from build logs):
+
+| pack | levels | colours | mean path | score L1 -> L100 | notes |
+|---|---|---|---|---|---|
+| Classic 5x5 | 100 | 3-5 | 5.5 | 25 -> 69 | full board, no mechanics |
+| Classic 6x6 | 100 | 4-7 | 7.7 | 29 -> 75 | |
+| Classic 7x7 | 100 | 4-7 | 8.8 | 31 -> 95 | |
+| Classic 8x8 | 100 | 7-10 | 7.8 | 30 -> 89 | |
+| Classic 9x9 | 100 | 9-12 | 7.8 | 25 -> 93 | |
+| Advanced 6x6 | 100 | 3-5 | 9.5 | 26 -> 80 | 8 unranked structural levels score 0 |
+| Advanced 7x7 | 100 | 3-8 | 8.5 | 23 -> 93 | same |
+| Daily 6/7/8/9 | 60/125/125/56 | as Classic | 7.6-9.1 | from the Classic L34 floor | 9x9 L56 is the Feb 29 extra |
+
+All 1,066 carry a stored answer; **no two are canonically equal** across all modes (rotation, reflection
+and colour relabel collapsed); Classic and Daily scores never step backwards; every Daily size's level 1
+scores at or above the shipped Classic pack's level 34, as §6.43's floor intends. Advanced's ramp steps
+backwards by design wherever a teaching run or an unranked structural level sits.
+
+How Classic picks its colour count, for reference: `BuildSizePack` asks for
+`max(3, cells / cellsPerColour) + (attempt % 3)` colours, with cellsPerColour 12 at 5x5-7x7 and 9 at 8x8
+and 9x9. That count is a FLOOR, not a target: refinement splits until unique and `MergeDownWhileUnique`
+stops at the asked count, so a board can end above it (6x6 asks 3-5 and ships 4-7) but never below.
+Advanced uses the same formula and then partitions with `ColourDeficit` (1-3) FEWER colours, leaving the
+rule to pin the board -- which is why Advanced needs a lower cellsPerColour than Classic at the same size.
+
+##### Where 8x8 attempts actually died
+
+`TryBuildMechanicDependentBoard` returned a bare `false` for four different reasons, so the dominant loss
+was invisible. It now takes an optional `BuildDiagnostics` (null in production) and the colour-ratio probe
+prints a per-reason breakdown. Before any fix, ratios 7-10 at 3000 attempts each (seeds identical to
+§6.44c, and the totals reproduced that run exactly -- 27/24/15/13 boards built):
+
+| stage | count of 12,000 |
+|---|---|
+| partition failed (cells stranded while growing) | 11,507 (96%) -- cheap, costs attempts not time |
+| plain board already unique before any rule | 116 |
+| climb hit the 8-cell ceiling still ambiguous | 59 |
+| solver budget ran out (all stages) | ~58 |
+| **boards built** | **79** |
+| unsound (mostly a 2-cell path) | 14 |
+| **rejected as decorative** | **63** -- 58 on rule cells, 5 on walls, 0 on blocked cells |
+| **kept** | **2** |
+
+So the expensive work was succeeding and then being thrown away: 63 of 79 boards that cleared uniqueness
+were rejected because SOME cell was not individually needed.
+
+##### Fix 1: remove redundant cells instead of rejecting the board (`PruneRedundantMechanicCells`)
+
+The climb lays N cells afresh at each step and stops at the first N that pins the board, so a later cell
+can make an earlier one redundant, and `AllCellsOfTypeAreNecessary` then rejects the whole board. Now,
+once a board is pinned, each rule cell (or wall edge) is stripped in random order and the removal is kept
+if `Pinned` still reports Unique -- the same, intended answer. A cell is stripped by restoring its columns
+from the plain board before any rule was laid, not by guessing which columns each rule wrote. The board is
+rejected, as before, if fewer than `MinInstances` remain.
+
+**One greedy pass is sound, and the standard is unchanged.** Every overlay rule (one-way, arrow,
+forbidden, allowed, checkpoint, wall) only RESTRICTS routes, so stripping can only add solutions. A cell
+whose removal opened a second solution with more cells present still opens one after further removals --
+a kept cell can never become redundant later in the pass. The unchanged necessity gate still runs on the
+result.
+
+Ratio 7 after fix 1: **5 kept** (from 0), mean path 7.4, decorative rejections 22 -> 2.
+
+##### Fix 2: the necessity check's budget (`NecessityBudgetFor`)
+
+Fix 1 exposed a contradiction at ratio 8: four boards that removal had just proved needed every remaining
+cell (at `Pinned`'s 2,000,000 steps) were then rejected as decorative. `RequiredMechanicValidator`
+defaults to the solver's 500,000 steps, and on a cell-stripped (looser) 8x8 board finding the second
+solution routinely takes more -- the result is Inconclusive, and the caller rejects anything short of
+Required. The check now gets 2,000,000 at 8x8+, the same as the builder.
+
+##### Fix 3: necessity must be PROVEN (`IsProvenRequired`) -- and what it found in the shipped 7x7 pack
+
+**The flaw:** `RequiredMechanicValidator.Classify` returns Required when the board without the cell is
+merely not proven unique -- including "the solver ran out of steps after finding ONE solution". Not proven
+unique is not proven ambiguous. With a small budget, a decorative cell passes as needed.
+
+**It affects a shipped pack.** Six Advanced 7x7 levels each carry one rule cell or wall the board does
+not need; each reads Required at 500,000 steps and NotRequired at 8,000,000, where the search finishes
+and proves the board still unique without it:
+
+| level | cell | 500k | 8M |
+|---|---|---|---|
+| L8 | wall, Down edge of (0,4) | Required (1 found, not exhausted) | NotRequired (unique, exhausted) |
+| L52 | wall, Down edge of (3,3) | same | same |
+| L71 | OneWay (2,4) | same | same |
+| L88 | AllowedForPairs (1,6) | same | same |
+| L96 | AllowedForPairs (4,0) | same | same |
+| L97 | AllowedForPairs (5,1) | same | same |
+
+These levels are still correct and uniquely solvable -- it is a quality defect (a cell the player can
+ignore), not a broken level. **6x6 verifies fully clean** under the stricter rule. The 7x7 fix (patch the
+six levels or rebuild) is open; the shared validator was deliberately NOT changed, so 6x6/7x7 generation
+does not move under anyone's feet. At 8x8+, `AllCellsOfTypeAreNecessary`/`AllWallsAreNecessary` accept a
+cell only if, without it, the board is unsolvable or a second solution was actually found.
+
+Two corrections made on the way, both verifier artefacts rather than level defects:
+- 7x7 **L34** reported a stored-answer mismatch -- only at its two bridge cells, which two pairs share
+  while the column holds one colour. The comparison was last-writer-wins over the solver's path order.
+  It now accepts any occupant of a multi-occupant cell.
+- 7x7 **L64**'s checkpoint read Inconclusive at 500,000 steps and Required (two solutions without it) at
+  8,000,000 -- the budget, not the level.
+
+##### Measured results after all three fixes
+
+Ratio sweep, 8x8, 3000 attempts per ratio (fixes 1+2; fix 3 re-measured at ratio 7):
+
+| cellsPerColour | kept | mean path | time | per kept board | 900 pool |
+|---|---|---|---|---|---|
+| **7** | **7** (6 with proven necessity) | 7.8 (7.5) | 5.9 min | **~50-57 s** | **~13-20 h** |
+| 8 | 2 | 10.7 | 12.9 min | ~6.4 min | ~97 h |
+| 9 | 7 | 11.5 | 20.6 min | ~3 min | ~44 h |
+| 10 | 7 | 10.7 | 14.9 min | ~2 min | ~32 h |
+
+From 2 kept boards to 23 across the sweep, every one re-proved unique at 8M with its stored answer
+matching. Mean path at ratio 7 equals Classic 8x8 (7.75); Advanced 7x7 is 8.07 and 6x6 9.06 -- the same
+"bigger board needs more colours" effect Classic showed.
+
+**Remaining big loss: the two-cell floor.** At ratio 7, 29 of 35 pinned boards needed only ONE cell and
+are rejected by `MinInstances` (§6.40's play finding that one cell reads as a quirk). A one-colour-shorter
+start was tested as the lever: `deficitShift +1` cut floor rejections 29 -> 17 but pinned fewer boards
+overall, keeping **3 vs 6** (mean path 9.6 vs 7.5). The pack keeps `Advanced8x8DeficitShift = 0`.
+
+**Rule variety is thin at 8x8.** Kept by rule at ratio 7 (proven necessity): BlockedOnly 2, OneWay 2,
+Checkpoint 1, Wall 1 -- **no Arrow, ForbiddenForPair or AllowedForPairs in 3000 attempts**. Per-rule caps
+make the real gather keep hunting for scarce rules (and lengthen it), but a rule may end up with a short
+teaching run. Read the build log's "kept by mechanic" line before accepting the pack.
+
+**Structural levels at 8x8 are fine.** Bridge 4/4 in 90 s (11 spec attempts), Shared Destination 4/4 in
+245 s (6 attempts), every one unique with a solver-measured shortest path of 3-5 (`ProbeStructural`).
+
+##### What is wired for the build
+
+- `FreeFlow/Level Generator/Advanced/Build 8x8 pack (100)` -> `BuildAdvancedPack(8, 100, 10, 900, 7,
+  Advanced8x8DeficitShift)`. (Not to be confused with `Classic/Packs/Build 8x8 pack (100)`, which would
+  overwrite Classic 8x8.)
+- `advancedMaxAttempts` is size-aware: 1,000,000 at 8x8+ (~2.5x the ~390,000 a 900 pool should need, a
+  ~33 h ceiling) against 3,000,000 below.
+- The gather writes a progress line to Editor.log every 25 kept boards and every 50,000 attempts --
+  logging only, rng and boards untouched.
+- `FreeFlow/Level Generator/VERIFY/Advanced 8x8 pack`. `PackVerifier` now also checks, at every size:
+  every rule cell / wall edge PROVEN needed (8,000,000 steps), and the floor (2 cells of a rule, 3 wall
+  edges). It proves uniqueness at 8,000,000 steps for 8x8+ (2,000,000 below, as before), and compares the
+  stored answer bridge-aware. Blocked cells are excluded from the necessity check because warm-up
+  blocked-only boards never had their holes tested.
+
+Expect 13-20 h with the Editor frozen throughout (7x7 ran 50% over its estimate; the canonical-dedup
+slowdown as the pool fills is real). Cancelling loses the run -- the Advanced gather has no checkpoint,
+unlike the Daily pool's. `GenerationDutyCycle` is still 1f (throttle off); §6.38 recommends 0.9f for
+unattended runs.
+
+##### 9x9 measured: possible to standard, but ~3 days on one core
+
+Same code (all fixes apply at 8x8+), 3000 attempts per ratio:
+
+| cellsPerColour | kept | mean path | time | per kept board |
+|---|---|---|---|---|
+| 7 | 2 | 8.1 | 8.7 min | ~4.3 min |
+| **8** | **5** | **8.5** | 23.5 min | ~4.7 min |
+| 9 | 0 | -- | 11.9 min | -- |
+| 10 | 0 | -- | 17.4 min | -- |
+
+0.17-0.47 s per attempt (8x8: ~0.12 s). Partition failure is 85-98%. The higher ratios lose boards to the
+solver budget (19 + 11 budget failures at ratio 10, 16 "one found, budget cut" at ratio 8), so a 9x9 run
+would want a larger `Pinned`/necessity budget, measured first. A 900 pool at ratio 8 is ~65-70 h.
+Structural: Bridge 2 in 8 min (~6 s per spec attempt, ~17 min for the 4 a pack needs); Shared
+Destination 0 in its first 8.5 min, then **2 in 31 min** (~46 s per attempt, ~1 h for 4) -- slow but not
+blocked.
+
+##### Using more than one core
+
+One Editor uses one core: `BuildBlockGrid` builds real Block GameObjects and Unity only allows that on the
+main thread, so threading the solver means a rewrite off Unity objects. The practical route is several
+**headless Unity instances on project copies** (Unity will not open one project twice; copying `Library`,
+6.5 GB, avoids a re-import), each gathering part of the pool with its own seed into a file, then a merge
+step in the main project (cross-instance canonical dedup) before the unchanged scoring and scheduling. On
+this machine -- i5-10300H, 4 cores / 8 threads, **8 GB RAM** -- three instances is the realistic limit, for
+roughly 2.5-3x: 8x8 ~6-8 h, 9x9 ~25 h. Not built yet; estimated 2-3 h of work plus a small test run.
+
+##### Running probes without freezing the session
+
+- The breakdown probe's menu item defers to `EditorApplication.delayCall`, which only fires when the
+  Editor ticks -- an unfocused Editor may never tick, so it can sit queued indefinitely. Calling
+  `LevelGenerator.ProbeColourRatioSweep(...)` / `ProbeStructural(...)` directly through MCP `execute_code`
+  starts at once; the MCP call times out but the run continues, and results land in Editor.log.
+- When a session's UnityMCP link fails at startup but the server is up (HTTP to
+  `http://127.0.0.1:8080/mcp` answers), plain JSON-RPC over HTTP (`initialize`, then `tools/call`) works.
+- The `unity` CLI cannot drive this Editor: it needs the `com.unity.pipeline` package, which this project
+  does not have.
+- Probe entry points: `ProbeColourRatioSweep(size, ratios, attempts[, deficitShift])` (per-reason
+  breakdown, removal stats, kept by rule and by deficit); `ProbeStructural(size, wanted, seconds[,
+  bridge, sharedGoal])`; menu `Advanced/PROBE 8x8 failure breakdown (7-10)`.
+
+##### Still open
+
+- **Build Advanced 8x8**, then `VERIFY/Advanced 8x8 pack`, the per-level ramp, the per-rule counts and the
+  final pool size, then the game side: add 8 to `advancedPackSizes` in MainScene, a PackMetadata entry
+  (Advanced 7x7 is already the top tier, Expert), and a check that rule icons read at 8x8 cell size.
+- **Fix the six decorative cells in the shipped 7x7 pack** (L8, L52, L71, L88, L96, L97) -- patch or
+  rebuild; done when `VERIFY/Advanced 7x7 pack` is CLEAN.
+- **Decide 9x9** from the real 8x8 build time: a ~3-day single-core run, a smaller pool, or the
+  multi-instance gather first.
+- `RequiredMechanicValidator.Classify` still treats "unproven" as Required for every caller below 8x8.
+- **Still unplayed:** neither 8x8 nor 9x9 Advanced has been played; every real difficulty finding in this
+  project came from play.
+
 ### Open questions, current
 
 - **Difficulty is SOLVED for 7×7 and confirmed in play (§6.35).** The note below was written when it was not, and its two "blocked" axes have both moved: board size is no longer the constraint (8×8 is cheaper to generate than 7×7, §6.31), and mechanic density is an Advanced-mode question rather than a difficulty one. What remains genuinely open is carried forward below.
 - ~~The 5×5 and 6×6 blocks have not had the §6.35 treatment.~~ **Done — the whole campaign now ramps (§6.36).**
 - **`DifficultyModel.Measure` caps at `maxAssumptions = 14`, and that cap is hard against the ceiling.** A board needing 15 reports unsolved, fails `WellFormed`, and is discarded — so selection actively rejects the hardest boards the generator makes. 9×9's level 100 measures exactly 14. On the hardest pack we own, the cap is throwing away the best material. Raising it costs only solve time.
 - **9×9 was never probed below 9 colours**, and the range was chosen by analogy rather than measured — the same error that put the first 8×8 pack at 10–12 colours until play caught it. 7 and 8 colours would give 11.6 and 10.1 cells each, longer paths than anything shipped. Probing is cheap; building might be days.
-- **Advanced generates for 6×6 and 7×7 only (§6.40).** 5×5, 8×8 and 9×9 have no entry point, the instance ceiling is hard-coded at 6 and will silently discard boards a 9×9 legitimately needs, and each size's colour ratio has to be measured rather than guessed. 5×5 may not have the room at all.
+- ~~**Advanced generates for 6×6 and 7×7 only (§6.40).**~~ **8×8 now has an entry point and is ready to build; 9×9 is measured (§6.45).** The instance ceiling is size-aware (8 at 8×8+), and both 8×8 and 9×9 colour ratios were measured rather than guessed. 5×5 is still untried and may not have the room at all.
 - **Classic packs ARE reachable now; Advanced 6×6 is the one on screen.** `LevelResourcePath` takes a pack dimension and progress is keyed per pack. What is still missing is a pack-select and mode-select UI: `SetPack` and `SetMode` exist and nothing calls them, so switching packs means editing `currentPackSize` / `startingMode` in the Inspector. `startingMode` is committed as Advanced, which is right for testing and wrong for release.
 - ~~The old linear Classic 1–100 and Advanced 1–45 still exist, keep their own progress under the legacy keys, and are reachable by setting the pack size to 0.~~ **Retired — the level assets are deleted.** One of the three design decisions below (whether they survive alongside the packs) is answered: they do not. This opened a real gap rather than closing one cleanly: `UIController.LevelResourcePath` still returns `Levels/{Mode}/Level_{n}` for `currentPackSize == 0`, and that path now points at nothing — `Resources.Load` returns null, `LoadLevel` logs the "No level asset" error and refuses to load rather than crashing, but pack size 0 is now a dead setting, not a working fallback. `classicLevelCount`/`advancedLevelCount` (100/45) are dead fields for the same reason. None of this is reachable from the shipped UI today (nothing sets `currentPackSize` to 0), so it costs nothing in practice, but the dead code and dead fields are worth removing rather than leaving as a trap for whoever next touches `LevelResourcePath`.
 - **Per-level move counts were dropped as a feature in the same pass**, not merely orphaned by the level deletion: `completedlevelMoves`/`advancedCompletedLevelMoves` and `PackProgress.moves` are removed from `SaveData`, and the level-select button no longer has a moves badge (the prefab's `MoveObject` child was deleted). `completedLevel`/`advancedCompletedLevel` (the legacy keys `CompletedLevelForKey("Classic")`/`"Advanced"` resolve to) and the per-pack attempts/seconds telemetry are untouched — the legacy fields are now dead weight rather than live-but-pointless, for the same reason `LevelResourcePath`'s pack-0 branch is: no UI sets `currentPackSize` to 0, so nothing reads them, but they still round-trip through every save load/save. A real, pre-existing bug surfaced while removing the moves badge: `LevelScreenController.RefreshVisibleButtons` read `data.completedlevelMoves` directly instead of going through a pack-aware accessor, which threw `NullReferenceException` on the Advanced6x6 pack (whose legacy array was null) and **aborted the entire button-population loop**, leaving the level-select screen showing nothing but the stage prefab's static placeholder button. Reproduced by isolating the change against the prior commit and confirming the exact exception and stack trace; fixed by removing the read (and the feature) rather than correcting it to the right key, since the field it would have pointed to no longer exists either.

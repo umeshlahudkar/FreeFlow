@@ -5528,11 +5528,18 @@ namespace FreeFlow.GamePlay
         /// </summary>
         public static void ProbeStructural(int size, int wantedEach, int secondsPerKind)
         {
-            (string Name, int Bridges, int SharedGoals)[] kinds =
-            {
-                ("Bridge", 2, 0),
-                ("SharedGoal", 0, 2),
-            };
+            ProbeStructural(size, wantedEach, secondsPerKind, true, true);
+        }
+
+        /// <summary>As above, testing only the kinds asked for -- 9x9's Shared Destination needed
+        /// a long run on its own once Bridge was already measured.</summary>
+        public static void ProbeStructural(int size, int wantedEach, int secondsPerKind,
+            bool bridge, bool sharedGoal)
+        {
+            List<(string Name, int Bridges, int SharedGoals)> kindList = new List<(string, int, int)>();
+            if (bridge) { kindList.Add(("Bridge", 2, 0)); }
+            if (sharedGoal) { kindList.Add(("SharedGoal", 0, 2)); }
+            (string Name, int Bridges, int SharedGoals)[] kinds = kindList.ToArray();
 
             StringBuilder summary = new StringBuilder();
             summary.Append("Structural probe ").Append(size).Append('x').Append(size)
