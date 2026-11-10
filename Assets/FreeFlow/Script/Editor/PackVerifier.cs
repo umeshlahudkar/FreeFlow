@@ -28,6 +28,9 @@ namespace FreeFlow.GamePlay
         [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 8x8 pack")]
         public static void VerifyAdvanced8x8() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/8x8", 100); }
 
+        [MenuItem("FreeFlow/Level Generator/VERIFY/Advanced 9x9 pack")]
+        public static void VerifyAdvanced9x9() { Verify("Assets/FreeFlow/Resources/Levels/Advanced/9x9", 100); }
+
         /// <summary>
         /// Uniqueness budget. 2,000,000 is what verified the shipped 6x6 and 7x7 packs and stays
         /// exactly that there. 8x8 gets the 8,000,000 its own generator re-proves with -- a loose

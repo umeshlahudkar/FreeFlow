@@ -1663,10 +1663,50 @@ namespace FreeFlow.GamePlay
         /// steps) were then rejected as decorative by this check. The standard is unchanged -- a cell
         /// still has to be PROVEN necessary -- the proof is just given room to finish.
         /// </summary>
+        /// <summary>
+        /// Solver steps for an Advanced board's mechanic work: the plain board's ambiguity check,
+        /// <see cref="Pinned"/>, and (at 8x8+) the necessity check. 2,000,000 at every size, which
+        /// built the shipped 6x6, 7x7 and 8x8 packs.
+        ///
+        /// <see cref="MechanicSolveBudgetOverride"/> exists for 9x9, where the probes lost boards to
+        /// "ran out of steps" (16-30 per 3000 attempts): <see cref="ProbeMechanicBudget"/> sets it to
+        /// compare budgets on the same seeds before any 9x9 build commits to one. It only ever
+        /// applies at 8x8 and above, so smaller boards cannot be affected by it.
+        /// </summary>
+        private static int MechanicSolveBudgetFor(int size)
+        {
+            if (MechanicSolveBudgetOverride > 0 && size >= PruneRedundantMechanicsFromSize)
+            {
+                return MechanicSolveBudgetOverride;
+            }
+            return 2000000;
+        }
+
+        /// <summary>See <see cref="MechanicSolveBudgetFor"/>. 0 = no override.</summary>
+        internal static int MechanicSolveBudgetOverride = 0;
+
+        /// <summary>
+        /// Runs the colour-ratio probe with a given mechanic solver budget, then restores it. The
+        /// probe's seed depends only on size and ratio, so two calls differing only in budget see
+        /// the same candidate boards and differ only where the budget changed a verdict.
+        /// </summary>
+        public static void ProbeMechanicBudget(int size, int cellsPerColour, int attempts, int budget)
+        {
+            int before = MechanicSolveBudgetOverride;
+            MechanicSolveBudgetOverride = budget;
+            try
+            {
+                Debug.Log("Mechanic budget probe " + size + "x" + size + ": budget " + budget
+                    + ", cellsPerColour " + cellsPerColour + ", " + attempts + " attempts");
+                ProbeColourRatioSweep(size, new[] { cellsPerColour }, attempts, 0);
+            }
+            finally { MechanicSolveBudgetOverride = before; }
+        }
+
         private static PuzzleSolver.SolverOptions NecessityBudgetFor(int rowCount)
         {
             return rowCount >= PruneRedundantMechanicsFromSize
-                ? new PuzzleSolver.SolverOptions(2000000, 2)
+                ? new PuzzleSolver.SolverOptions(MechanicSolveBudgetFor(rowCount), 2)
                 : default;
         }
 
@@ -3172,15 +3212,57 @@ namespace FreeFlow.GamePlay
         {
             List<Entry> scored = new List<Entry>();
 
-            for (int i = 0; i < survivors.Count && !cancelled; i++)
+            // Which boards get the full model. Every one below 8x8, exactly as the shipped 6x6 and
+            // 7x7 packs were built; at 8x8+ only a per-rule shortlist -- see SelectAdvancedFinalists.
+            List<int> toScore = new List<int>(survivors.Count);
+            bool twoStage = survivors.Count > 0
+                && (int)survivors[0].Data.gridSize >= TwoStageAdvancedScoringFromSize;
+            string stageReport = string.Empty;
+
+            if (!twoStage)
             {
+                for (int i = 0; i < survivors.Count; i++) { toScore.Add(i); }
+            }
+            else
+            {
+                // Stage one: everything except relaxation, which is 98% of the model's cost and
+                // 23% of its weight (DifficultyModel.Measure's own doc). Measured on the 8x8 build:
+                // the full model ran ~24-28 s per board, 6.5 h for 900.
+                List<(int Index, float Score)> stageOne = new List<(int, float)>();
+                for (int i = 0; i < survivors.Count && !cancelled; i++)
+                {
+                    throttle.Tick();
+
+                    if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                            "Building the " + label + " pack  -  scoring, stage 1 of 2 (cheap)",
+                            i + "/" + survivors.Count
+                                + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                            0.5f + 0.15f * i / survivors.Count))
+                    { if (ConfirmStop()) { cancelled = true; break; } }
+
+                    DifficultyModel.Profile cheap = DifficultyModel.Measure(survivors[i].Data, 14, 2000000, false);
+                    if (cheap.Valid && cheap.WellFormed) { stageOne.Add((i, cheap.Score)); }
+                }
+
+                if (!cancelled)
+                {
+                    toScore = SelectAdvancedFinalists(survivors, stageOne, count * 3, out int groups);
+                    stageReport = "  two-stage scoring: stage 1 " + survivors.Count + " -> " + stageOne.Count
+                        + " well-formed, " + toScore.Count + " finalists across " + groups + " rule/deficit groups\n";
+                    Debug.Log("Pack " + label + ": " + stageReport.Trim());
+                }
+            }
+
+            for (int t = 0; t < toScore.Count && !cancelled; t++)
+            {
+                int i = toScore[t];
                 throttle.Tick();
 
-                if ((i % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
-                        "Building the " + label + " pack  -  scoring",
-                        i + "/" + survivors.Count
+                if ((t % 16) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                        "Building the " + label + " pack  -  scoring" + (twoStage ? ", stage 2 of 2 (full)" : string.Empty),
+                        t + "/" + toScore.Count
                             + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
-                        0.5f + 0.4f * i / survivors.Count))
+                        (twoStage ? 0.65f : 0.5f) + (twoStage ? 0.25f : 0.4f) * t / toScore.Count))
                 { if (ConfirmStop()) { cancelled = true; break; } }
 
                 DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i].Data);
@@ -3195,6 +3277,7 @@ namespace FreeFlow.GamePlay
                     Deficit = survivors[i].Deficit
                 });
             }
+            gatherReport = gatherReport + (stageReport.Length > 0 ? "\n" + stageReport.TrimEnd() : string.Empty);
 
             // A cancel during scoring is not "no well-formed boards" -- most of them were never
             // scored. Said plainly, because the old message read as a generator failure.
@@ -4407,6 +4490,84 @@ namespace FreeFlow.GamePlay
             finally { EditorUtility.ClearProgressBar(); }
         }
 
+        /// <summary>
+        /// Smallest Advanced board size scored in two stages. 8, so the 6x6 and 7x7 builds score
+        /// every board with the full model exactly as their shipped packs were; the full model costs
+        /// ~2 s per 7x7 board but ~24-28 s per 8x8 one (6.5 h of the 8x8 build) and more at 9x9.
+        /// </summary>
+        private const int TwoStageAdvancedScoringFromSize = 8;
+
+        /// <summary>
+        /// Never fewer finalists than this from a rule/deficit group (or all of it, if smaller), so
+        /// a scarce rule keeps enough boards for its three-level teaching run and later appearances.
+        /// </summary>
+        private const int MinFinalistsPerGroup = 8;
+
+        /// <summary>
+        /// The shortlist that gets the full DifficultyModel in a two-stage Advanced build.
+        ///
+        /// <b>Per rule and deficit, not across the pool.</b> Classic stratifies its finalists across
+        /// the whole score range (ScoreAndWritePack), which is right when every board is the same
+        /// kind. Advanced's schedule draws a teaching run PER RULE and escalation from deficit 2-3,
+        /// and its rules are wildly unequal in supply -- ForbiddenForPair was 36 of the 8x8 pool's
+        /// 900. A pool-wide spread could leave a scarce rule with nothing near the easy end, which is
+        /// exactly where its teaching run must come from. So each (rule, deficit) group keeps its
+        /// share of <paramref name="target"/>, at least <see cref="MinFinalistsPerGroup"/>, spread
+        /// evenly by stage-one rank so both the group's easiest and hardest boards are kept.
+        ///
+        /// Stage one leaves relaxation out and renormalises, so its score only ORDERS boards within
+        /// the shortlist decision; the schedule itself runs on the full scores of the finalists.
+        /// </summary>
+        private static List<int> SelectAdvancedFinalists(
+            List<(LevelData Data, string Mechanic, int Instances, int Deficit)> survivors,
+            List<(int Index, float Score)> stageOne, int target, out int groupCount)
+        {
+            Dictionary<string, List<(int Index, float Score)>> groups =
+                new Dictionary<string, List<(int Index, float Score)>>();
+            for (int i = 0; i < stageOne.Count; i++)
+            {
+                var s = survivors[stageOne[i].Index];
+                string key = s.Mechanic + "@" + s.Deficit;
+                if (!groups.TryGetValue(key, out List<(int Index, float Score)> list))
+                {
+                    list = new List<(int Index, float Score)>();
+                    groups[key] = list;
+                }
+                list.Add(stageOne[i]);
+            }
+            groupCount = groups.Count;
+
+            float share = stageOne.Count > 0 ? Mathf.Min(1f, target / (float)stageOne.Count) : 1f;
+            List<int> finalists = new List<int>();
+            foreach (KeyValuePair<string, List<(int Index, float Score)>> g in groups)
+            {
+                List<(int Index, float Score)> members = g.Value;
+                members.Sort((a, b) => a.Score.CompareTo(b.Score));
+                int n = members.Count;
+                int k = Mathf.Min(n, Mathf.Max(MinFinalistsPerGroup, Mathf.CeilToInt(n * share)));
+
+                if (k >= n)
+                {
+                    for (int i = 0; i < n; i++) { finalists.Add(members[i].Index); }
+                    continue;
+                }
+
+                // Evenly spaced by rank, ends included: rank 0 (easiest) and rank n-1 (hardest).
+                int last = -1;
+                for (int j = 0; j < k; j++)
+                {
+                    int rank = k == 1 ? 0 : Mathf.RoundToInt(j * (n - 1) / (float)(k - 1));
+                    if (rank <= last) { rank = last + 1; }
+                    if (rank >= n) { break; }
+                    finalists.Add(members[rank].Index);
+                    last = rank;
+                }
+            }
+
+            finalists.Sort();
+            return finalists;
+        }
+
         private const string AdvancedCacheDir = "Library/AdvancedPoolCache";
 
         internal static string AdvancedCachePath(int size)
@@ -4687,7 +4848,7 @@ namespace FreeFlow.GamePlay
             try
             {
                 PuzzleSolver.SolveResult before = PuzzleSolver.Solve(grid, rows, cols,
-                    new PuzzleSolver.SolverOptions(2000000, 2));
+                    new PuzzleSolver.SolverOptions(MechanicSolveBudgetFor(size), 2));
 
                 // Unsolvable is a dead end; already unique means the mechanic would be decorative,
                 // which is the whole thing this method exists to avoid.
@@ -4811,7 +4972,7 @@ namespace FreeFlow.GamePlay
             try
             {
                 PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
-                    new PuzzleSolver.SolverOptions(2000000, 2));
+                    new PuzzleSolver.SolverOptions(MechanicSolveBudgetFor(rows), 2));
 
                 if (result.Status != PuzzleSolver.SolveStatus.Solved)
                 {
@@ -5044,6 +5205,24 @@ namespace FreeFlow.GamePlay
         /// </summary>
         [MenuItem("FreeFlow/Level Generator/Advanced/Build 8x8 pack (100)")]
         public static void BuildAdvancedPack8x8() { BuildAdvancedPack(8, 100, 10, 900, 7, Advanced8x8DeficitShift); }
+
+        /// <summary>
+        /// The Advanced 9x9 pack, to the same standards as 6x6-8x8. Very long: the 2026-11-09 probes
+        /// put a 900 pool at roughly 70-80 h of gathering on one core (~4.7 min per kept board), so
+        /// plan on running it across several sessions -- the gather checkpoint resumes it.
+        ///
+        /// cellsPerColour=8 is MEASURED (3000 attempts per ratio, proven necessity): ratio 7 kept 2
+        /// (mean path 8.1), ratio 8 kept 5 (8.5), ratios 9 and 10 kept none, losing boards to the
+        /// solver budget. Scored in two stages (SelectAdvancedFinalists): the full model would cost
+        /// an estimated 1-2 minutes per 9x9 board, 15-30 h for 900.
+        ///
+        /// Mechanic solver budget stays at the default 2,000,000. Doubling it was measured on the
+        /// same seeds (2026-11-10, ProbeMechanicBudget): budget-limited verdicts fell (16 -> 4
+        /// "one found, budget cut") but kept boards went 5 -> 1 at the same time per attempt, so
+        /// there is no evidence a larger budget yields more -- the samples are small either way.
+        /// </summary>
+        [MenuItem("FreeFlow/Level Generator/Advanced/Build 9x9 pack (100)")]
+        public static void BuildAdvancedPack9x9() { BuildAdvancedPack(9, 100, 10, 900, 8, 0); }
 
         /// <summary>
         /// Does a TWO-mechanic board exist at a workable rate? The standard escalation in puzzle
