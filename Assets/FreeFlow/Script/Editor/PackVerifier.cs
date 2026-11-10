@@ -79,8 +79,25 @@ namespace FreeFlow.GamePlay
             long pathSum = 0;
             int pathPairs = 0;
 
+            // A progress bar, because at 8x8 a full verify takes many minutes with the Editor frozen,
+            // and without one it is indistinguishable from a hang. Cancel stops the check and the
+            // report says so -- a partial verify must never read as CLEAN.
+            bool cancelled = false;
+            int checkedLevels = 0;
+            System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+            EditorUtility.ClearProgressBar();
+
+            try
+            {
             for (int i = 1; i <= count; i++)
             {
+                if (EditorUtility.DisplayCancelableProgressBar(
+                        "Verifying " + folder.Substring(folder.LastIndexOf("Levels/") + 7),
+                        "level " + i + " / " + count + "  -  " + (clock.ElapsedMilliseconds / 1000) + "s",
+                        (i - 1) / (float)count))
+                { cancelled = true; break; }
+                checkedLevels = i;
+
                 SingleLevelDataSO so =
                     AssetDatabase.LoadAssetAtPath<SingleLevelDataSO>(folder + "/Level_" + i + ".asset");
                 if (so == null) { fails.Append("L").Append(i).Append(":missing "); continue; }
@@ -317,8 +334,15 @@ namespace FreeFlow.GamePlay
                 }
                 finally { LevelGenerator.DestroyBlockGrid(grid); }
             }
+            }
+            finally { EditorUtility.ClearProgressBar(); }
 
             sb.Append("PACK VERIFY ").Append(folder).AppendLine();
+            if (cancelled)
+            {
+                sb.Append("  CANCELLED after ").Append(checkedLevels).Append(" of ").Append(count)
+                  .Append(" levels -- the counts below cover only those.").AppendLine();
+            }
             sb.Append("  assets loaded           : ").Append(loaded).Append(" / ").Append(count).AppendLine();
             sb.Append("  uniquely solvable       : ").Append(unique).Append(" / ").Append(count).AppendLine();
             sb.Append("  stored answer == solver : ").Append(storedMatch).Append(" / ").Append(count).AppendLine();
@@ -342,7 +366,7 @@ namespace FreeFlow.GamePlay
 
             bool clean = loaded == count && unique == count && storedMatch == count
                          && hintOk == count && noStored == 0 && ringBad == 0
-                         && ruleNecessaryOk == ruleLevels && floorBad == 0;
+                         && ruleNecessaryOk == ruleLevels && floorBad == 0 && !cancelled;
 
             sb.Append(clean
                 ? (shortBad == 0 ? "  RESULT: CLEAN" : "  RESULT: CLEAN except short paths")

@@ -48,6 +48,11 @@ MonoBehaviour:
     tier: 4
     minColors: 3
     maxColors: 8
+  - mode: 1
+    packSize: 8
+    tier: 4
+    minColors: 6
+    maxColors: 10
   tierStyles:
   - tier: 0
     label: EASY

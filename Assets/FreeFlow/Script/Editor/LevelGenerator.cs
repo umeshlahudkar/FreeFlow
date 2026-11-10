@@ -3077,7 +3077,7 @@ namespace FreeFlow.GamePlay
                             made + "/" + wanted
                                 + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
                             0.45f))
-                    { cancelled = true; break; }
+                    { if (ConfirmStop()) { cancelled = true; break; } }
 
                     GenerationSpec spec = SpecForStructural(size, kinds[k].Bridges, kinds[k].SharedGoals);
                     GeneratedLevel built = TryGenerateLevel(spec, rng, seen);
@@ -3164,7 +3164,7 @@ namespace FreeFlow.GamePlay
         /// But mixing them level to level is both achievable AND the form the retention research
         /// actually endorses, so the constraint and the good design agree.
         /// </summary>
-        private static void ScheduleAndWriteAdvancedPack(
+        private static bool ScheduleAndWriteAdvancedPack(
             List<(LevelData Data, string Mechanic, int Instances, int Deficit)> survivors,
             List<(LevelData Data, string Mechanic)> structural,
             string levelsFolder, string label, int count, CpuThrottle throttle,
@@ -3181,7 +3181,7 @@ namespace FreeFlow.GamePlay
                         i + "/" + survivors.Count
                             + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
                         0.5f + 0.4f * i / survivors.Count))
-                { cancelled = true; break; }
+                { if (ConfirmStop()) { cancelled = true; break; } }
 
                 DifficultyModel.Profile p = DifficultyModel.Measure(survivors[i].Data);
                 if (!p.Valid || !p.WellFormed) { continue; }
@@ -3196,11 +3196,21 @@ namespace FreeFlow.GamePlay
                 });
             }
 
+            // A cancel during scoring is not "no well-formed boards" -- most of them were never
+            // scored. Said plainly, because the old message read as a generator failure.
+            if (cancelled)
+            {
+                Debug.LogWarning("Pack " + label + ": scoring CANCELLED at " + scored.Count
+                    + " scored -- nothing written. The gathered pool is checkpointed; run the same "
+                    + "menu item again to resume from it.");
+                return false;
+            }
+
             if (scored.Count < count)
             {
                 Debug.LogError("Pack " + label + ": only " + scored.Count
                     + " well-formed boards for " + count + " levels.\n" + gatherReport);
-                return;
+                return false;
             }
 
             // Slot budget. No dedicated teaching level: each run is practice only, drawn
@@ -3327,7 +3337,7 @@ namespace FreeFlow.GamePlay
             {
                 Debug.LogError("Pack " + label + ": schedule filled only " + ordered.Count
                     + " of " + ranked + " ranked slots.\n" + gatherReport + "\n" + plan);
-                return;
+                return false;
             }
 
             // Bridge and Shared Destination go in at authored positions. They carry no difficulty
@@ -3366,6 +3376,7 @@ namespace FreeFlow.GamePlay
                 + " in " + (total.ElapsedMilliseconds / 1000f).ToString("0.0") + "s"
                 + (cancelled ? " (CANCELLED)" : "") + ".\n" + gatherReport + "\n"
                 + "  scored " + survivors.Count + " -> " + scored.Count + " well-formed\n" + plan);
+            return true;
         }
 
         private sealed class Entry
@@ -4048,7 +4059,6 @@ namespace FreeFlow.GamePlay
             EditorUtility.ClearProgressBar();
 
             HashSet<string> seen = new HashSet<string>();
-            System.Random rng = new System.Random(20260915 + size);
             System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
             CpuThrottle throttle = new CpuThrottle(GenerationDutyCycle);
             bool cancelled = false;
@@ -4096,25 +4106,94 @@ namespace FreeFlow.GamePlay
             // ~2.5x that, a ~33-hour ceiling, and still stops the moment the pool fills.
             int advancedMaxAttempts = size >= 8 ? 1000000 : 3000000;
 
+            // --- checkpoint: resume a gather that a cancel, crash or sleep interrupted -------------
+            // The gathered pool is saved to Library/AdvancedPoolCache every 25 kept boards, when the
+            // gather ends, and on Cancel, and deleted once the pack is written. Added after an 8x8
+            // run lost 3.5 hours (207 boards) to one stray key press on the progress bar. A cache
+            // whose settings differ from this call is ignored, so it can never leak into a
+            // different configuration. With no cache present the run is exactly as before: seed
+            // round 0 is the original seed and the attempt counter starts at 0.
+            AdvancedPoolCache cache = LoadAdvancedCache(size);
+            bool resumed = false;
+            if (cache.pool.Count > 0)
+            {
+                if (cache.count == count && cache.poolTarget == poolTarget
+                    && cache.cellsPerColour == cellsPerColour && cache.deficitShift == deficitShift)
+                {
+                    resumed = true;
+                    cache.seedRound++;
+                    for (int i = 0; i < cache.pool.Count; i++)
+                    {
+                        AdvancedPoolEntry e = cache.pool[i];
+                        survivors.Add((e.data, e.mechanic, e.instances, e.deficit));
+                        seen.Add(CanonicalKey(e.data));
+                        if (string.IsNullOrEmpty(e.bucket)) { blockedOnlyKept++; }
+                        else
+                        {
+                            keptPerMechanic.TryGetValue(e.bucket, out int hadBucket);
+                            keptPerMechanic[e.bucket] = hadBucket + 1;
+                        }
+                        keptByRecipe.TryGetValue(e.recipeTally, out int hadTally);
+                        keptByRecipe[e.recipeTally] = hadTally + 1;
+                    }
+                    generated = cache.generated;
+                    duplicates = cache.duplicates;
+                    unsound = cache.unsound;
+                    notUnique = cache.notUnique;
+                    decorative = cache.decorative;
+                    Debug.Log("Advanced " + size + "x" + size + " gather: RESUMING from checkpoint with "
+                        + survivors.Count + "/" + poolTarget + " boards after " + cache.attempts
+                        + " attempts (" + (cache.gatherSeconds / 60.0).ToString("0.0") + " min), seed round "
+                        + cache.seedRound);
+                }
+                else
+                {
+                    Debug.LogWarning("Advanced " + size + "x" + size + ": ignoring a checkpoint built with "
+                        + "different settings (count " + cache.count + ", pool " + cache.poolTarget
+                        + ", cellsPerColour " + cache.cellsPerColour + ", deficitShift " + cache.deficitShift
+                        + ") -- starting fresh.");
+                    cache = new AdvancedPoolCache();
+                }
+            }
+            cache.size = size;
+            cache.count = count;
+            cache.poolTarget = poolTarget;
+            cache.cellsPerColour = cellsPerColour;
+            cache.deficitShift = deficitShift;
+            double priorSeconds = resumed ? cache.gatherSeconds : 0.0;
+
+            // A different seed per resume: replaying the original sequence would only rediscover
+            // the boards already held, all of them rejected as duplicates.
+            System.Random rng = new System.Random(20260915 + size + 7919 * cache.seedRound);
+
             // A line in Editor.log every 25 kept boards and every 50,000 attempts, so a run that
             // freezes the Editor for hours can be followed from outside it. Logging only -- it reads
             // counters and touches neither the rng nor any board, so builds are unchanged by it.
-            int lastLoggedKept = 0;
+            int lastLoggedKept = survivors.Count;
+            int attempt = resumed ? cache.attempts : 0;
 
             try
             {
-                for (int attempt = 0; attempt < advancedMaxAttempts && survivors.Count < poolTarget; attempt++)
+                for (; attempt < advancedMaxAttempts && survivors.Count < poolTarget; attempt++)
                 {
                     throttle.Tick();
 
                     if ((attempt > 0 && attempt % 50000 == 0)
                         || (survivors.Count >= lastLoggedKept + 25))
                     {
-                        if (survivors.Count >= lastLoggedKept + 25) { lastLoggedKept = survivors.Count; }
+                        bool savedNow = false;
+                        if (survivors.Count >= lastLoggedKept + 25)
+                        {
+                            lastLoggedKept = survivors.Count;
+                            SaveAdvancedCheckpoint(cache, attempt, generated, duplicates, unsound, notUnique,
+                                decorative, priorSeconds + total.Elapsed.TotalSeconds);
+                            savedNow = true;
+                        }
                         Debug.Log("Advanced " + size + "x" + size + " gather: attempt " + attempt
                             + ", kept " + survivors.Count + "/" + poolTarget
                             + ", " + duplicates + " dupes, " + unsound + " unsound, " + decorative
-                            + " decorative, " + (total.ElapsedMilliseconds / 60000f).ToString("0.0") + " min");
+                            + " decorative, " + ((priorSeconds + total.Elapsed.TotalSeconds) / 60.0).ToString("0.0")
+                            + " min" + (savedNow ? " (checkpoint saved)" : string.Empty));
                     }
 
                     if ((attempt % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
@@ -4124,7 +4203,7 @@ namespace FreeFlow.GamePlay
                                 + decorative + " decorative"
                                 + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
                             0.5f * survivors.Count / poolTarget))
-                    { cancelled = true; break; }
+                    { if (ConfirmStop()) { cancelled = true; break; } }
 
                     MechanicRecipe recipe = recipes[attempt % recipes.Length];
                     if (recipe.Instances == 0 && blockedOnlyKept >= blockedOnlyCap) { continue; }
@@ -4255,7 +4334,31 @@ namespace FreeFlow.GamePlay
                                 ? CountWalls(data)
                                 : CountCellsOfType(data, recipe.Type));
                         keptByRecipe[name] = keptByRecipe.ContainsKey(name) ? keptByRecipe[name] + 1 : 1;
+
+                        (LevelData Data, string Mechanic, int Instances, int Deficit) added = survivors[survivors.Count - 1];
+                        cache.pool.Add(new AdvancedPoolEntry
+                        {
+                            data = added.Data,
+                            mechanic = added.Mechanic,
+                            instances = added.Instances,
+                            deficit = added.Deficit,
+                            bucket = recipe.Instances == 0 ? string.Empty : bucket,
+                            recipeTally = name
+                        });
                     }
+                }
+
+                // Saved however the gather ended -- pool full, attempt cap, or Cancel -- so nothing
+                // gathered is lost to whatever comes next.
+                SaveAdvancedCheckpoint(cache, attempt, generated, duplicates, unsound, notUnique,
+                    decorative, priorSeconds + total.Elapsed.TotalSeconds);
+
+                if (cancelled)
+                {
+                    Debug.LogWarning("Advanced " + size + "x" + size + " gather CANCELLED at "
+                        + survivors.Count + "/" + poolTarget + " boards -- checkpoint saved to "
+                        + AdvancedCachePath(size) + ". Run the same menu item again to resume.");
+                    return;
                 }
 
                 // Bridge and Shared Destination are gathered separately, by the older spec-based
@@ -4273,6 +4376,14 @@ namespace FreeFlow.GamePlay
                 List<(LevelData Data, string Mechanic)> structural =
                     GatherStructuralMechanics(size, count, seen, rng, throttle, total, ref cancelled);
 
+                if (cancelled)
+                {
+                    Debug.LogWarning("Advanced " + size + "x" + size + ": CANCELLED while gathering Bridge / "
+                        + "Shared Destination boards -- nothing written. The pool of " + survivors.Count
+                        + " is checkpointed; run the same menu item again to resume.");
+                    return;
+                }
+
                 if (survivors.Count < count)
                 {
                     Debug.LogError("Advanced pack " + size + "x" + size + ": only " + survivors.Count
@@ -4282,14 +4393,113 @@ namespace FreeFlow.GamePlay
                     return;
                 }
 
-                ScheduleAndWriteAdvancedPack(survivors, structural, levelsFolder,
+                bool written = ScheduleAndWriteAdvancedPack(survivors, structural, levelsFolder,
                     "Advanced " + size + "x" + size, count, throttle, total, ref cancelled,
                     "  generated " + generated + ", " + duplicates + " duplicates, "
                         + unsound + " unsound, " + notUnique + " not unique, "
                         + decorative + " decorative, " + survivors.Count + " kept\n"
                         + "  kept by mechanic: " + DescribeRecipeMix(keptByRecipe));
+
+                // The checkpoint has done its job once the pack exists; left behind, it would make
+                // the next build of this size resume from the old pool instead of starting fresh.
+                if (written) { DeleteAdvancedCache(size); }
             }
             finally { EditorUtility.ClearProgressBar(); }
+        }
+
+        private const string AdvancedCacheDir = "Library/AdvancedPoolCache";
+
+        internal static string AdvancedCachePath(int size)
+        {
+            return AdvancedCacheDir + "/" + size + "x" + size + "_pool.json";
+        }
+
+        [System.Serializable]
+        internal sealed class AdvancedPoolEntry
+        {
+            public LevelData data;
+            public string mechanic;
+            public int instances;
+            public int deficit;
+            public string bucket;       // the per-rule cap bucket; empty for a blocked-only board
+            public string recipeTally;  // the "kept by mechanic" name, e.g. Arrowx3
+        }
+
+        [System.Serializable]
+        internal sealed class AdvancedPoolCache
+        {
+            public int size;
+            public int count;
+            public int poolTarget;
+            public int cellsPerColour;
+            public int deficitShift;
+            public int seedRound;
+            public int attempts;
+            public int generated;
+            public int duplicates;
+            public int unsound;
+            public int notUnique;
+            public int decorative;
+            public double gatherSeconds;
+            public List<AdvancedPoolEntry> pool = new List<AdvancedPoolEntry>();
+        }
+
+        internal static AdvancedPoolCache LoadAdvancedCache(int size)
+        {
+            string path = AdvancedCachePath(size);
+            if (!System.IO.File.Exists(path)) { return new AdvancedPoolCache(); }
+            AdvancedPoolCache cache = JsonUtility.FromJson<AdvancedPoolCache>(System.IO.File.ReadAllText(path));
+            if (cache == null || cache.size != size) { return new AdvancedPoolCache(); }
+            if (cache.pool == null) { cache.pool = new List<AdvancedPoolEntry>(); }
+            return cache;
+        }
+
+        // Written to a temp file and swapped in, as SaveDailyCache does, so a crash mid-write cannot
+        // leave a truncated checkpoint that loses hours of gathering.
+        internal static void SaveAdvancedCheckpoint(AdvancedPoolCache cache, int attempts, int generated,
+            int duplicates, int unsound, int notUnique, int decorative, double gatherSeconds)
+        {
+            cache.attempts = attempts;
+            cache.generated = generated;
+            cache.duplicates = duplicates;
+            cache.unsound = unsound;
+            cache.notUnique = notUnique;
+            cache.decorative = decorative;
+            cache.gatherSeconds = gatherSeconds;
+
+            System.IO.Directory.CreateDirectory(AdvancedCacheDir);
+            string path = AdvancedCachePath(cache.size);
+            string tmp = path + ".tmp";
+            System.IO.File.WriteAllText(tmp, JsonUtility.ToJson(cache));
+            if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+            System.IO.File.Move(tmp, path);
+        }
+
+        internal static void DeleteAdvancedCache(int size)
+        {
+            string path = AdvancedCachePath(size);
+            if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+        }
+
+        /// <summary>
+        /// Asks before honouring a Cancel on a long build's progress bar. The bar's Cancel button
+        /// holds keyboard focus, so Space, Enter or Esc pressed anywhere near the Editor -- waking a
+        /// blanked laptop screen, say -- cancels the run. That is exactly how an 8x8 build lost 3.5
+        /// hours. "Keep running" is the dialog's default button, so a second stray key resumes.
+        /// Clears the progress bar either way: Unity's cancel flag is sticky until the bar is
+        /// cleared, and would otherwise report Cancel again on the very next poll.
+        /// </summary>
+        private static bool ConfirmStop()
+        {
+            EditorUtility.ClearProgressBar();
+            bool keepRunning = EditorUtility.DisplayDialog(
+                "Stop the build?",
+                "A level build is running. A stray Space, Enter or Esc key press is enough to reach "
+                    + "this dialog, so the safe default is to keep going.\n\n"
+                    + "Stopping saves the gathered boards (Advanced packs), and running the same menu "
+                    + "item again resumes from them.",
+                "Keep running", "Stop");
+            return !keepRunning;
         }
 
         /// <summary>

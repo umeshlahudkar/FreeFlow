@@ -9787,7 +9787,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   classicPackSizes: 0500000006000000070000000800000009000000
-  advancedPackSizes: 0600000007000000
+  advancedPackSizes: 060000000700000008000000
   packLevelCount: 100
   currentPackSize: 6
   startingMode: 1

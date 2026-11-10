@@ -6,7 +6,7 @@ Status: **Living document — updated after every phase.** Originally a feasibil
 
 > **Coming back to this after a break? Read [§0 — How levels are generated](#0-how-levels-are-generated--start-here-when-picking-this-up-again) first.** It is the runbook: how to run generation, the two design regimes, how to verify a range, and how to add the next mechanic. Everything else is history and reasoning.
 
-> **Advanced 6x6 and 7x7 are both rebuilt and verified CLEAN — read [§6.44d](#644d-both-advanced-packs-rebuilt-verified-clean-and-two-more-bugs-each-fix-exposed) first; it supersedes §6.44c wherever they disagree.** Both ramps are now monotonic across all ten blocks (6x6 33.4→73.3, 7x7 32.2→82.2), nothing in L1-50 outranks L100, and `PackVerifier` confirms 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, every pair reconstructing a hint route, and no path under 3 cells. Getting there fixed three bugs each of which was invisible until the previous one cleared — most seriously, **every Advanced pack ever built had silently dropped its 8 hardest levels** to a schedule-sizing overflow. **Update 2026-11-09 -- read [§6.45](#645-advanced-8x8-made-viable-9x9-measured-and-a-flaw-in-the-necessity-check----read-this-first-for-8x89x9): Advanced 8x8 is now viable and ready to build** (from 2 to 23 kept boards per 12,000 probe attempts, same standard, 8x8-only code), **9x9 is possible but measured at ~3 days on one core**, and a flaw in the necessity check means **six shipped 7x7 levels (L8, L52, L71, L88, L96, L97) carry a rule cell or wall the board does not need**; 6x6 verifies fully clean. The 8x8 "not viable" verdict below is superseded. Two things stay open from §6.44d: 7x7's ForbiddenForPair run lands at 56..68 where the ramp wants 40, because that rule has no easier board to offer; and **neither pack has been played** — every real difficulty finding in this project came from play, never from a generator metric.
+> **Advanced 6x6 and 7x7 are both rebuilt and verified CLEAN — read [§6.44d](#644d-both-advanced-packs-rebuilt-verified-clean-and-two-more-bugs-each-fix-exposed) first; it supersedes §6.44c wherever they disagree.** Both ramps are now monotonic across all ten blocks (6x6 33.4→73.3, 7x7 32.2→82.2), nothing in L1-50 outranks L100, and `PackVerifier` confirms 100/100 uniquely solvable, 100/100 stored answers matching the solver cell-for-cell, every pair reconstructing a hint route, and no path under 3 cells. Getting there fixed three bugs each of which was invisible until the previous one cleared — most seriously, **every Advanced pack ever built had silently dropped its 8 hardest levels** to a schedule-sizing overflow. **Update 2026-11-09 -- read [§6.45](#645-advanced-8x8-made-viable-9x9-measured-and-a-flaw-in-the-necessity-check----read-this-first-for-8x89x9): Advanced 8x8 is now BUILT and verified CLEAN (2026-11-10)** -- 100 levels, monotonic ramp 32.9→84.0, every rule cell proven needed, 22.8 h to build (from 2 to 23 kept boards per 12,000 probe attempts after the fixes, same standard, 8x8-only code), **9x9 is possible but measured at ~3 days on one core**, and a flaw in the necessity check means **six shipped 7x7 levels (L8, L52, L71, L88, L96, L97) carry a rule cell or wall the board does not need**; 6x6 verifies fully clean. The 8x8 "not viable" verdict below is superseded. Two things stay open from §6.44d: 7x7's ForbiddenForPair run lands at 56..68 where the ramp wants 40, because that rule has no easier board to offer; and **neither pack has been played** — every real difficulty finding in this project came from play, never from a generator metric.
 
 ## Progress Log
 
@@ -2358,8 +2358,8 @@ each.
 
 ### 6.45 Advanced 8x8 made viable, 9x9 measured, and a flaw in the necessity check -- READ THIS FIRST for 8x8/9x9
 
-**Status (2026-11-09): the Advanced 8x8 pack is ready to build to the same standard as 6x6 and 7x7; the
-build itself has not been run.** §6.44c recorded 8x8 as "not viable" (3 kept boards from 18,000
+**Status (2026-11-10): the Advanced 8x8 pack is BUILT and verified CLEAN to the same standard as 6x6 and
+7x7 -- see "The 8x8 pack is BUILT" below.** §6.44c recorded 8x8 as "not viable" (3 kept boards from 18,000
 attempts). That was right about the code and wrong about the cause: the losses were redundant rule cells,
 an under-sized solver budget, and a flaw in how necessity is classified, not a property of 8x8. Code is in
 commit `8fc7a6b` ("Prepare the Advanced 8x8 pack to the 6x6/7x7 standard"). Every generator change is
@@ -2561,11 +2561,57 @@ roughly 2.5-3x: 8x8 ~6-8 h, 9x9 ~25 h. Not built yet; estimated 2-3 h of work pl
   breakdown, removal stats, kept by rule and by deficit); `ProbeStructural(size, wanted, seconds[,
   bridge, sharedGoal])`; menu `Advanced/PROBE 8x8 failure breakdown (7-10)`.
 
+##### The 8x8 pack is BUILT and verified CLEAN (2026-11-10)
+
+`Advanced/Build 8x8 pack (100)` wrote `Assets/FreeFlow/Resources/Levels/Advanced/8x8/Level_1..100`.
+
+| | |
+|---|---|
+| total time | 81,996 s (22.8 h): gather ~16.2 h, then Bridge/Shared Destination, then scoring ~6.5 h |
+| pool | **900 / 900** reached in ~605,000 attempts (cap 1,000,000); 1,374 generated, 0 duplicates, 326 unsound, 148 decorative |
+| well-formed after scoring | 528 / 900 |
+| schedule | warm-up Blocked x5; runs OneWay 33..43, Wall 38..45, Arrow 43..44, Checkpoint 43..46, ForbiddenForPair 55..63, AllowedForPairs 48..54; consolidation x23 (49..62); escalation x46 (62..92); 8 structural, every 11 |
+| ramp, by block of ten | 32.9 46.9 52.4 55.4 59.6 63.8 67.8 71.1 79.1 84.0 -- **monotonic** |
+| levels in L1-50 above L100 (87.8) | **0** |
+| colours / mean path | 6-10 / 7.74 cells (solver) |
+
+`VERIFY/Advanced 8x8 pack` -- **RESULT: CLEAN**: 100/100 uniquely solvable (8M steps), 100/100 stored
+answers matching, 100/100 hint routes (812 pairs), **86/86 rule levels with every rule cell proven
+needed**, 0 under the cell floor, 0 paths under 3 cells, 0 blocked cells on the outer ring.
+
+Pool mix ("kept by mechanic"): AllowedForPairs 272 (incl. two-colour 124), Checkpoint 145, BlockedOnly
+146, Arrow 135, OneWay 131, Wall 35, **ForbiddenForPair 36** -- scarce, as at 7x7, but enough for a full
+three-level run.
+
+**Same two soft spots as 7x7, both properties of the material, not defects:** the ForbiddenForPair run
+lands at 55..63 where the ramp wants ~45 (it is the hardest rule to find easy boards for), and the top of
+the pack is uniform -- L91-100 are all AllowedForPairs, the rule that produced the hardest boards. L87 = 90
+and L90 = 92 sit just above L100 as local spikes.
+
+**Scoring is now the dominant cost after gathering.** `ScheduleAndWriteAdvancedPack` runs the FULL
+DifficultyModel (with relaxation) on all 900 boards: ~24-28 s per 8x8 board against ~2.2 s at 7x7, so
+~6.5 h. Classic uses two-stage scoring (cheap stage on every board, full model on ~300 stratified
+finalists); giving Advanced the same would cut 8x8 scoring to ~2-2.5 h and matters more for 9x9.
+
+**Hardening added during the build** (after one stray key press cancelled the first attempt at 207 boards,
+3.5 h in):
+- **Gather checkpoint** in `Library/AdvancedPoolCache/{N}x{N}_pool.json` -- saved every 25 kept boards,
+  at the end of the gather, and on Cancel; resumes with a new seed round; ignored if the build settings
+  differ; deleted once the pack is written. Round-trip covered by `AdvancedPoolCacheTests`. With no
+  checkpoint present a build is unchanged (the restarted run reproduced the first one attempt-for-attempt).
+- **`ConfirmStop`**: Cancel on the gather, structural and scoring progress bars asks "Stop the build?" with
+  **Keep running** as the default. The bar's Cancel button holds keyboard focus, so Space, Enter or Esc --
+  e.g. pressed to wake a blanked laptop screen -- was enough to cancel.
+- A cancel now logs "CANCELLED ... checkpoint saved" instead of falling through to scoring and reporting a
+  misleading "0 well-formed boards".
+- `PackVerifier` shows a progress bar (level N / 100) and reports a cancelled verify as such; at 8x8 a
+  full verify takes several minutes with the Editor otherwise looking hung.
+
 ##### Still open
 
-- **Build Advanced 8x8**, then `VERIFY/Advanced 8x8 pack`, the per-level ramp, the per-rule counts and the
-  final pool size, then the game side: add 8 to `advancedPackSizes` in MainScene, a PackMetadata entry
-  (Advanced 7x7 is already the top tier, Expert), and a check that rule icons read at 8x8 cell size.
+- **Advanced 8x8 game side:** add 8 to `advancedPackSizes` in MainScene, a PackMetadata entry (Advanced
+  7x7 is already the top tier, Expert), and a check that rule icons read at 8x8 cell size. Then play it.
+- **Two-stage scoring for Advanced** (above) before any 9x9 build.
 - **Fix the six decorative cells in the shipped 7x7 pack** (L8, L52, L71, L88, L96, L97) -- patch or
   rebuild; done when `VERIFY/Advanced 7x7 pack` is CLEAN.
 - **Decide 9x9** from the real 8x8 build time: a ~3-day single-core run, a smaller pool, or the
