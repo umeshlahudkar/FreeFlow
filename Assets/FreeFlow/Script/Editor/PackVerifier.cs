@@ -74,7 +74,7 @@ namespace FreeFlow.GamePlay
             StringBuilder fails = new StringBuilder();
 
             int loaded = 0, unique = 0, storedMatch = 0, hintOk = 0;
-            int ruleLevels = 0, ruleNecessaryOk = 0, floorBad = 0;
+            int ruleLevels = 0, ruleNecessaryOk = 0, floorBad = 0, comboLevels = 0;
             int pairsAll = 0, pairsRouted = 0;
             int ringBad = 0, shortBad = 0, noStored = 0;
             int globalMinPath = int.MaxValue;
@@ -280,6 +280,15 @@ namespace FreeFlow.GamePlay
                     int wallEdges = 0;
                     bool allNecessary = true;
                     PuzzleSolver.SolverOptions necessity = NecessityBudgetFor(size);
+
+                    // A COMBINATION level carries two mechanics (two cell rules, a rule and walls, or
+                    // Bridge / Shared Destination with a rule or walls). By the user's decision those
+                    // are held to a looser bar than single-rule levels: each mechanic needed AS A WHOLE
+                    // -- strip every cell of it at once and the board must lose its unique answer --
+                    // instead of every individual cell. Everything else above still applies to them.
+                    bool isCombo = CountMechanics(data) >= 2;
+                    if (isCombo) { comboLevels++; }
+
                     for (int r = 0; r < rows; r++)
                     {
                         for (int c = 0; c < cols; c++)
@@ -293,7 +302,7 @@ namespace FreeFlow.GamePlay
                                 ruleCells.TryGetValue(cell.BlockType, out had);
                                 ruleCells[cell.BlockType] = had + 1;
 
-                                if (allNecessary && !ProvenRequired(RequiredMechanicValidator.CheckBlockTypeMechanicRequired(
+                                if (allNecessary && !isCombo && !ProvenRequired(RequiredMechanicValidator.CheckBlockTypeMechanicRequired(
                                         grid, rows, cols, r, c, necessity)))
                                 {
                                     allNecessary = false;
@@ -307,7 +316,7 @@ namespace FreeFlow.GamePlay
                             {
                                 if (!cell.HasWall(dirs[d])) { continue; }
                                 wallEdges++;
-                                if (allNecessary && !ProvenRequired(RequiredMechanicValidator.CheckWallRequired(
+                                if (allNecessary && !isCombo && !ProvenRequired(RequiredMechanicValidator.CheckWallRequired(
                                         grid, rows, cols, r, c, dirs[d], necessity)))
                                 {
                                     allNecessary = false;
@@ -315,6 +324,25 @@ namespace FreeFlow.GamePlay
                                          .Append(c).Append(") ");
                                 }
                             }
+                        }
+                    }
+
+                    // Combination levels: each mechanic as a whole. Shared Destination is how the pairs
+                    // are defined and cannot be stripped, so it is not tested -- its partner is.
+                    if (isCombo)
+                    {
+                        foreach (KeyValuePair<BlockType, int> kv in ruleCells)
+                        {
+                            if (allNecessary && !LevelGenerator.MechanicGroupProvenRequired(data, kv.Key, false))
+                            {
+                                allNecessary = false;
+                                fails.Append("L").Append(i).Append(":combo-notneeded(").Append(kv.Key).Append(") ");
+                            }
+                        }
+                        if (allNecessary && wallEdges > 0 && !LevelGenerator.MechanicGroupProvenRequired(data, BlockType.Normal, true))
+                        {
+                            allNecessary = false;
+                            fails.Append("L").Append(i).Append(":combo-wallsnotneeded ");
                         }
                     }
 
@@ -326,7 +354,9 @@ namespace FreeFlow.GamePlay
                         bool underFloor = wallEdges > 0 && wallEdges < 3;
                         foreach (KeyValuePair<BlockType, int> kv in ruleCells)
                         {
-                            if (kv.Value < 2) { underFloor = true; }
+                            // A bridge in a combination is the board's shape, one is enough.
+                            int floor = isCombo && kv.Key == BlockType.Bridge ? 1 : 2;
+                            if (kv.Value < floor) { underFloor = true; }
                         }
                         if (underFloor)
                         {
@@ -353,6 +383,8 @@ namespace FreeFlow.GamePlay
               .Append("   (pairs ").Append(pairsRouted).Append('/').Append(pairsAll).Append(')').AppendLine();
             sb.Append("  rule cells all needed   : ").Append(ruleNecessaryOk).Append(" / ").Append(ruleLevels)
               .Append(" levels with a rule").AppendLine();
+            sb.Append("  combination levels      : ").Append(comboLevels)
+              .Append("   (each mechanic needed as a whole, not cell by cell)").AppendLine();
             sb.Append("  under the cell floor    : ").Append(floorBad)
               .Append("   (2 cells of a rule, 3 wall edges)").AppendLine();
             sb.Append("  missing stored answer   : ").Append(noStored).AppendLine();
@@ -378,6 +410,38 @@ namespace FreeFlow.GamePlay
 
             if (clean) { Debug.Log(sb.ToString()); }
             else { Debug.LogError(sb.ToString()); }
+        }
+
+        /// <summary>
+        /// How many distinct mechanics a level carries: each cell rule counts once however many cells
+        /// it has, walls once, Bridge once, Shared Destination once. Blocked cells are not counted --
+        /// they are terrain, and a blocked-cell board with one rule is still a single-rule level.
+        /// </summary>
+        internal static int CountMechanics(LevelData data)
+        {
+            HashSet<BlockType> types = new HashSet<BlockType>();
+            bool walls = false, shared = false;
+            int size = (int)data.gridSize;
+
+            for (int r = 0; r < size && data.gridRows != null && r < data.gridRows.Length; r++)
+            {
+                GridRow row = data.gridRows[r];
+                for (int c = 0; c < size; c++)
+                {
+                    if (row.blockType != null && c < row.blockType.Length)
+                    {
+                        BlockType t = row.blockType[c];
+                        if (t != BlockType.Normal && t != BlockType.Blocked) { types.Add(t); }
+                    }
+                    if (row.wallMask != null && c < row.wallMask.Length && row.wallMask[c] != 0) { walls = true; }
+                    if (row.secondPairId != null && c < row.secondPairId.Length && row.coloum != null
+                        && row.coloum[c] != PairColorType.None && row.secondPairId[c] != 0)
+                    {
+                        shared = true;
+                    }
+                }
+            }
+            return types.Count + (walls ? 1 : 0) + (shared ? 1 : 0);
         }
 
         /// <summary>

@@ -1626,9 +1626,10 @@ namespace FreeFlow.GamePlay
         /// <summary>
         /// Whether a necessity result counts as "this cell is needed".
         ///
-        /// Below 8x8 this is exactly RequiredMechanicValidator's own verdict, which built the shipped
-        /// 6x6 and 7x7 packs. At 8x8 and above it additionally demands PROOF: without the cell the
-        /// board must be unsolvable, or a second solution must actually have been found.
+        /// At EVERY size this demands PROOF (since 2026-11-14; below 8x8 it used to be
+        /// RequiredMechanicValidator's own verdict, which built the shipped 6x6 and 7x7 packs --
+        /// see <see cref="LegacyNecessityBelow8"/>): without the cell the board must be unsolvable,
+        /// or a second solution must actually have been found.
         ///
         /// <b>Why.</b> The validator classifies "the solver ran out of steps after finding one
         /// solution" as Required, because that search is not exhausted and so the board is not
@@ -1641,7 +1642,7 @@ namespace FreeFlow.GamePlay
         private static bool IsProvenRequired(RequiredMechanicValidator.RequirementResult result, int rowCount)
         {
             if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
-            if (rowCount < PruneRedundantMechanicsFromSize) { return true; }
+            if (rowCount < PruneRedundantMechanicsFromSize && LegacyNecessityBelow8) { return true; }
 
             PuzzleSolver.SolveResult without = result.WithoutMechanic;
             return without.Status == PuzzleSolver.SolveStatus.Unsolvable || without.SolutionsFound >= 2;
@@ -1650,9 +1651,9 @@ namespace FreeFlow.GamePlay
         /// <summary>
         /// Solver budget for the necessity checks above.
         ///
-        /// Below 8x8 this is <c>default</c>, which RequiredMechanicValidator turns into the solver's
-        /// own 500,000 steps -- exactly what built the shipped 6x6 and 7x7 packs, so nothing changes
-        /// there. At 8x8 and above it is 2,000,000, the same budget Pinned and the builder use.
+        /// 2,000,000 at every size now, the same budget Pinned and the builder use. (Below 8x8 it
+        /// used to be <c>default</c>, the solver's own 500,000 steps, which built the shipped 6x6 and
+        /// 7x7 packs; <see cref="LegacyNecessityBelow8"/> restores that for comparison probes.)
         ///
         /// <b>Why 8x8 needs it.</b> The validator treats "the solver ran out of steps" as Inconclusive,
         /// and both callers above reject anything short of Required -- so a cell whose removal really
@@ -1705,10 +1706,20 @@ namespace FreeFlow.GamePlay
 
         private static PuzzleSolver.SolverOptions NecessityBudgetFor(int rowCount)
         {
-            return rowCount >= PruneRedundantMechanicsFromSize
+            return rowCount >= PruneRedundantMechanicsFromSize || !LegacyNecessityBelow8
                 ? new PuzzleSolver.SolverOptions(MechanicSolveBudgetFor(rowCount), 2)
                 : default;
         }
+
+        /// <summary>
+        /// The pre-2026-11-14 necessity check below 8x8: the validator's own verdict at the solver's
+        /// default 500,000 steps, which accepts "ran out of steps after one solution" as Required.
+        /// That is how six decorative cells shipped in the 7x7 pack (L8, L52, L71, L88, L96, L97) --
+        /// PackVerifier, which demands PROOF at 8,000,000 steps, flags them. Now off by default, so
+        /// every size demands proof (at 2,000,000 steps) exactly as 8x8 always has and the verifier
+        /// does. True only so a probe can compare yield against the old behaviour on the same seeds.
+        /// </summary>
+        internal static bool LegacyNecessityBelow8 = false;
 
         /// <summary>
         /// How many connect-the-pairs arrangements <see cref="EveryPairingCoversTheBoard"/> will
@@ -3144,6 +3155,13 @@ namespace FreeFlow.GamePlay
                     // exactly what §6.35 identified as the reason the early packs felt unchallenging.
                     if (shortestPath < StructuralGates.MinPathCells) { continue; }
 
+                    // And the hint must be able to draw it (see the same check in the gather loop).
+                    Block[,] hintGrid = BuildBlockGrid(withSolution, out int hintRows, out int hintCols);
+                    bool hintOk;
+                    try { hintOk = HintRoutesCoverAnswer(withSolution, hintGrid, hintRows, hintCols); }
+                    finally { DestroyBlockGrid(hintGrid); }
+                    if (!hintOk) { continue; }
+
                     found.Add((withSolution, kinds[k].Name));
                     made++;
                 }
@@ -3208,7 +3226,8 @@ namespace FreeFlow.GamePlay
             List<(LevelData Data, string Mechanic, int Instances, int Deficit)> survivors,
             List<(LevelData Data, string Mechanic)> structural,
             string levelsFolder, string label, int count, CpuThrottle throttle,
-            System.Diagnostics.Stopwatch total, ref bool cancelled, string gatherReport)
+            System.Diagnostics.Stopwatch total, ref bool cancelled, string gatherReport,
+            List<ComboCandidate> comboCandidates = null, int comboLevels = 0)
         {
             List<Entry> scored = new List<Entry>();
 
@@ -3296,155 +3315,47 @@ namespace FreeFlow.GamePlay
                 return false;
             }
 
-            // Slot budget. No dedicated teaching level: each run is practice only, drawn
-            // stratified from that rule's own difficulty range, so its FIRST level is the easiest
-            // board carrying the rule and introduces it anyway. An explicit teaching slot was
-            // tried and removed as redundant with that.
-            const int PracticePerRule = 3;
-
-            List<string> rules = new List<string>();
-            foreach (Entry e in scored)
+            // Structural levels (a single Bridge / Shared Destination board) and combination levels
+            // (two mechanics on one board) join the single-rule boards in PlanAdvancedOrder, a pure
+            // function so its rules can be tested without generating anything. It places structural
+            // levels at fixed even spacing as before, 36 of 100 as combinations from level 36 on in
+            // six bands of rising density, both rules taught first, with deliberate easy dips.
+            List<Entry> structuralEntries = new List<Entry>();
+            if (structural != null)
             {
-                if (e.Mechanic != "BlockedOnly" && !rules.Contains(e.Mechanic)) { rules.Add(e.Mechanic); }
-            }
-            rules.Sort((a, b) => MedianOf(scored, a).CompareTo(MedianOf(scored, b)));
-
-            // Structural levels are INSERTED after the ranked blocks are built, so those
-            // blocks have to leave room for them. Sizing against `count` overfills `ordered`
-            // by exactly structural.Count, and the write loop at the end takes only the
-            // first `count` -- silently dropping that many from the TAIL. That was invisible
-            // while the tail was arbitrary. Once the ramp actually ascends the tail IS the
-            // hardest levels: the first cleanly-ramped 6x6 rebuild selected escalation across
-            // 52..84 and shipped nothing above 70, having lost its top 8 without a word.
-            int structuralCount = structural != null ? structural.Count : 0;
-            int ranked = Mathf.Max(1, count - structuralCount);
-
-            int warmUp = Mathf.Min(ranked / 25 + 2, CountOf(scored, "BlockedOnly"));
-            int firstHalf = ranked / 2;
-
-            // Runs shrink rather than overflow when the pack is too short to hold three levels of
-            // every rule, but never below one: a rule the player never meets at all is worse than a
-            // rule they meet once. Without this the budget overflowed and the WRITE truncated the
-            // tail, silently dropping the escalation half of a small pack.
-            int practicePerRule = PracticePerRule;
-            while (practicePerRule > 1
-                && rules.Count * practicePerRule > firstHalf - warmUp)
-            {
-                practicePerRule--;
-            }
-
-            int teachBlock = rules.Count * practicePerRule;
-            int consolidation = Mathf.Max(0, firstHalf - warmUp - teachBlock);
-            int escalation = ranked - firstHalf;
-
-            HashSet<LevelData> used = new HashSet<LevelData>();
-            List<Entry> ordered = new List<Entry>();
-            StringBuilder plan = new StringBuilder();
-
-            // The pack's own difficulty envelope: every well-formed board's score, ascending.
-            // Blocks pick against THIS rather than against their own candidate pool's internal
-            // range. That distinction is the whole fix: Stratify spreads from the easiest to the
-            // hardest board IN THE LIST IT IS GIVEN, so a per-rule run whose easiest board is
-            // already hard (AllowedForPairs measured 57..87 at 7x7) planted that rule's HARDEST
-            // board in the first quarter of the pack -- above the escalation block's own floor,
-            // and above the finale. Measured on the shipped 7x7 pack: L13, L22 and L25 all scored
-            // 87 against L100's 83, with L54 at 36 (GAME_EXPANSION_PLAN §6.44b).
-            List<float> envelope = new List<float>(scored.Count);
-            for (int i = 0; i < scored.Count; i++) { envelope.Add(scored[i].Score); }
-            envelope.Sort();
-
-            // --- warm-up ------------------------------------------------------------------
-            List<Entry> blocked = Where(scored, "BlockedOnly", 0, 9, used);
-            foreach (Entry e in PickAlongRamp(blocked, warmUp, ordered.Count, ranked,
-                                              envelope, used))
-            {
-                ordered.Add(e); used.Add(e.Data);
-            }
-            plan.Append("  warm-up: Blocked x").Append(warmUp).AppendLine();
-
-            // --- one short run per rule ---------------------------------------------------
-            for (int r = 0; r < rules.Count; r++)
-            {
-                string rule = rules[r];
-
-                // Deficit 1-2 keeps the introduction gentle: at one colour down a board usually
-                // needs a single cell of the rule, which is the clearest form it takes.
-                List<Entry> practice = Where(scored, rule, 1, 2, used);
-                List<Entry> chosen = PickAlongRamp(practice,
-                    Mathf.Min(practicePerRule, practice.Count), ordered.Count, ranked,
-                    envelope, used);
-                foreach (Entry e in chosen) { ordered.Add(e); used.Add(e.Data); }
-
-                plan.Append("  run ").Append(r + 1).Append(": ").Append(rule)
-                    .Append("  x").Append(chosen.Count).Append(Range(chosen)).AppendLine();
-            }
-
-            // --- consolidation: every rule, interleaved, still gentle ----------------------
-            List<Entry> gentle = WhereAnyRule(scored, 1, 2, used);
-            // PickAlongRamp here too, for the reason measured on the first rebuild: Stratify
-            // spread this block across 27..84 while it occupies positions 25-54, so it ended
-            // at 84 immediately before escalation restarted at 43. Interleave then made it
-            // visible as a zigzag -- it takes the easiest remaining board whose rule differs,
-            // and when cheap and expensive rules alternate so do the scores. Interleave is
-            // kept: the zigzag is only harmful because the range was wide, and drawing
-            // against the pack ramp narrows it to what these positions should hold.
-            List<Entry> consolidated = Interleave(PickAlongRamp(gentle,
-                Mathf.Min(consolidation, gentle.Count), ordered.Count, ranked, envelope, used));
-            foreach (Entry e in consolidated) { ordered.Add(e); used.Add(e.Data); }
-            plan.Append("  consolidation: x").Append(consolidated.Count)
-                .Append(Range(consolidated)).AppendLine();
-
-            // --- escalation: deficit 2-3, so boards need several cells of their rule -------
-            List<Entry> hard = WhereAnyRule(scored, 2, 3, used);
-            List<Entry> escalated = Interleave(PickAlongRamp(hard,
-                Mathf.Min(escalation, hard.Count), ordered.Count, ranked, envelope, used));
-            foreach (Entry e in escalated) { ordered.Add(e); used.Add(e.Data); }
-            plan.Append("  escalation: x").Append(escalated.Count)
-                .Append(Range(escalated)).AppendLine();
-
-            // Any shortfall is topped up from whatever is left, easiest first, so the pack is
-            // always the requested length even when one bucket ran thin.
-            if (ordered.Count < ranked)
-            {
-                List<Entry> spare = WhereAnyRule(scored, 0, 9, used);
-                spare.Sort((x, y) => x.Score.CompareTo(y.Score));
-                for (int i = 0; i < spare.Count && ordered.Count < ranked; i++)
+                foreach ((LevelData Data, string Mechanic) s in structural)
                 {
-                    ordered.Add(spare[i]);
-                    used.Add(spare[i].Data);
+                    structuralEntries.Add(new Entry
+                    {
+                        Score = 0f,                     // unranked, and recorded as such
+                        Data = s.Data,
+                        Mechanic = s.Mechanic,
+                        Instances = 1,
+                        Deficit = 0,
+                        Unranked = true,
+                        IsStructural = true
+                    });
                 }
-                plan.Append("  topped up to ").Append(ordered.Count).AppendLine();
             }
 
-            if (ordered.Count < ranked)
+            List<Entry> comboEntries = comboCandidates != null && comboCandidates.Count > 0
+                ? ScoreCombinations(comboCandidates, throttle, total, label, ref cancelled)
+                : new List<Entry>();
+            if (cancelled)
             {
-                Debug.LogError("Pack " + label + ": schedule filled only " + ordered.Count
-                    + " of " + ranked + " ranked slots.\n" + gatherReport + "\n" + plan);
+                Debug.LogWarning("Pack " + label + ": scoring CANCELLED during the combination levels -- nothing "
+                    + "written. The single-rule pool is checkpointed; run the same menu item again to resume.");
                 return false;
             }
 
-            // Bridge and Shared Destination go in at authored positions. They carry no difficulty
-            // score, so they cannot take part in the ramp -- spacing them evenly is the honest
-            // placement: each is met early enough to be learned and seen again later, without
-            // pretending to a difficulty nobody measured.
-            if (structural != null && structural.Count > 0)
+            if (!PlanAdvancedOrder(scored, comboEntries, structuralEntries, count, comboLevels,
+                    out List<Entry> ordered, out string planText))
             {
-                int spacing = Mathf.Max(1, count / (structural.Count + 1));
-                for (int i = 0; i < structural.Count; i++)
-                {
-                    int slot = Mathf.Min(ordered.Count, (i + 1) * spacing);
-                    ordered.Insert(slot, new Entry
-                    {
-                        Score = 0f,                     // unranked, and recorded as such
-                        Data = structural[i].Data,
-                        Mechanic = structural[i].Mechanic,
-                        Instances = 1,
-                        Deficit = 0
-                    });
-                }
-                plan.Append("  unranked: ").Append(structural.Count)
-                    .Append(" structural levels, every ").Append(spacing).AppendLine();
+                Debug.LogError("Pack " + label + ": " + planText + "\n" + gatherReport);
+                return false;
             }
+            StringBuilder plan = new StringBuilder(planText);
+            plan.Append(DescribeLeftovers(scored, comboEntries, ordered));
 
             for (int i = 0; i < count; i++)
             {
@@ -3462,13 +3373,23 @@ namespace FreeFlow.GamePlay
             return true;
         }
 
-        private sealed class Entry
+        internal sealed class Entry
         {
             public float Score;
             public LevelData Data;
             public string Mechanic;
             public int Instances;
             public int Deficit;
+
+            // Combination levels (two mechanics on one board) and structural levels. Left at their
+            // defaults, an Entry is a single-rule board exactly as before.
+            public string RuleB;            // the second mechanic of a combination, else null
+            public string Family;           // FamilyRuleWall / TwoRules / Shared / Bridge; null for a single-rule board
+            public bool Unranked;           // no usable difficulty score (Bridge / Shared Destination boards)
+            public bool IsStructural;       // a single Bridge / Shared Destination teaching level, not a combination
+
+            /// <summary>"A + B" for a combination, the mechanic name otherwise.</summary>
+            public string Pairing { get { return RuleB == null ? Mechanic : Mechanic + " + " + RuleB; } }
         }
 
         private static List<Entry> Where(List<Entry> all, string mechanic,
@@ -4082,11 +4003,15 @@ namespace FreeFlow.GamePlay
         /// shipped packs were built. See <see cref="Advanced8x8DeficitShift"/>.
         /// </param>
         private static void BuildAdvancedPack(int size, int count, int shortlistPerLevel,
-            int poolTarget, int cellsPerColour, int deficitShift = 0)
+            int poolTarget, int cellsPerColour, int deficitShift = 0, int comboLevels = AdvancedComboLevels)
         {
             string levelsFolder = "Assets/FreeFlow/Resources/Levels/Advanced/" + size + "x" + size;
             int cells = size * size;
             int holes = Mathf.Max(2, cells / 12);
+
+            // The combination bands are laid out for a full pack (from level 36 of 100). The probes
+            // build 24-level packs, which have no room for them.
+            if (count < 60) { comboLevels = 0; }
 
             // Blocked cells appear in most recipes because they are the least intrusive rule -- they
             // constrain routing without anything to remember. The rest appear alone or alongside
@@ -4362,6 +4287,11 @@ namespace FreeFlow.GamePlay
                         }
                         if (!StructuralGates.Evaluate(solved, liveCells).Passed) { unsound++; continue; }
 
+                        // The hint has to work, and PackVerifier asks it of every shipped level. The
+                        // combination prototypes shipped three levels whose hint route could not be
+                        // rebuilt before this check existed; single-rule boards never showed it.
+                        if (!HintRoutesCoverAnswer(data, grid, rows, cols)) { unsound++; continue; }
+
                         // Every rule on the board has to be load-bearing, or the level is a plain
                         // board wearing a costume -- §6.31 measured 55% of three-mechanic boards
                         // that way.
@@ -4476,16 +4406,39 @@ namespace FreeFlow.GamePlay
                     return;
                 }
 
+                // Combination levels: two mechanics on one board, gathered after the single-rule pool
+                // and the structural boards so their canonical keys are all in `seen`. Not
+                // checkpointed -- minutes at 6x6/7x7 -- so an interrupted run redoes them but keeps the
+                // single-rule pool.
+                StringBuilder comboReport = new StringBuilder();
+                List<ComboCandidate> combos = GatherCombinations(size, cellsPerColour, comboLevels,
+                    seen, rng, throttle, total, ref cancelled, comboReport);
+
+                if (cancelled)
+                {
+                    Debug.LogWarning("Advanced " + size + "x" + size + ": CANCELLED while gathering combination "
+                        + "levels -- nothing written. The pool of " + survivors.Count
+                        + " is checkpointed; run the same menu item again to resume.");
+                    return;
+                }
+
                 bool written = ScheduleAndWriteAdvancedPack(survivors, structural, levelsFolder,
                     "Advanced " + size + "x" + size, count, throttle, total, ref cancelled,
                     "  generated " + generated + ", " + duplicates + " duplicates, "
                         + unsound + " unsound, " + notUnique + " not unique, "
                         + decorative + " decorative, " + survivors.Count + " kept\n"
-                        + "  kept by mechanic: " + DescribeRecipeMix(keptByRecipe));
+                        + "  kept by mechanic: " + DescribeRecipeMix(keptByRecipe) + "\n"
+                        + comboReport.ToString().TrimEnd(),
+                    combos, comboLevels);
 
                 // The checkpoint has done its job once the pack exists; left behind, it would make
                 // the next build of this size resume from the old pool instead of starting fresh.
-                if (written) { DeleteAdvancedCache(size); }
+                if (written)
+                {
+                    string archived = ArchiveAdvancedCache(size);
+                    if (archived != null) { Debug.Log("Advanced " + size + "x" + size + ": gathered pool archived to " + archived); }
+                    DeleteAdvancedCache(size);
+                }
             }
             finally { EditorUtility.ClearProgressBar(); }
         }
@@ -4734,6 +4687,12 @@ namespace FreeFlow.GamePlay
         private const int PruneRedundantMechanicsFromSize = 8;
 
         /// <summary>
+        /// Lets a probe turn redundant-cell removal on below 8x8 (the two-rule probe measures 6x6
+        /// and 7x7). False everywhere else, so pack builds at 6x6 and 7x7 are unaffected.
+        /// </summary>
+        internal static bool ProbePruneAllSizes = false;
+
+        /// <summary>
         /// Removes every mechanic cell (or walled edge) the board does not need, keeping it uniquely
         /// solvable with the intended answer, and returns how many remain.
         ///
@@ -4899,14 +4858,14 @@ namespace FreeFlow.GamePlay
                     // One rule was enough. For a combination recipe that is a failure, not a
                     // success: the second rule would be decorative, which is the thing this whole
                     // construction exists to prevent.
-                    if (recipe.SecondType != BlockType.Normal) { continue; }
+                    if (recipe.SecondType != BlockType.Normal || recipe.SecondIsWalls) { continue; }
                     if (diag != null)
                     {
                         diag.PinnedAt.TryGetValue(instances, out int seenAt);
                         diag.PinnedAt[instances] = seenAt + 1;
                     }
 
-                    if (size >= PruneRedundantMechanicsFromSize)
+                    if (size >= PruneRedundantMechanicsFromSize || ProbePruneAllSizes)
                     {
                         int kept = PruneRedundantMechanicCells(ref trial, candidate, paths, recipe.UsesWalls, rng, diag);
                         if (kept < recipe.MinInstances)
@@ -4946,7 +4905,26 @@ namespace FreeFlow.GamePlay
                     HashSet<(int Row, int Col)> alsoUsed = new HashSet<(int, int)>(used);
                     if (!LayMechanicOnPaths(ref combo, paths, secondStep, rng, alsoUsed)) { continue; }
 
-                    if (Pinned(combo, paths) == PinState.Unique) { data = combo; return true; }
+                    if (Pinned(combo, paths) != PinState.Unique) { continue; }
+
+                    // Two-rule boards get the same redundant-cell removal as one-rule boards when
+                    // it is on, and then must still carry the floor of BOTH rules: the usual way a
+                    // combination fails is that the second rule makes the first one redundant, and
+                    // removal exposes exactly that by stripping the first rule down below its floor.
+                    if (!recipe.SecondIsWalls
+                        && (size >= PruneRedundantMechanicsFromSize || ProbePruneAllSizes))
+                    {
+                        PruneRedundantMechanicCells(ref combo, candidate, paths, false, rng, diag);
+                        if (CountCellsOfType(combo, recipe.Type) < recipe.MinInstances
+                            || CountCellsOfType(combo, recipe.SecondType) < recipe.MinInstances)
+                        {
+                            if (diag != null) { diag.PrunedBelowFloor++; }
+                            return false;
+                        }
+                    }
+
+                    data = combo;
+                    return true;
                 }
             }
 
@@ -5554,6 +5532,399 @@ namespace FreeFlow.GamePlay
                 + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
                 + (cancelled ? " (CANCELLED)" : "") + ":\n" + report
                 + "  single-mechanic reference: ~40 kept per 288 generated at 6x6");
+        }
+
+        /// <summary>
+        /// How often a TWO-rule board meets the full Advanced standard, measured strictly -- the
+        /// re-measure asked for after the first play of the 6x6 and 7x7 packs ("each level has only
+        /// one mechanic").
+        ///
+        /// <see cref="ProbeTwoMechanicYield"/> predates three things this applies: redundant-cell
+        /// removal (here turned on at every size, for both rules), the two-cell floor for BOTH rules
+        /// (that probe let the second rule pin with one cell), and PROVEN necessity at 8,000,000 steps
+        /// for every cell of both rules (that probe counted "the solver ran out of steps" as needed,
+        /// which flatters the result). A board counts only if every cell of each rule is proven needed
+        /// and each rule keeps at least two cells.
+        /// </summary>
+        public static void ProbeTwoRuleCombos(int size, int cellsPerColour, int attemptsPer)
+        {
+            int cells = size * size;
+            (BlockType A, BlockType B)[] pairs =
+            {
+                (BlockType.OneWay, BlockType.Checkpoint),
+                (BlockType.Arrow, BlockType.ForbiddenForPair),
+                (BlockType.Checkpoint, BlockType.ForbiddenForPair),
+                (BlockType.OneWay, BlockType.Arrow),
+                (BlockType.AllowedForPairs, BlockType.Checkpoint),
+                (BlockType.Arrow, BlockType.Checkpoint),
+            };
+
+            bool[,] usable = new bool[size, size];
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++) { usable[r, c] = true; }
+            }
+
+            StringBuilder report = new StringBuilder();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            bool cancelled = false;
+            bool pruneBefore = ProbePruneAllSizes;
+            ProbePruneAllSizes = true;
+
+            try
+            {
+                for (int i = 0; i < pairs.Length && !cancelled; i++)
+                {
+                    System.Random rng = new System.Random(31337 + 101 * size + i);
+                    int built = 0, strict = 0, notProven = 0, underFloor = 0;
+                    BuildDiagnostics diag = new BuildDiagnostics();
+                    Dictionary<string, int> shapes = new Dictionary<string, int>();
+                    System.Diagnostics.Stopwatch pairClock = System.Diagnostics.Stopwatch.StartNew();
+
+                    for (int a = 0; a < attemptsPer; a++)
+                    {
+                        if ((a % 8) == 0 && EditorUtility.DisplayCancelableProgressBar(
+                                "Two-rule combinations " + size + "x" + size,
+                                pairs[i].A + " + " + pairs[i].B + "  -  " + a + "/" + attemptsPer
+                                    + "  -  " + strict + " meet the standard"
+                                    + "  -  " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s",
+                                (i + a / (float)attemptsPer) / pairs.Length))
+                        { cancelled = true; break; }
+
+                        // Deficit cycles 1-3 like a pack build; up to the size's instance ceiling of
+                        // each rule; first rule's climb starts at two cells, the pack floor.
+                        MechanicRecipe recipe = new MechanicRecipe(pairs[i].A, pairs[i].B,
+                            InstanceCeilingFor(size), 1 + (a % 3));
+                        recipe.MinInstances = 2;
+                        int colours = Mathf.Max(3, cells / cellsPerColour) + (a % ColourSweepWidth);
+                        if (colours > MaxDistinctColors) { continue; }
+
+                        if (!TryBuildMechanicDependentBoard(size, usable, cells, colours,
+                                recipe, rng, out LevelData data, diag))
+                        {
+                            continue;
+                        }
+                        built++;
+
+                        int countA = CountCellsOfType(data, pairs[i].A);
+                        int countB = CountCellsOfType(data, pairs[i].B);
+                        if (countA < 2 || countB < 2) { underFloor++; continue; }
+
+                        Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+                        try
+                        {
+                            if (AllCellsOfTypeProvenRequired(grid, rows, cols, pairs[i].A)
+                                && AllCellsOfTypeProvenRequired(grid, rows, cols, pairs[i].B))
+                            {
+                                strict++;
+                                string shape = countA + "+" + countB;
+                                shapes[shape] = shapes.ContainsKey(shape) ? shapes[shape] + 1 : 1;
+                            }
+                            else { notProven++; }
+                        }
+                        finally { DestroyBlockGrid(grid); }
+                    }
+
+                    StringBuilder line = new StringBuilder();
+                    line.Append("  ").Append(pairs[i].A).Append(" + ").Append(pairs[i].B)
+                        .Append(": ").Append(strict).Append(" meet the standard / ").Append(attemptsPer)
+                        .Append(" attempts  (built ").Append(built)
+                        .Append(", removal left a rule under 2 cells ").Append(diag.PrunedBelowFloor)
+                        .Append(", under floor ").Append(underFloor)
+                        .Append(", a cell not proven needed ").Append(notProven)
+                        .Append(", first rule alone pinned or climb failed ")
+                        .Append(diag.ClimbExhaustedAmbiguous + diag.ClimbExhaustedBroken)
+                        .Append(", ").Append((pairClock.ElapsedMilliseconds / 1000f).ToString("0")).Append("s)");
+                    if (shapes.Count > 0)
+                    {
+                        line.Append("  shapes:");
+                        List<string> keys = new List<string>(shapes.Keys);
+                        keys.Sort();
+                        for (int k = 0; k < keys.Count; k++)
+                        {
+                            line.Append(' ').Append(keys[k]).Append('x').Append(shapes[keys[k]]);
+                        }
+                    }
+                    Debug.Log("Two-rule combos " + size + "x" + size + line);
+                    report.AppendLine(line.ToString());
+                }
+            }
+            finally
+            {
+                ProbePruneAllSizes = pruneBefore;
+                EditorUtility.ClearProgressBar();
+            }
+
+            total.Stop();
+            Debug.Log("Two-rule combination probe " + size + "x" + size + ", " + attemptsPer
+                + " attempts per pair, " + (total.ElapsedMilliseconds / 1000f).ToString("0") + "s"
+                + (cancelled ? " (CANCELLED)" : "") + ":\n" + report);
+        }
+
+        /// <summary>
+        /// One kind of combination board <see cref="GatherCombinations"/> tries: two cell rules, a
+        /// cell rule plus walls, or Bridge / Shared Destination with a rule or walls.
+        /// </summary>
+        internal struct ComboKind
+        {
+            public BlockType A;
+            public BlockType B;      // unused when BIsWalls
+            public bool BIsWalls;
+
+            // 0 = none; 1 = Bridge, 2 = Shared Destination. These change the partition's SHAPE, so
+            // they are built by the spec pipeline (TryGenerateLevel) with B (or walls) laid on top,
+            // and A is unused.
+            public int Structural;
+
+            public string Name
+            {
+                get
+                {
+                    string first = Structural == 1 ? "Bridge" : Structural == 2 ? "SharedGoal" : A.ToString();
+                    return first + " + " + (BIsWalls ? "Wall" : B.ToString());
+                }
+            }
+        }
+
+        /// <summary>
+        /// A Bridge or Shared Destination board with one overlay rule (or walls) on top, through the
+        /// spec pipeline that already builds those structures. Necessity is NOT asked of the spec --
+        /// the combination gather checks each mechanic as a whole itself -- but uniqueness is
+        /// verified here, as GatherStructuralMechanics does: the spec reports it, it does not promise
+        /// it. The spec pipeline never fills solutionPairId, so it is filled from the solver.
+        /// </summary>
+        private static bool TryBuildStructuralCombo(int size, ComboKind kind, System.Random rng, out LevelData data)
+        {
+            data = default;
+            GenerationSpec spec = SpecForStructural(size, kind.Structural == 1 ? 2 : 0, kind.Structural == 2 ? 2 : 0);
+            if (kind.BIsWalls) { spec.WallCount = 4; }
+            else
+            {
+                switch (kind.B)
+                {
+                    case BlockType.OneWay: spec.OneWayCount = 2; break;
+                    case BlockType.Arrow: spec.ArrowCount = 2; break;
+                    case BlockType.Checkpoint: spec.CheckpointCount = 2; break;
+                    case BlockType.ForbiddenForPair: spec.ForbiddenCount = 2; break;
+                    case BlockType.AllowedForPairs: spec.PermittedCount = 2; break;
+                    default: return false;
+                }
+            }
+            spec.RequireMechanicsNecessary = false;
+            spec.MaxAttempts = 30;
+
+            GeneratedLevel built = TryGenerateLevel(spec, rng, new HashSet<string>());
+            if (built == null || built.SolutionsFound != 1 || !built.SearchExhausted) { return false; }
+
+            LevelData filled = built.Data;
+            if (!FillStoredSolution(ref filled, out int shortest) || shortest < StructuralGates.MinPathCells) { return false; }
+            data = filled;
+            return true;
+        }
+
+        /// <summary>Dots that are also a second pair's dot -- a Shared Destination cell.</summary>
+        private static int CountSharedGoals(LevelData data)
+        {
+            int size = (int)data.gridSize, found = 0;
+            for (int r = 0; r < size; r++)
+            {
+                GridRow row = data.gridRows[r];
+                if (row.secondPairId == null) { continue; }
+                for (int c = 0; c < size; c++)
+                {
+                    if (row.coloum[c] != PairColorType.None && row.secondPairId[c] != 0) { found++; }
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Whether the hint system can draw the level: the stored answer reads back, every pair's
+        /// route rebuilds, and together the routes cover every cell of the answer. The same test
+        /// PackVerifier applies (its hint-route block), so a level that passes here passes there.
+        /// </summary>
+        private static bool HintRoutesCoverAnswer(LevelData data, Block[,] grid, int rows, int cols)
+        {
+            int[,] sol = HintPath.ReadSolution(data);
+            if (sol == null) { return false; }
+
+            HashSet<int> ids = new HashSet<int>();
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+                    if (sol[r, c] != 0) { ids.Add(sol[r, c]); }
+                }
+            }
+
+            bool[,] covered = new bool[rows, cols];
+            foreach (int id in ids)
+            {
+                List<Block> route = HintPath.Build(grid, rows, cols, sol, id);
+                if (route == null || route.Count == 0) { return false; }
+                for (int k = 0; k < route.Count; k++)
+                {
+                    Block b = route[k];
+                    if (b != null) { covered[b.Row_ID, b.Coloum_ID] = true; }
+                }
+            }
+
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+                    if (sol[r, c] != 0 && !covered[r, c]) { return false; }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Every cell of <paramref name="type"/> -- or every wall, when <paramref name="walls"/> --
+        /// stripped AT ONCE from the level data: the board must then be unsolvable, or a second
+        /// solution must actually be found (8M steps). The mechanic as a whole cannot be ignored.
+        /// </summary>
+        internal static bool MechanicGroupProvenRequired(LevelData data, BlockType type, bool walls)
+        {
+            LevelData stripped = CloneLevelData(data);
+            int size = (int)stripped.gridSize;
+            for (int r = 0; r < size; r++)
+            {
+                GridRow row = stripped.gridRows[r];
+                for (int c = 0; c < size; c++)
+                {
+                    if (walls) { row.wallMask[c] = 0; continue; }
+                    if (row.blockType[c] != type) { continue; }
+                    row.blockType[c] = BlockType.Normal;
+                    row.pairId[c] = 0;
+                    row.secondPairId[c] = 0;
+                    row.requiredEntryDirection[c] = Direction.None;
+                    row.forcedExitDirection[c] = Direction.None;
+                }
+            }
+
+            Block[,] grid = BuildBlockGrid(stripped, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(8000000, 2));
+                return result.Status == PuzzleSolver.SolveStatus.Unsolvable || result.SolutionsFound >= 2;
+            }
+            finally { DestroyBlockGrid(grid); }
+        }
+
+        /// <summary>
+        /// Removes redundant cells of either rule, trying the MORE numerous rule first and never
+        /// taking a rule below two cells (§6.46 lever 1). A removal is kept only if the board stays
+        /// uniquely solved with its stored answer. Cells are stripped to their plain values -- rule
+        /// cells are never dots, so plain means Normal with no pair or direction.
+        /// </summary>
+        private static void PruneComboFloorProtected(ref LevelData data, BlockType a, BlockType b, System.Random rng)
+        {
+            int size = (int)data.gridSize;
+            List<(int Row, int Col)> cellsA = new List<(int, int)>(), cellsB = new List<(int, int)>();
+            for (int r = 0; r < size; r++)
+            {
+                for (int c = 0; c < size; c++)
+                {
+                    BlockType t = data.gridRows[r].blockType[c];
+                    if (t == a) { cellsA.Add((r, c)); } else if (t == b) { cellsB.Add((r, c)); }
+                }
+            }
+            Shuffle(cellsA, rng);
+            Shuffle(cellsB, rng);
+
+            bool progressed = true;
+            while (progressed)
+            {
+                progressed = false;
+                // Majority first: the rule with more cells is the one most likely to be covering
+                // for the other, so it is the one to thin.
+                List<(int Row, int Col)> first = cellsA.Count >= cellsB.Count ? cellsA : cellsB;
+                List<(int Row, int Col)> second = first == cellsA ? cellsB : cellsA;
+                foreach (List<(int Row, int Col)> group in new[] { first, second })
+                {
+                    for (int i = 0; i < group.Count && group.Count > 2; i++)
+                    {
+                        LevelData trial = CloneLevelData(data);
+                        (int r, int c) = group[i];
+                        trial.gridRows[r].blockType[c] = BlockType.Normal;
+                        trial.gridRows[r].pairId[c] = 0;
+                        trial.gridRows[r].secondPairId[c] = 0;
+                        trial.gridRows[r].requiredEntryDirection[c] = Direction.None;
+                        trial.gridRows[r].forcedExitDirection[c] = Direction.None;
+
+                        if (IsUniqueWithStoredAnswer(trial))
+                        {
+                            data = trial;
+                            group.RemoveAt(i);
+                            progressed = true;
+                            break;
+                        }
+                    }
+                    if (progressed) { break; }
+                }
+            }
+        }
+
+        private static void Shuffle<T>(List<T> list, System.Random rng)
+        {
+            for (int i = list.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (list[i], list[j]) = (list[j], list[i]);
+            }
+        }
+
+        private static bool IsUniqueWithStoredAnswer(LevelData data)
+        {
+            Block[,] grid = BuildBlockGrid(data, out int rows, out int cols);
+            try
+            {
+                PuzzleSolver.SolveResult result = PuzzleSolver.Solve(grid, rows, cols,
+                    new PuzzleSolver.SolverOptions(2000000, 2));
+                return result.Status == PuzzleSolver.SolveStatus.Solved && result.SolutionsFound == 1
+                    && result.SearchExhausted && StoredSolutionMatchesSolver(data, result, rows, cols);
+            }
+            finally { DestroyBlockGrid(grid); }
+        }
+
+        /// <summary>Every cell of <paramref name="type"/> stripped AT ONCE: the board must then be
+        /// unsolvable or have a second solution actually found (8M steps) -- the rule as a whole
+        /// cannot be ignored.</summary>
+        private static bool RuleGroupProvenRequired(Block[,] grid, int rows, int cols, BlockType type)
+        {
+            RequiredMechanicValidator.RequirementResult result = RequiredMechanicValidator.CheckBlockTypesRequiredTogether(
+                grid, rows, cols, new List<BlockType> { type }, new PuzzleSolver.SolverOptions(8000000, 2));
+            if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+            return result.WithoutMechanic.Status == PuzzleSolver.SolveStatus.Unsolvable
+                || result.WithoutMechanic.SolutionsFound >= 2;
+        }
+
+        /// <summary>
+        /// Every cell of <paramref name="type"/> PROVEN needed at 8,000,000 steps: without it the
+        /// board is unsolvable or a second solution was actually found. The probe-side twin of
+        /// PackVerifier.ProvenRequired, independent of board size.
+        /// </summary>
+        private static bool AllCellsOfTypeProvenRequired(Block[,] grid, int rowCount, int colCount, BlockType type)
+        {
+            PuzzleSolver.SolverOptions budget = new PuzzleSolver.SolverOptions(8000000, 2);
+            for (int r = 0; r < rowCount; r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    if (grid[r, c].BlockType != type) { continue; }
+                    RequiredMechanicValidator.RequirementResult result =
+                        RequiredMechanicValidator.CheckBlockTypeMechanicRequired(grid, rowCount, colCount, r, c, budget);
+                    if (result.Status != RequiredMechanicValidator.RequirementStatus.Required) { return false; }
+                    if (result.WithoutMechanic.Status != PuzzleSolver.SolveStatus.Unsolvable
+                        && result.WithoutMechanic.SolutionsFound < 2)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         [MenuItem("FreeFlow/Level Generator/Advanced/PROBE Advanced yield")]
